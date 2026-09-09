@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# claude-master — dispatcher. Un eseguibile, un sottocomando per script.
+#
+# Trova la propria radice dal proprio percorso (non dallo shim: lo shim la
+# risolve e poi esegue QUESTO file, quindi qui si sa gia' dove si sta).
+# I sottocomandi non ancora portati escono con 64 e dicono in quale fase del
+# piano arrivano e cosa usare oggi: meglio un no chiaro che un comando a meta'.
+set -u
+CM_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+export CM_ROOT
+S="$CM_ROOT/scripts"
+
+cmd="${1:-help}"
+[ $# -gt 0 ] && shift
+
+unported() {  # <cmd> <fase> <equivalente legacy>
+  python3 "$S/cm-config.py" --msg cli.unported "cmd=$1" "phase=$2" "legacy=$3" >&2
+  exit 64
+}
+
+case "$cmd" in
+  init)     exec python3 "$S/cm-config.py" init "$@" ;;
+  doctor)   exec python3 "$S/cm-config.py" doctor "$@" ;;
+  config)   # config [--sh|--get KEY|--path|--dump-defaults]
+            [ $# -gt 0 ] || set -- --path
+            exec python3 "$S/cm-config.py" "$@" ;;
+  root)     printf '%s\n' "$CM_ROOT" ;;
+  version|--version|-v)
+            sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$CM_ROOT/.claude-plugin/plugin.json" ;;
+  help|--help|-h)
+            python3 "$S/cm-config.py" --msg cli.usage ;;
+  launch|lancia)          exec "$S/cm-launch.sh" "$@" ;;
+  close|chiudi)           exec "$S/cm-close.sh" "$@" ;;
+  registry|registro)      exec "$S/cm-registry.sh" "$@" ;;
+  sessions|sessioni)      exec python3 "$S/cm-sessions.py" "$@" ;;
+  color|colore)           exec "$S/cm-color.sh" "$@" ;;
+  attach|attacca)         exec "$S/cm-attach.sh" "$@" ;;
+  quota|quote)            exec python3 "$S/cm-quota.py" "$@" ;;
+  talk|parla-con)         exec python3 "$S/cm-talk.py" talk "$@" ;;
+  wait|aspetta)           exec python3 "$S/cm-talk.py" wait "$@" ;;
+  report|segnala)         exec "$S/cm-report.sh" "$@" ;;
+  restart|riavvia)        exec "$S/cm-restart.sh" "$@" ;;
+  queue|coda)             exec python3 "$S/cm-queue.py" "$@" ;;
+  next|prossima)          exec python3 "$S/cm-next.py" "$@" ;;
+  park|parcheggia)        exec python3 "$S/cm-park.py" park "$@" ;;
+  unpark|riprendi)        exec python3 "$S/cm-park.py" unpark "$@" ;;
+  cloud|nuvola)           CM_SUBCOMMAND=cloud exec "$S/cm-cloud.sh" "$@" ;;
+  follow|segui)           CM_SUBCOMMAND=follow exec "$S/cm-cloud.sh" "$@" ;;
+  desk|sportello)         CM_SUBCOMMAND=desk exec "$S/cm-cloud.sh" "$@" ;;
+  restore|ripristina)     exec "$S/cm-restore.sh" "$@" ;;
+  tile|affianca|riaffianca) exec python3 "$S/cm-tile.py" tile "$@" ;;
+  merge|unisci)           exec python3 "$S/cm-tile.py" merge "$@" ;;
+  move|sposta)            exec python3 "$S/cm-tile.py" move "$@" ;;
+  layout)                 exec python3 "$S/cm-tile.py" layout "$@" ;;
+  *)
+    python3 "$S/cm-config.py" --msg cli.unknown "cmd=$cmd" >&2
+    python3 "$S/cm-config.py" --msg cli.usage >&2
+    exit 2 ;;
+esac

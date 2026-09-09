@@ -1,0 +1,189 @@
+{
+  "language": "en",
+  "plugin_root": "",
+  "state_dir": "~/.local/state/claude-master",
+  "workspace": {
+    "root": "~",
+    "root_session_name": "master",
+    "excluded_dirs": [
+      ".git",
+      "node_modules"
+    ],
+    "project_dirs": [
+      "."
+    ]
+  },
+  "accounts": {
+    "default": {
+      "config_dir": "~/.claude",
+      "tmux_prefix": "",
+      "shape": "circle",
+      "shell_command": "claude",
+      "label": "default"
+    }
+  },
+  "default_account": "default",
+  "accounts_warn_on_mismatch": true,
+  "folder_map": [],
+  "session": {
+    "claude_args": [],
+    "remote_control": true,
+    "name_sanitize_chars": ".:",
+    "startup_timeout_s": 90,
+    "dialog_patterns": [
+      "trust (this|the) folder",
+      "Is this a project you",
+      "Bypass Permissions mode"
+    ],
+    "env": {},
+    "window_by_default": true,
+    "bg_remote_control": false,
+    "death_check_s": 3
+  },
+  "terminal": {
+    "backend": "auto",
+    "garcon": "/opt/google/cros-containers/bin/garcon",
+    "attach_wait_s": 25,
+    "attach_retry_wait_s": 20,
+    "ephemeral": true,
+    "headless_skip": true
+  },
+  "tabs": {
+    "title": true,
+    "strip_prefix": true,
+    "colors": {
+      "circle": [
+        "🔴",
+        "🟠",
+        "🟡",
+        "🟢",
+        "🔵",
+        "🟣",
+        "⚪"
+      ],
+      "square": [
+        "🟥",
+        "🟧",
+        "🟨",
+        "🟩",
+        "🟦",
+        "🟪",
+        "⬜"
+      ]
+    },
+    "color_registry": "~/.local/state/claude-master/colors"
+  },
+  "tile": {
+    "chrome_bridge_cli": "",
+    "terminal_url": "chrome-untrusted://terminal/",
+    "min_column_px": 340,
+    "padding": 0,
+    "monitor_names": {
+      "native": "native",
+      "left": "left",
+      "right": "right",
+      "above": "above",
+      "below": "below",
+      "external": "external",
+      "center": "center"
+    },
+    "monitor_registry": "~/.local/state/claude-master/monitors.json",
+    "placeholder_file": "~/.local/state/claude-master/next-session",
+    "placeholder_ttl_s": 120,
+    "new_client_wait_s": 60,
+    "window_open_wait_s": 20,
+    "log": "~/.local/state/claude-master/tile.log"
+  },
+  "profiles": {},
+  "registry": {
+    "file": "~/.local/state/claude-master/sessions.json",
+    "cron_minutes": 5
+  },
+  "restore": {
+    "uptime_max_min": 15,
+    "confirm_timeout_s": 15,
+    "last": "master"
+  },
+  "restart": {
+    "flag_file": "~/.local/state/claude-master/restart.json",
+    "log": "~/.local/state/claude-master/restart.log",
+    "exit_wait_s": 20,
+    "term_wait_s": 10
+  },
+  "talk": {
+    "quiet_s": 6,
+    "max_wait_s": 240,
+    "warn_native_channel": true,
+    "from_name": "claude-master",
+    "from_mode": "bypass"
+  },
+  "report": {
+    "subdir": "docs/reports",
+    "image_exts": [
+      "png",
+      "jpg",
+      "jpeg",
+      "webp",
+      "gif"
+    ]
+  },
+  "sessions": {
+    "stall_min": 20,
+    "recent_min": 5
+  },
+  "quota": {
+    "source": "~/.claude/fable-director",
+    "warn_pct": 85
+  },
+  "desk": {
+    "name": "sportello",
+    "capacity": 4,
+    "permission_mode": "acceptEdits"
+  },
+  "hooks": {
+    "local_time": {
+      "enabled": true,
+      "format": "%A %Y-%m-%d %H:%M",
+      "prefix": "[local time]"
+    },
+    "restart_stop": {
+      "enabled": true
+    },
+    "session_kernel": {
+      "enabled": true
+    }
+  },
+  "shell": {
+    "wrappers": {
+      "claude": "default"
+    },
+    "aliases": {},
+    "passthrough_args": [
+      "--version",
+      "-v",
+      "--help",
+      "-h",
+      "-p",
+      "--print",
+      "mcp",
+      "update",
+      "doctor",
+      "install",
+      "agents",
+      "attach",
+      "logs",
+      "stop",
+      "plugin"
+    ],
+    "restore_prompt": true,
+    "disable_terminal_title": true
+  },
+  "tmux": {
+    "keybindings": {
+      "tile": "a",
+      "merge": "u",
+      "move_arrows": true
+    },
+    "socket": ""
+  }
+}

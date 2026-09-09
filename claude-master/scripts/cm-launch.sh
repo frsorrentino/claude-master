@@ -1,0 +1,273 @@
+#!/usr/bin/env bash
+# claude-master launch — avvia una sessione Claude in una cartella, dentro tmux, staccata dal terminale.
+#
+# Uso: claude-master launch <percorso assoluto> [--create] [--continue|--resume <id>]
+#        [--account <nome>|--<nome-account>] [--no-window] [--bg] [--profile <nome>]
+#        [--model M] [--effort E]
+#   --create        crea la cartella se non esiste (mkdir -p)          (it: --crea)
+#   --continue      riprende l'ultima conversazione della cartella      (it: --continua)
+#   --resume <id>   riprende UNA conversazione precisa                  (it: --riprendi)
+#   --account N     forza l'account (scorciatoie: --personale, --professionale, ...)
+#   --no-window     non aprire la finestra sul desktop                  (it: --senza-finestra)
+#   --bg            sessione in BACKGROUND (claude --bg): niente tmux, finestra, colore
+#   --profile N     profilo di lancio da config `profiles.<N>` (N8): argomenti, modello, effort, env
+#
+# Senza flag l'account si DEDUCE dal percorso (`folder_map`): e' un default con
+# avviso, mai un divieto (T49) — il caso legittimo esiste (due sessioni sulla
+# stessa cartella, una per account). tmux fornisce il TTY che manca quando il
+# comando arriva da un assistente; Remote Control si attiva da solo se
+# remoteControlAtStartup e' true nelle impostazioni utente.
+#
+# --continue e --resume non sono intercambiabili: -c prende sempre la conversazione
+# PIU' RECENTE della cartella, quindi su due sessioni aperte sulla stessa cartella
+# lanciarlo due volte le fa atterrare entrambe sulla stessa conversazione (T10,
+# 2026-08-24). Un id sbagliato non da' errore: Claude apre una conversazione
+# VUOTA che somiglia a una ripresa riuscita — si verifica prima.
+#
+# Lo script e' volutamente severo: solo percorsi assoluti, nessuna euristica sui
+# nomi. La tolleranza sui percorsi parziali sta nella skill.
+set -u
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/cm-lib.sh"
+
+CARTELLA="${1:-}"
+CREA=no; CONTINUA=no; RIPRENDI=""; ACCOUNT=""; FINESTRA="$CM_SESSION_WINDOW_BY_DEFAULT"; BG=no
+PROFILO=""; MODEL=""; EFFORT=""; TELEPORT=""
+shift || true
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --create|--crea) CREA=si ;;
+    --continue|--continua) CONTINUA=si ;;
+    --resume|--riprendi) shift; RIPRENDI="${1:-}"; [ -n "$RIPRENDI" ] || { cm_msg launch.resume_needs_id >&2; exit 2; } ;;
+    --account) shift; ACCOUNT="${1:-}" ;;
+    --teleport) shift; TELEPORT="${1:-}" ;;   # N4: una sessione cloud portata in tmux con finestra e colore
+    --no-window|--senza-finestra) FINESTRA=false ;;
+    --window|--finestra) FINESTRA=true ;;
+    --bg|--background) BG=si ;;
+    --profile|--profilo) shift; PROFILO="${1:-}" ;;
+    --model) shift; MODEL="${1:-}" ;;
+    --effort) shift; EFFORT="${1:-}" ;;
+    --aziendale)  # nome storico: vale il secondo account, con avviso
+      ACCOUNT=$(for a in $CM_ACCOUNTS_KEYS; do [ "$a" != "$CM_DEFAULT_ACCOUNT" ] && { echo "$a"; break; }; done)
+      cm_msg launch.legacy_flag "flag=--aziendale" "account=$ACCOUNT" >&2 ;;
+    --*)
+      cand="${1#--}"; found=no
+      for a in $CM_ACCOUNTS_KEYS; do [ "$a" = "$cand" ] && { ACCOUNT="$a"; found=si; }; done
+      [ "$found" = si ] || { cm_msg launch.unknown_option "opt=$1" >&2; exit 2; } ;;
+    *) cm_msg launch.unknown_option "opt=$1" >&2; exit 2 ;;
+  esac
+  shift
+done
+
+if [ "$CONTINUA" = si ] && [ -n "$RIPRENDI" ]; then cm_msg launch.continue_xor_resume >&2; exit 2; fi
+[ -n "$CARTELLA" ] || { cm_msg launch.usage >&2; exit 2; }
+case "$CARTELLA" in /*) ;; *) cm_msg launch.not_absolute "path=$CARTELLA" >&2; exit 2 ;; esac
+
+# --- account: forzato, altrimenti dedotto da folder_map (prefisso piu' lungo) ------
+deduci_account() {
+  local best="" bestlen=0 p a
+  while IFS=$'\t' read -r p a; do
+    [ -n "$p" ] || continue
+    case "$1/" in "$p"/*) [ "${#p}" -gt "$bestlen" ] && { best="$a"; bestlen="${#p}"; } ;; esac
+  done <<<"$CM_FOLDER_MAP"
+  printf '%s' "$best"
+}
+DEDOTTO=$(deduci_account "$CARTELLA")
+DEDUZIONE=""
+if [ -z "$ACCOUNT" ]; then
+  ACCOUNT="${DEDOTTO:-$CM_DEFAULT_ACCOUNT}"
+  [ -n "$DEDOTTO" ] && DEDUZIONE=si
+elif [ -n "$DEDOTTO" ] && [ "$DEDOTTO" != "$ACCOUNT" ] && [ "$CM_ACCOUNTS_WARN_ON_MISMATCH" = true ]; then
+  cm_msg launch.account_mismatch "deduced=$DEDOTTO" "asked=$ACCOUNT" >&2
+fi
+CONF_DIR="$(cm_get "$ACCOUNT" CONFIG_DIR)"
+[ -n "$CONF_DIR" ] || { cm_msg launch.unknown_account "account=$ACCOUNT" "known=$CM_ACCOUNTS_KEYS" >&2; exit 2; }
+PREFIX="$(cm_get "$ACCOUNT" TMUX_PREFIX)"
+
+# 2.3: quota settimanale dell'account oltre soglia → avviso (consiglio, non blocco)
+python3 "$CM_SCRIPTS/cm-sessions.py" --quota-warn "$ACCOUNT" >&2 2>/dev/null || true
+command -v tmux >/dev/null || { cm_msg launch.no_tmux >&2; exit 3; }
+CLAUDE="${CM_CLAUDE_BIN:-$(command -v claude)}"
+[ -n "$CLAUDE" ] && [ -x "$CLAUDE" ] || { cm_msg launch.no_claude >&2; exit 3; }
+
+if [ ! -e "$CARTELLA" ]; then
+  if [ "$CREA" = si ]; then mkdir -p "$CARTELLA" || { cm_msg launch.mkdir_failed "path=$CARTELLA" >&2; exit 4; }
+  else cm_msg launch.missing_dir "path=$CARTELLA" >&2; exit 4; fi
+elif [ ! -d "$CARTELLA" ]; then
+  cm_msg launch.not_a_dir "path=$CARTELLA" >&2; exit 4
+fi
+
+# --- nome: radice → root_session_name; altrimenti basename sanificato (T2) --------
+# tmux riscrive i punti in trattini bassi dentro i nomi di sessione: passare
+# "sito.com" e poi cercarlo con quel nome fa dichiarare morta una sessione viva.
+# Si normalizza prima, cosi' il nome passato e quello cercato coincidono.
+if [ "$(readlink -f "$CARTELLA")" = "$(readlink -f "$(eval echo "$CM_WORKSPACE_ROOT")")" ]; then
+  BASE="$CM_WORKSPACE_ROOT_SESSION_NAME"
+else
+  BASE=$(basename "$CARTELLA" | tr "$CM_SESSION_NAME_SANITIZE_CHARS" "$(printf '%*s' "${#CM_SESSION_NAME_SANITIZE_CHARS}" '' | tr ' ' '-')")
+fi
+BASE="$PREFIX$BASE"
+NOME="$BASE"; n=2
+while cm_tmux has-session -t "=$NOME" 2>/dev/null; do NOME="$BASE-$n"; n=$((n + 1)); done
+
+# --- --resume: l'id deve esistere (T10) ---------------------------------------------
+if [ -n "$RIPRENDI" ]; then
+  # il nome della cartella dei transcript traduce OGNI carattere non alfanumerico in
+  # trattino ("googlebook.it" → "...-googlebook-it"), non solo le barre
+  SLUG=$(readlink -f "$CARTELLA" | sed 's|[^A-Za-z0-9]|-|g')
+  DIR_CONV="$CONF_DIR/projects/$SLUG"
+  if [ ! -f "$DIR_CONV/$RIPRENDI.jsonl" ]; then
+    # una sessione background finita non ha per forza il transcript qui: si chiede a claude
+    if ! CLAUDE_CONFIG_DIR="$CONF_DIR" "$CLAUDE" agents --json --all 2>/dev/null | grep -q "\"$RIPRENDI\""; then
+      cm_msg launch.resume_missing "id=$RIPRENDI" "dir=$DIR_CONV" >&2
+      if [ -d "$DIR_CONV" ]; then
+        cm_msg launch.resume_recent >&2
+        ls -lt --time-style='+%d/%m %H:%M' "$DIR_CONV"/*.jsonl 2>/dev/null | head -5 \
+          | awk '{n=split($NF,a,"/"); sub(/\.jsonl$/,"",a[n]); printf "    %s  %6.1fMB  %s %s\n", a[n], $5/1048576, $6, $7}' >&2
+      fi
+      exit 4
+    fi
+  fi
+fi
+
+# --- profilo (N8): argomenti, modello, effort, env, bg/finestra ---------------------
+PROF_ARGS=(); PROF_ENV=()
+if [ -n "$PROFILO" ]; then
+  case " ${CM_PROFILES_KEYS:-} " in *" $PROFILO "*) ;; *) cm_msg launch.unknown_profile "profile=$PROFILO" "known=${CM_PROFILES_KEYS:-}" >&2; exit 2 ;; esac
+  pv="CM_PROFILES_${PROFILO^^}"; pv="${pv//-/_}"
+  a="${pv}_ARGS"; [ -n "${!a:-}" ] && read -ra PROF_ARGS <<<"${!a}"
+  a="${pv}_MODEL"; [ -z "$MODEL" ] && MODEL="${!a:-}"
+  a="${pv}_EFFORT"; [ -z "$EFFORT" ] && EFFORT="${!a:-}"
+  a="${pv}_BG"; [ "${!a:-}" = true ] && BG=si
+  a="${pv}_WINDOW"; [ "${!a:-}" = false ] && FINESTRA=false
+  a="${pv}_ENV_KEYS"
+  for k in ${!a:-}; do v="${pv}_ENV_${k^^}"; PROF_ENV+=("$k=${!v:-}"); done
+fi
+for k in ${CM_SESSION_ENV_KEYS:-}; do v="CM_SESSION_ENV_${k^^}"; PROF_ENV+=("$k=${!v:-}"); done
+
+ARGS=()
+[ -n "${CM_SESSION_CLAUDE_ARGS:-}" ] && read -ra ARGS <<<"$CM_SESSION_CLAUDE_ARGS"
+ARGS+=("${PROF_ARGS[@]}")
+[ -n "$MODEL" ] && ARGS+=(--model "$MODEL")
+[ -n "$EFFORT" ] && ARGS+=(--effort "$EFFORT")
+[ "$CONTINUA" = si ] && ARGS+=(-c)
+[ -n "$RIPRENDI" ] && ARGS+=(--resume "$RIPRENDI")
+[ -n "$TELEPORT" ] && ARGS+=(--teleport "$TELEPORT")
+# T68 (09/09/2026, dal vivo): CLAUDE_CONFIG_DIR NON va impostata per l'account
+# che vive nella cartella di default (~/.claude). Con la variabile presente Claude
+# Code legge lo stato in $CLAUDE_CONFIG_DIR/.claude.json invece di ~/.claude.json:
+# la sessione parte «nuova», chiede il login e nel frattempo non si registra.
+ENVARGS=("${PROF_ENV[@]}")
+if [ "$(readlink -f "$CONF_DIR")" != "$(readlink -f "$(eval echo ~)/.claude")" ]; then
+  ENVARGS=(CLAUDE_CONFIG_DIR="$CONF_DIR" "${PROF_ENV[@]}")
+fi
+[ "${#ENVARGS[@]}" -eq 0 ] && ENVARGS=(CM_LAUNCHED=1)   # `env` vuole almeno un argomento prima del comando
+LABEL="$(cm_get "$ACCOUNT" LABEL)"
+
+# --- --bg: nel gestore di background di Claude Code, non in tmux (T47) --------------
+if [ "$BG" = si ]; then
+  BGARGS=(--bg -n "$NOME" "${ARGS[@]}")
+  [ "$CM_SESSION_BG_REMOTE_CONTROL" = true ] && BGARGS+=(--remote-control "$NOME")
+  ESITO=$(cd "$CARTELLA" && env "${ENVARGS[@]}" "$CLAUDE" "${BGARGS[@]}" 2>&1) || RC=$?
+  if [ "${RC:-0}" -ne 0 ]; then
+    cm_msg launch.bg_failed "rc=$RC" >&2; printf '%s\n' "$ESITO" | sed 's/^/  /' >&2; exit 7
+  fi
+  cm_msg launch.bg_started
+  echo "  nome:      $NOME"
+  echo "  account:   $LABEL${DEDUZIONE:+ ($(cm_msg launch.deduced))}"
+  echo "  cartella:  $CARTELLA"
+  printf '%s\n' "$ESITO" | sed 's/^/  /'
+  cm_msg launch.bg_howto "name=$NOME"
+  exit 0
+fi
+
+# --- tmux -----------------------------------------------------------------------------
+[ "$CM_SESSION_REMOTE_CONTROL" = true ] && ARGS+=(--remote-control "$NOME")
+ARGS+=(-n "$NOME")
+cm_tmux new-session -d -s "$NOME" -c "$CARTELLA" env "${ENVARGS[@]}" "$CLAUDE" "${ARGS[@]}"
+# Il file di registro NON e' <pane_pid>.json: il binario `claude` si rilancia
+# in un figlio (visto dal vivo il 09/09: pane 1122 → sessione registrata 1146),
+# quindi si cerca il file che dichiara QUESTA sessione tmux nel campo `tmux`.
+reg_file() { grep -l "\"tmux\":\"$NOME:" "$CONF_DIR"/sessions/*.json 2>/dev/null | head -1; }
+REG_FILE=""
+
+# T1/T54: il prefisso "=" vale per has-session, non per capture-pane/send-keys.
+schermo() { cm_tmux capture-pane -p -t "$NOME" 2>/dev/null; }
+e_dialogo() {  # una delle domande da accettare con "Yes" (trust T3, bypass T61)
+  grep -qiE "$CM_SESSION_DIALOG_REGEX"
+}
+# Attesa dell'avvio: un solo ciclo che sorveglia insieme la registrazione nel
+# registro peer (avvio riuscito, 1.2), lo schermo e i dialoghi, che possono
+# comparire quando pare (T4: il 2026-08-20 la fiducia e' arrivata dopo un ciclo
+# separato di 15 s). Si risponde una volta per dialogo: un secondo Invio finirebbe
+# come TESTO nella casella (T3). Dalla 2.1.25x la prima voce e' "No, exit": si porta
+# il cursore su "Yes" e si conferma.
+RISPOSTE=0; SCHERMO=""; REGISTRATA=no
+for _ in $(seq 1 "$CM_SESSION_STARTUP_TIMEOUT_S"); do
+  cm_tmux has-session -t "=$NOME" 2>/dev/null || break
+  SCHERMO=$(schermo)
+  if e_dialogo <<<"$SCHERMO"; then
+    if [ "$RISPOSTE" -lt 3 ]; then
+      grep -qE '❯.*Yes, I' <<<"$SCHERMO" || { cm_tmux send-keys -t "$NOME" Down; sleep 0.5; }
+      cm_tmux send-keys -t "$NOME" Enter
+      RISPOSTE=$((RISPOSTE + 1))
+    fi
+    SCHERMO=""; sleep 2; continue
+  fi
+  REG_FILE=$(reg_file)
+  [ -n "$REG_FILE" ] && { REGISTRATA=si; break; }
+  sleep 1
+done
+
+# Se Claude muore subito (cartella inaccessibile, avvio fallito) bisogna saperlo
+# ora, non scoprirlo dal telefono trovando la lista vuota.
+sleep "$CM_SESSION_DEATH_CHECK_S"
+if ! cm_tmux has-session -t "=$NOME" 2>/dev/null; then
+  cm_msg launch.died "name=$NOME" "dir=$CARTELLA" >&2; exit 5
+fi
+SCHERMO=$(schermo)
+ILLEGGIBILE=no
+if [ "$REGISTRATA" = no ]; then
+  # T5: uno schermo vuoto qui significa "non sono riuscito a leggere", non "tutto
+  # a posto"; ma uscire lasciava la sessione SENZA finestra e il chiamante convinto
+  # del contrario (2026-09-02). Si avvisa e si va avanti.
+  [ -z "${SCHERMO//[[:space:]]/}" ] && ILLEGGIBILE=si
+fi
+if e_dialogo <<<"$SCHERMO"; then cm_msg launch.stuck_dialog "name=$NOME" >&2; exit 6; fi
+
+# --- finestra sul desktop, verificata ATTACCATA (T8) ----------------------------------
+FINESTRA_APERTA=""
+if [ "$FINESTRA" = true ]; then
+  attaccata() { [ "$(cm_tmux list-sessions -F '#{session_name} #{session_attached}' 2>/dev/null | awk -v n="$NOME" '$1 == n {print $2}')" = 1 ]; }
+  MODE=""; [ "$CM_TERMINAL_EPHEMERAL" = true ] && MODE=ephemeral
+  # "Finestra aperta" vuol dire ATTACCATA: una scheda che nasce ma non si attacca
+  # (visto tre volte il 2026-09-02) lascia la sessione orfana e, con
+  # destroy-unattached, la uccide alla prima chiusura. Si verifica, e si riprova una volta.
+  "$CM_SCRIPTS/cm-terminal.sh" open "$NOME" $MODE
+  for _ in $(seq 1 "$CM_TERMINAL_ATTACH_WAIT_S"); do sleep 1; attaccata && { FINESTRA_APERTA=si; break; }; done
+  if [ -z "$FINESTRA_APERTA" ] && [ "$("$CM_SCRIPTS/cm-terminal.sh" detect)" != none ]; then
+    "$CM_SCRIPTS/cm-terminal.sh" open "$NOME" $MODE
+    for _ in $(seq 1 "$CM_TERMINAL_ATTACH_RETRY_WAIT_S"); do sleep 1; attaccata && { FINESTRA_APERTA=si; break; }; done
+  fi
+fi
+
+"$CM_SCRIPTS/cm-registry.sh" >/dev/null 2>&1   # T52: per il ripristino dopo un riavvio
+
+cm_msg launch.started
+echo "  nome tmux: $NOME"
+echo "  account:   $LABEL${DEDUZIONE:+ ($(cm_msg launch.deduced))}"
+echo "  cartella:  $CARTELLA"
+if [ "$FINESTRA" = true ]; then
+  if [ -n "$FINESTRA_APERTA" ]; then echo "  locale:    $(cm_msg launch.window_attached "name=$NOME")"
+  elif [ "$("$CM_SCRIPTS/cm-terminal.sh" detect)" = none ] || [ -z "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then echo "  locale:    $(cm_msg launch.window_skipped "name=$NOME")"
+  else echo "  locale:    $(cm_msg launch.window_failed "name=$NOME")"; fi
+else
+  echo "  locale:    $(cm_msg launch.window_none "name=$NOME")"
+fi
+[ "$ILLEGGIBILE" = si ] && echo "  nota:      $(cm_msg launch.slow_screen)"
+# Il link Remote Control: dal registro (1.2), altrimenti dallo schermo (ripiego T55)
+LINK=""
+[ -n "$REG_FILE" ] || REG_FILE=$(reg_file)
+# bridgeSessionId porta gia' il prefisso "session_" (visto dal vivo il 09/09): non si raddoppia
+[ -n "$REG_FILE" ] && [ -f "$REG_FILE" ] && LINK=$(sed -n 's/.*"bridgeSessionId":"\([^"]*\)".*/\1/p' "$REG_FILE" | head -1 | sed 's|^session_||; s|^\(.\)|https://claude.ai/code/session_\1|')
+[ -n "$LINK" ] || LINK=$(grep -oE 'https://claude\.ai/code/session_[A-Za-z0-9]+' <<<"$SCHERMO" | head -1)
+if [ -n "$LINK" ]; then echo "  link:      $LINK"; else echo "  telefono:  $(cm_msg launch.no_link)"; fi

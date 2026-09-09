@@ -1,0 +1,1019 @@
+#!/usr/bin/env python3
+"""Configurazione di claude-master: default, file, rilevamento della macchina.
+
+Un solo file per tutta la macchina (~/.config/claude-master/config.json): la
+configurazione descrive la postazione, non il login, quindi vale per tutti gli
+account. Nessuno script legge il JSON da solo: gli script bash fanno
+`eval "$(cm-config.py --sh)"`, quelli python importano questo modulo.
+
+Sottocomandi:
+  --sh                 export CM_* con i default applicati (per gli script bash)
+  --messages           export MSG_* del catalogo nella lingua configurata
+  --msg KEY k=v ...    un messaggio formattato (per gli script bash)
+  --get KEY            un valore (chiave puntata); ~ espansa; liste/dict in JSON
+  --dump-defaults      i default in JSON (genera config.example.json)
+  --path               percorso del file di configurazione
+  init [--dry-run|--yes] [--force] [--json] [--shim] [--shell] [--cron] [--tmux]
+                       legge la macchina e propone/scrive la configurazione;
+                       --shell/--cron/--tmux stampano (con --yes installano) i blocchi
+                       per rc di shell, crontab e ~/.tmux.conf
+  doctor               PASS/WARN/FAIL con rimedio; exit 1 se un FAIL
+
+Variabili d'ambiente: CLAUDE_MASTER_CONFIG (file), CM_HOME (home finta, test),
+CM_FAKE_MACHINE (descrizione JSON della macchina al posto di /proc, PATH e
+ambiente — solo test).
+"""
+import glob
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+PLUGIN = HERE.parent
+
+# ----------------------------------------------------------------- default
+# Colonna «default» del piano §4. I valori che dipendono dalla lingua stanno in
+# BY_LANG e si applicano sopra questi quando `language` lo dice.
+DEFAULTS = {
+    "language": "en",
+    "plugin_root": "",
+    "state_dir": "~/.local/state/claude-master",
+    "workspace": {
+        "root": "~",
+        "root_session_name": "master",
+        "excluded_dirs": [".git", "node_modules"],
+        "project_dirs": ["."],
+    },
+    "accounts": {
+        "default": {
+            "config_dir": "~/.claude",
+            "tmux_prefix": "",
+            "shape": "circle",
+            "shell_command": "claude",
+            "label": "default",
+        }
+    },
+    "default_account": "default",
+    "accounts_warn_on_mismatch": True,
+    "folder_map": [],
+    "session": {
+        "claude_args": [],
+        "remote_control": True,
+        "name_sanitize_chars": ".:",
+        "startup_timeout_s": 90,
+        "dialog_patterns": ["trust (this|the) folder", "Is this a project you", "Bypass Permissions mode"],
+        "env": {},
+        "window_by_default": True,
+        "bg_remote_control": False,
+        "death_check_s": 3,
+    },
+    "terminal": {
+        "backend": "auto",
+        "garcon": "/opt/google/cros-containers/bin/garcon",
+        "attach_wait_s": 25,
+        "attach_retry_wait_s": 20,
+        "ephemeral": True,
+        "headless_skip": True,
+    },
+    "tabs": {
+        "title": True,
+        "strip_prefix": True,
+        "colors": {
+            "circle": ["🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "⚪"],
+            "square": ["🟥", "🟧", "🟨", "🟩", "🟦", "🟪", "⬜"],
+        },
+        "color_registry": "",
+    },
+    "tile": {
+        "chrome_bridge_cli": "",
+        "terminal_url": "chrome-untrusted://terminal/",
+        "min_column_px": 340,
+        "padding": 0,
+        "monitor_names": {
+            "native": "native", "left": "left", "right": "right", "above": "above",
+            "below": "below", "external": "external", "center": "center",
+        },
+        "monitor_registry": "",
+        "placeholder_file": "",
+        "placeholder_ttl_s": 120,
+        "new_client_wait_s": 60,
+        "window_open_wait_s": 20,
+        "log": "",
+    },
+    "profiles": {},
+    "registry": {"file": "", "cron_minutes": 5},
+    "restore": {"uptime_max_min": 15, "confirm_timeout_s": 15, "last": ""},
+    "restart": {"flag_file": "", "log": "", "exit_wait_s": 20, "term_wait_s": 10},
+    "talk": {"quiet_s": 6, "max_wait_s": 240, "warn_native_channel": True,
+             "from_name": "claude-master", "from_mode": "bypass"},
+    "report": {"subdir": "docs/reports", "image_exts": ["png", "jpg", "jpeg", "webp", "gif"]},
+    "sessions": {"stall_min": 20, "recent_min": 5},
+    "quota": {"source": "~/.claude/fable-director", "warn_pct": 85},
+    "desk": {"name": "sportello", "capacity": 4, "permission_mode": "acceptEdits"},
+    "hooks": {
+        "local_time": {"enabled": True, "format": "%A %Y-%m-%d %H:%M", "prefix": "[local time]"},
+        "restart_stop": {"enabled": True},
+        "session_kernel": {"enabled": True},
+    },
+    "shell": {
+        "wrappers": {"claude": "default"},
+        "aliases": {},
+        "passthrough_args": ["--version", "-v", "--help", "-h", "-p", "--print", "mcp", "update",
+                             "doctor", "install", "agents", "attach", "logs", "stop", "plugin"],
+        "restore_prompt": True,
+        "disable_terminal_title": True,
+    },
+    "tmux": {"keybindings": {"tile": "a", "merge": "u", "move_arrows": True}, "socket": ""},
+}
+
+# Default che cambiano con la lingua (piano §4: nomi dei monitor, hook ora,
+# cartella delle segnalazioni, alias di shell).
+BY_LANG = {
+    "it": {
+        "hooks": {"local_time": {"format": "%A %d/%m/%Y %H:%M", "prefix": "[ora locale]"}},
+        "report": {"subdir": "docs/segnalazioni"},
+        "tile": {"monitor_names": {"native": "nativo", "left": "sinistra", "right": "destra",
+                                   "above": "sopra", "below": "sotto", "external": "esterno",
+                                   "center": "centro"}},
+        "shell": {"aliases": {"lancia": "launch", "chiudi": "close", "riavvia": "restart",
+                              "sessioni": "sessions", "parla-con": "talk", "segnala": "report",
+                              "registro": "registry", "ripristina": "restore", "affianca": "tile",
+                              "riaffianca": "tile", "unisci": "merge", "sposta": "move",
+                              "attacca": "attach", "quote": "quota"}},
+    },
+    "en": {},
+}
+
+# Nomi dei file di stato sotto state_dir quando la chiave e' vuota.
+STATE_FILES = {
+    "tabs.color_registry": "colors",
+    "tile.monitor_registry": "monitors.json",
+    "tile.placeholder_file": "next-session",
+    "tile.log": "tile.log",
+    "registry.file": "sessions.json",
+    "restart.flag_file": "restart.json",
+    "restart.log": "restart.log",
+}
+
+# Percorsi legacy di questa postazione (D4): stessi formati, si condividono
+# durante la prova in parallelo.
+# Il registro delle sessioni (registry.file) NON si condivide: il ripristino legacy
+# legge l'etichetta «aziendale», il plugin scrive i nomi degli account della
+# configurazione. Ognuno tiene il suo finche' il cut-over non spegne il legacy.
+LEGACY_STATE = {
+    "tabs.color_registry": "~/.claude/colori-sessione",
+    "tile.monitor_registry": "~/.claude/monitor-noti.json",
+    "tile.placeholder_file": "~/.claude/prossima-sessione",
+    "tile.log": "~/.local/state/affianca.log",
+    "restart.flag_file": "~/.claude/riavvio-armato.json",
+    "restart.log": "~/.claude/ultimo-riavvio.log",
+}
+LEGACY_SKILL = "~/.claude/skills/nuova-sessione"
+LEGACY_REGISTRY = "~/.claude/sessioni-vive.json"   # letto da init per dedurre prefissi e mappa cartelle
+LEGACY_LAUNCH = "~/.claude/skills/nuova-sessione/lancia.sh"   # letto da init per i flag di avvio (T74)
+
+ACCOUNT_FIELDS = ("config_dir", "tmux_prefix", "shape", "shell_command", "label")
+SHAPES = ("circle", "square")
+FIRST_ACCOUNT_NAME = {"it": "personale", "en": "personal"}
+SECOND_ACCOUNT_NAME = {"it": "professionale", "en": "work"}
+DEFAULT_SECOND_PREFIX = "pro-"
+
+
+# ------------------------------------------------------------------ utilita'
+def home():
+    return Path(os.environ.get("CM_HOME") or Path.home())
+
+
+def expand(s):
+    """~ → home (CM_HOME nei test). Solo stringhe che iniziano con ~."""
+    if isinstance(s, str) and (s == "~" or s.startswith("~/")):
+        return str(home()) + s[1:]
+    return s
+
+
+def contract(s):
+    """Percorso assoluto sotto home → forma con ~ (per scrivere la config)."""
+    h = str(home())
+    if isinstance(s, str) and (s == h or s.startswith(h + "/")):
+        return "~" + s[len(h):]
+    return s
+
+
+def config_path():
+    p = os.environ.get("CLAUDE_MASTER_CONFIG")
+    return Path(p) if p else home() / ".config" / "claude-master" / "config.json"
+
+
+def deep_merge(base, over, path="", unknown=None):
+    """Copia `over` sopra `base`. Chiavi ignote → lista `unknown` (avviso, non errore)."""
+    out = json.loads(json.dumps(base))
+    for k, v in (over or {}).items():
+        here = f"{path}.{k}" if path else k
+        if k not in out:
+            if unknown is not None and path not in ("accounts", "shell.wrappers", "shell.aliases", "tile.monitor_names",
+                                                    "profiles", "session.env") and not path.startswith("profiles."):
+                unknown.append(here)   # ignota: avvisata e scartata, mai propagata
+                continue
+            out[k] = v
+            continue
+        if isinstance(out[k], dict) and isinstance(v, dict) and k not in ("wrappers", "aliases", "profiles") and here != "session.env":
+            out[k] = deep_merge(out[k], v, here, unknown)
+        else:
+            out[k] = v
+    return out
+
+
+def defaults_for(lang):
+    return deep_merge(DEFAULTS, BY_LANG.get(lang, {}))
+
+
+def normalize_accounts(cfg):
+    """Ogni account riceve i campi mancanti; forma alternata circle/square."""
+    accs = cfg.get("accounts") or {}
+    out = {}
+    for i, (name, a) in enumerate(accs.items()):
+        a = dict(a or {})
+        a.setdefault("config_dir", "~/.claude" if i == 0 else f"~/.claude-{name}")
+        a.setdefault("tmux_prefix", "" if i == 0 else f"{name[:3]}-")
+        a.setdefault("shape", SHAPES[i % len(SHAPES)])
+        a.setdefault("shell_command", "claude" if i == 0 else f"claude-{name}")
+        a.setdefault("label", name)
+        out[name] = a
+    cfg["accounts"] = out
+    if cfg.get("default_account") not in out and out:
+        cfg["default_account"] = next(iter(out))
+    return cfg
+
+
+def apply_state_defaults(cfg):
+    for key, fname in STATE_FILES.items():
+        if not get_raw(cfg, key):
+            set_key(cfg, key, cfg["state_dir"].rstrip("/") + "/" + fname)
+    if not cfg["restore"].get("last"):
+        cfg["restore"]["last"] = cfg["workspace"]["root_session_name"]
+    return cfg
+
+
+def get_raw(cfg, dotted):
+    cur = cfg
+    for part in dotted.split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            raise KeyError(dotted)
+        cur = cur[part]
+    return cur
+
+
+def set_key(cfg, dotted, value):
+    parts = dotted.split(".")
+    cur = cfg
+    for p in parts[:-1]:
+        cur = cur.setdefault(p, {})
+    cur[parts[-1]] = value
+
+
+def load(path=None, warn=True):
+    """Default ← file. Il file puo' essere assente (valgono i default)."""
+    p = Path(path) if path else config_path()
+    data = {}
+    if p.is_file():
+        data = json.loads(p.read_text())
+    lang = data.get("language") or DEFAULTS["language"]
+    unknown = []
+    cfg = deep_merge(defaults_for(lang), data, unknown=unknown)
+    if "accounts" in data:
+        # gli account del file sostituiscono quello di default, non si sommano
+        cfg["accounts"] = data["accounts"]
+        if data.get("default_account") is None:
+            cfg["default_account"] = next(iter(data["accounts"]), "default")
+    cfg = normalize_accounts(cfg)
+    cfg = apply_state_defaults(cfg)
+    if warn and unknown:
+        print(f"cm-config: unknown keys ignored in {p}: {', '.join(unknown)}", file=sys.stderr)
+    return cfg
+
+
+def expand_all(v):
+    if isinstance(v, dict):
+        return {k: expand_all(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [expand_all(x) for x in v]
+    return expand(v)
+
+
+# ------------------------------------------------------------------ messaggi
+_MSG = {}
+
+
+def messages(lang):
+    if lang not in _MSG:
+        f = PLUGIN / "messages" / f"{lang}.json"
+        if not f.is_file():
+            f = PLUGIN / "messages" / "en.json"
+        _MSG[lang] = json.loads(f.read_text(encoding="utf-8"))
+    return _MSG[lang]
+
+
+def msg(cfg, _key, **kw):
+    text = messages(cfg.get("language", "en")).get(_key) or messages("en").get(_key) or _key
+    try:
+        return text.format(**kw)
+    except (KeyError, IndexError):
+        return text
+
+
+# ------------------------------------------------------------------ --sh
+IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def sh_quote(s):
+    return "'" + str(s).replace("'", "'\\''") + "'"
+
+
+def sh_value(v):
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, list):
+        if all(isinstance(x, (str, int, float)) for x in v):
+            return " ".join(str(expand(x)) for x in v)
+        return "\n".join("\t".join(str(expand(x.get(k))) for k in sorted(x)) for x in v)
+    return str(expand(v))
+
+
+def flatten_sh(cfg, prefix="CM"):
+    lines = []
+
+    def walk(name, v):
+        if isinstance(v, dict):
+            lines.append(f"export {name}_KEYS={sh_quote(' '.join(v.keys()))}")
+            if all(IDENT.match(k) for k in v):
+                for k, x in v.items():
+                    walk(f"{name}_{k.upper()}", x)
+            else:
+                lines.append(f"export {name}={sh_quote(chr(10).join(f'{k}{chr(9)}{sh_value(x)}' for k, x in v.items()))}")
+        elif isinstance(v, list) and v and isinstance(v[0], dict):
+            # folder_map: path<TAB>account per riga, con ~ espansa
+            rows = []
+            for x in v:
+                rows.append("\t".join(str(expand(x.get(k, ""))) for k in ("path", "account")))
+            lines.append(f"export {name}={sh_quote(chr(10).join(rows))}")
+        else:
+            lines.append(f"export {name}={sh_quote(sh_value(v))}")
+
+    for k, v in cfg.items():
+        walk(f"{prefix}_{k.upper()}", v)
+    # i pattern dei dialoghi contengono spazi: come lista sarebbero illeggibili, si esporta la regex unita
+    lines.append(f"export CM_SESSION_DIALOG_REGEX={sh_quote('|'.join(cfg['session'].get('dialog_patterns', [])))}")
+    lines.append(f"export CM_PLUGIN_DIR={sh_quote(str(PLUGIN))}")
+    lines.append(f"export CM_CONFIG_FILE={sh_quote(str(config_path()))}")
+    return "\n".join(lines) + "\n"
+
+
+def messages_sh(cfg):
+    out = []
+    for k, v in messages(cfg.get("language", "en")).items():
+        out.append(f"export MSG_{k.upper().replace('.', '_')}={sh_quote(v)}")
+    return "\n".join(out) + "\n"
+
+
+# ------------------------------------------------------------------ macchina
+class Machine:
+    """Cio' che init e doctor guardano. La versione finta legge un JSON."""
+
+    def __init__(self):
+        fake = os.environ.get("CM_FAKE_MACHINE")
+        self.fake = json.loads(Path(fake).read_text()) if fake else None
+
+    def which(self, cmd):
+        if self.fake is not None:
+            return f"/fake/bin/{cmd}" if cmd in self.fake.get("which", []) else None
+        return shutil.which(cmd)
+
+    def exists(self, path):
+        path = expand(path)
+        if self.fake is not None:
+            return path in self.fake.get("exists", [])
+        return os.path.exists(path)
+
+    def env(self, name, default=""):
+        if self.fake is not None:
+            return self.fake.get("env", {}).get(name, default)
+        return os.environ.get(name, default)
+
+    def procs(self):
+        """Processi claude vivi: pid, cmdline, environ, cwd, nome tmux (o "")."""
+        if self.fake is not None:
+            return self.fake.get("procs", [])
+        out = []
+        panes = {}
+        try:
+            r = subprocess.run(["tmux", "list-panes", "-a", "-F", "#{session_name} #{pane_pid}"],
+                               capture_output=True, text=True, timeout=5)
+            for line in r.stdout.splitlines():
+                s, _, p = line.partition(" ")
+                panes[p.strip()] = s
+        except (OSError, subprocess.SubprocessError):
+            pass
+        for d in glob.glob("/proc/[0-9]*"):
+            try:
+                cmd = Path(d, "cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace").strip()
+                if not re.search(r"(^|/)claude( |$)", cmd) or "shell-snapshots" in cmd:
+                    continue
+                env = {}
+                for kv in Path(d, "environ").read_bytes().split(b"\0"):
+                    k, _, v = kv.partition(b"=")
+                    if k in (b"CLAUDE_CONFIG_DIR",):
+                        env[k.decode()] = v.decode(errors="replace")
+                cwd = os.readlink(Path(d, "cwd"))
+                pid = int(Path(d).name)
+                ppid = ""
+                for line in Path(d, "status").read_text().splitlines():
+                    if line.startswith("PPid:"):
+                        ppid = line.split()[1]
+                tm = panes.get(str(pid)) or panes.get(ppid) or ""
+                out.append({"pid": pid, "cmdline": cmd, "environ": env, "cwd": cwd, "tmux": tm})
+            except (OSError, ValueError):
+                continue
+        return out
+
+    def version(self, cmd):
+        try:
+            # tmux risponde a -V; con --version stampa l'usage
+            r = subprocess.run([cmd, "-V" if cmd == "tmux" else "--version"], capture_output=True, text=True, timeout=10)
+            return (r.stdout or r.stderr).strip().splitlines()[0][:40]
+        except (OSError, subprocess.SubprocessError, IndexError):
+            return ""
+
+
+def read_json(path):
+    try:
+        return json.loads(Path(expand(path)).read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def has_local_time_hook(settings):
+    for entry in (settings.get("hooks") or {}).get("UserPromptSubmit") or []:
+        for h in entry.get("hooks") or []:
+            c = h.get("command") or ""
+            if "ora locale" in c or "local time" in c or (c.startswith("date ") and "sed" in c):
+                return True
+    return False
+
+
+# ------------------------------------------------------------------ init
+def detect(m):
+    """Legge la macchina e produce (config, sources). Ogni valore ha una fonte."""
+    src = {}
+    h = home()
+
+    # lingua: settings dell'account principale, poi LANG
+    settings_main = read_json("~/.claude/settings.json")
+    lang = "en"
+    if str(settings_main.get("language", "")).lower().startswith("ital"):
+        lang, src["language"] = "it", "~/.claude/settings.json language"
+    elif m.env("LANG", "").lower().startswith("it"):
+        lang, src["language"] = "it", "LANG"
+    else:
+        src["language"] = "default"
+    cfg = defaults_for(lang)
+    cfg["language"] = lang
+
+    # backend terminale
+    t = cfg["terminal"]
+    if m.exists(t["garcon"]):
+        t["backend"], src["terminal.backend"] = "chromeos", f"{t['garcon']} present"
+    elif m.env("TERM_PROGRAM") == "iTerm.app":
+        t["backend"], src["terminal.backend"] = "iterm2", "TERM_PROGRAM=iTerm.app"
+    elif m.env("TERM_PROGRAM") == "Apple_Terminal":
+        t["backend"], src["terminal.backend"] = "macos-terminal", "TERM_PROGRAM=Apple_Terminal"
+    elif m.env("KITTY_WINDOW_ID") or m.which("kitty"):
+        t["backend"], src["terminal.backend"] = "kitty", "kitty present"
+    elif m.env("WT_SESSION") or m.which("wt.exe"):
+        t["backend"], src["terminal.backend"] = "wt", "Windows Terminal present"
+    elif m.which("gnome-terminal"):
+        t["backend"], src["terminal.backend"] = "gnome", "gnome-terminal in PATH"
+    else:
+        t["backend"], src["terminal.backend"] = "none", "no known terminal found"
+
+    # account: ~/.claude + ~/.claude-* con credenziali o settings
+    first = FIRST_ACCOUNT_NAME[lang]
+    accounts = {first: {"config_dir": "~/.claude", "tmux_prefix": "", "shape": "circle",
+                        "shell_command": "claude", "label": first}}
+    src[f"accounts.{first}.config_dir"] = "~/.claude"
+    extras = sorted(d for d in glob.glob(str(h / ".claude-*"))
+                    if os.path.isdir(d) and (os.path.exists(f"{d}/.credentials.json") or os.path.exists(f"{d}/settings.json")))
+    rc_text = ""
+    for rc in (".bashrc", ".zshrc", ".bash_profile"):
+        try:
+            rc_text += (h / rc).read_text() + "\n"
+        except OSError:
+            pass
+    for i, d in enumerate(extras):
+        name = SECOND_ACCOUNT_NAME[lang] if i == 0 else f"account{i + 2}"
+        suffix = os.path.basename(d)[len(".claude-"):]
+        cmd = f"claude-{suffix}"
+        fn = re.search(r"^\s*([A-Za-z0-9_-]+)\s*\(\)\s*\{[^}]*CLAUDE_CONFIG_DIR=\"?\$HOME/\.claude-" + re.escape(suffix), rc_text, re.M | re.S)
+        if fn:
+            cmd, src[f"accounts.{name}.shell_command"] = fn.group(1), "function in shell rc"
+        else:
+            src[f"accounts.{name}.shell_command"] = "claude-<suffix> of the config dir"
+        accounts[name] = {"config_dir": contract(d), "tmux_prefix": DEFAULT_SECOND_PREFIX,
+                          "shape": SHAPES[(i + 1) % len(SHAPES)], "shell_command": cmd, "label": name}
+        src[f"accounts.{name}.config_dir"] = f"{contract(d)} has credentials/settings"
+        src[f"accounts.{name}.tmux_prefix"] = "default"
+    cfg["accounts"] = accounts
+    cfg["default_account"] = first
+    src["default_account"] = "first account"
+
+    # processi e registro legacy: prefissi tmux, radice, mappa cartelle
+    by_dir = {expand(a["config_dir"]): n for n, a in accounts.items()}
+    procs = m.procs()
+    obs = []   # (account, cwd, tmux)
+    for p in procs:
+        conf = p.get("environ", {}).get("CLAUDE_CONFIG_DIR") or str(h / ".claude")
+        acc = by_dir.get(conf)
+        if acc:
+            obs.append((acc, p.get("cwd", ""), p.get("tmux", "")))
+    legacy = read_json(LEGACY_REGISTRY)
+    legacy_names = {"personale": first, "aziendale": SECOND_ACCOUNT_NAME[lang]}
+    for s in legacy.get("sessioni", []):
+        acc = legacy_names.get(s.get("account"), s.get("account"))
+        if acc in accounts:
+            obs.append((acc, s.get("cartella", ""), s.get("nome", "")))
+
+    for name in accounts:
+        names = [tm for acc, _, tm in obs if acc == name and tm]
+        others = [tm for acc, _, tm in obs if acc != name and tm]
+        if names:
+            prefixes = {tm.split("-", 1)[0] + "-" if "-" in tm else "" for tm in names}
+            if len(prefixes) == 1:
+                pfx = prefixes.pop()
+                if pfx and all(not o.startswith(pfx) for o in others):
+                    accounts[name]["tmux_prefix"] = pfx
+                    src[f"accounts.{name}.tmux_prefix"] = "shared by every live/registered session of the account"
+                elif not pfx:
+                    accounts[name]["tmux_prefix"] = ""
+                    src[f"accounts.{name}.tmux_prefix"] = "sessions of the account carry no prefix"
+    if first not in {n for n, _ in [(k, 0) for k in src] } and f"accounts.{first}.tmux_prefix" not in src:
+        src[f"accounts.{first}.tmux_prefix"] = "default"
+
+    # flag di avvio (T74, 09/09/2026): le sessioni vive dicono come le si lancia qui. Se la
+    # MAGGIORANZA dei processi claude porta --dangerously-skip-permissions, senza quel flag
+    # una sessione nuova nasce in modalita' dontAsk e ogni Bash le viene negato. Maggioranza
+    # e non totalita': una sessione lanciata senza flag (per prova) non deve nascondere le altre.
+    flag = "--dangerously-skip-permissions"
+    live = [p.get("cmdline", "") for p in procs if p.get("cmdline", "").split()[:1] and "claude" in p["cmdline"].split()[0]]
+    if live and sum(flag in c for c in live) * 2 > len(live):
+        cfg["session"]["claude_args"] = [flag]
+        src["session.claude_args"] = f"carried by {sum(flag in c for c in live)} of {len(live)} live claude sessions"
+    elif not live and Path(expand(LEGACY_LAUNCH)).is_file() and flag in Path(expand(LEGACY_LAUNCH)).read_text():
+        cfg["session"]["claude_args"] = [flag]
+        src["session.claude_args"] = "legacy launch script"
+    else:
+        src["session.claude_args"] = "default"
+
+    # radice
+    cwds = [c for _, c, _ in obs if c]
+    root = None
+    if cwds:
+        common = os.path.commonpath(cwds) if len(cwds) > 1 else os.path.dirname(cwds[0])
+        if common and common != "/" and common != str(h):
+            root, src["workspace.root"] = common, "common ancestor of session folders"
+    if root is None:
+        for cand in ("~/Desktop/workspaces", "~/workspaces", "~/Workspace", "~/Projects", "~/projects",
+                     "~/code", "~/dev", "~/src"):
+            if os.path.isdir(expand(cand)):
+                root, src["workspace.root"] = expand(cand), f"{cand} exists"
+                break
+    if root is None:
+        root, src["workspace.root"] = str(h), "default (~)"
+    cfg["workspace"]["root"] = contract(root)
+
+    # mappa cartelle: per account, il primo componente sotto la radice
+    comp = {}
+    for acc, c, _ in obs:
+        if c and c.startswith(root + "/"):
+            comp.setdefault(acc, set()).add(c[len(root) + 1:].split("/")[0])
+    fmap = []
+    for acc, comps in comp.items():
+        for cpt in sorted(comps):
+            if all(cpt not in comp.get(o, set()) for o in comp if o != acc) and cpt:
+                fmap.append({"path": contract(f"{root}/{cpt}"), "account": acc})
+    cfg["folder_map"] = fmap
+    src["folder_map"] = "folders of live/registered sessions, one account each" if fmap else "none found"
+
+    # cartelle progetto: genitori delle cartelle di sessione, relativi alla radice
+    pdirs = set()
+    for _, c, _ in obs:
+        if c and c.startswith(root + "/"):
+            rel = os.path.dirname(c[len(root) + 1:])
+            if rel:
+                pdirs.add(rel)
+    cfg["workspace"]["project_dirs"] = sorted(pdirs) or ["."]
+    src["workspace.project_dirs"] = "parents of session folders" if pdirs else "default"
+
+    # escluse: default + voci della radice che iniciano con _ o .
+    ex = list(cfg["workspace"]["excluded_dirs"])
+    try:
+        for e in sorted(os.listdir(root)):
+            if (e.startswith("_") or e.startswith(".")) and os.path.isdir(os.path.join(root, e)) and e not in ex:
+                ex.append(e)
+    except OSError:
+        pass
+    cfg["workspace"]["excluded_dirs"] = ex
+    src["workspace.excluded_dirs"] = "defaults + root entries starting with _ or ."
+
+    # stato: legacy condiviso (D4) se la skill legacy c'e'
+    if os.path.isdir(expand(LEGACY_SKILL)):
+        cfg["state_dir"] = "~/.claude"
+        for k, v in LEGACY_STATE.items():
+            set_key(cfg, k, v)
+            src[k] = "legacy file (shared during the parallel trial)"
+        src["state_dir"] = f"{LEGACY_SKILL} present"
+    else:
+        src["state_dir"] = "default"
+
+    # chrome-bridge
+    cb = ""
+    for j in (read_json("~/.claude.json"), settings_main):
+        args = ((j.get("mcpServers") or {}).get("chrome-bridge") or {}).get("args") or []
+        for a in args:
+            if a.endswith("index.js"):
+                cand = a[: -len("index.js")] + "cli.js"
+                if os.path.exists(cand):
+                    cb = contract(cand)
+                    break
+        if cb:
+            break
+    cfg["tile"]["chrome_bridge_cli"] = cb
+    src["tile.chrome_bridge_cli"] = "mcpServers.chrome-bridge in ~/.claude.json / settings.json" if cb else "not found"
+
+    # shell
+    cfg["shell"]["wrappers"] = {a["shell_command"]: n for n, a in accounts.items()}
+    src["shell.wrappers"] = "one per account"
+    src["shell.aliases"] = f"language {lang}"
+
+    # tmux keybindings dal .tmux.conf legacy
+    try:
+        tc = (h / ".tmux.conf").read_text()
+        kb = cfg["tmux"]["keybindings"]
+        ma = re.search(r"^bind\s+(\S+)\s+run-shell.*affianca", tc, re.M)
+        mu = re.search(r"^bind\s+(\S+)\s+run-shell.*unisci", tc, re.M)
+        if ma:
+            kb["tile"] = ma.group(1)
+        if mu:
+            kb["merge"] = mu.group(1)
+        kb["move_arrows"] = "sposta" in tc
+        src["tmux.keybindings"] = "~/.tmux.conf"
+    except OSError:
+        src["tmux.keybindings"] = "default"
+
+    cfg = normalize_accounts(cfg)
+    cfg = apply_state_defaults(cfg)
+    return cfg, src
+
+
+def print_detected(cfg, src):
+    print(msg(cfg, "init.header"))
+    flat = {}
+
+    def walk(prefix, v):
+        if isinstance(v, dict) and prefix not in ("shell.wrappers", "shell.aliases", "tile.monitor_names", "tabs.colors"):
+            for k, x in v.items():
+                walk(f"{prefix}.{k}" if prefix else k, x)
+        else:
+            flat[prefix] = v
+    walk("", cfg)
+    for k, v in flat.items():
+        s = src.get(k)
+        if s is None:
+            # fonte ereditata dal ramo (es. accounts.x.*) o default
+            s = next((src[p] for p in src if k.startswith(p + ".")), "default")
+        val = json.dumps(v, ensure_ascii=False) if not isinstance(v, str) else v
+        print(msg(cfg, "init.detected", key=k, value=val[:40], source=s))
+
+
+SHIM = """#!/usr/bin/env bash
+# claude-master shim — installed by `claude-master init --shim`.
+# The plugin cache moves to a new directory at every version (and a live
+# session keeps running from the old one), so this file never hardcodes the
+# root: it resolves it at every call, in this order:
+#   1. CLAUDE_MASTER_ROOT            (explicit, also used by the tests)
+#   2. plugin_root in the config     (a development checkout)
+#   3. installed_plugins.json        (CLAUDE_CONFIG_DIR first, then ~/.claude, then ~/.claude-*)
+root="${CLAUDE_MASTER_ROOT:-}"
+if [ -z "$root" ]; then
+  root=$(python3 - "$HOME" "${CLAUDE_CONFIG_DIR:-}" "${CLAUDE_MASTER_CONFIG:-}" <<'PY' 2>/dev/null
+import glob, json, os, sys
+home, confdir, cfgfile = sys.argv[1], sys.argv[2], sys.argv[3]
+cfg = cfgfile or os.path.join(home, ".config", "claude-master", "config.json")
+try:
+    pr = json.load(open(cfg)).get("plugin_root", "")
+    if pr:
+        pr = os.path.expanduser(pr)
+        if os.path.isdir(pr):
+            print(pr); sys.exit(0)
+except Exception:
+    pass
+dirs = ([confdir] if confdir else []) + [os.path.join(home, ".claude")] + sorted(glob.glob(os.path.join(home, ".claude-*")))
+for d in dirs:
+    try:
+        plugins = json.load(open(os.path.join(d, "plugins", "installed_plugins.json"))).get("plugins", {})
+    except Exception:
+        continue
+    for key, entries in plugins.items():
+        if key.startswith("claude-master@"):
+            for e in (entries if isinstance(entries, list) else [entries]):
+                p = e.get("installPath", "")
+                if p and os.path.isdir(p):
+                    print(p); sys.exit(0)
+sys.exit(1)
+PY
+  )
+fi
+if [ -z "$root" ] || [ ! -x "$root/scripts/claude-master" ]; then
+  echo "claude-master: plugin root not found. Set CLAUDE_MASTER_ROOT, or plugin_root in the configuration, or install the plugin (claude plugin install claude-master@...)" >&2
+  exit 127
+fi
+exec "$root/scripts/claude-master" "$@"
+"""
+
+
+def write_shim(cfg):
+    p = home() / ".local" / "bin" / "claude-master"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(SHIM)
+    p.chmod(0o755)
+    print(msg(cfg, "init.shim_written", path=p))
+
+
+SHELL_STUB = """# claude-master — generato da `claude-master init --shell`. Non modificare: si rigenera.
+# Carica l'integrazione shell del plugin (wrapper, alias, segnaposto, ripristino) dalla
+# radice corrente del plugin, che cambia a ogni versione: la risolve lo shim.
+_cm_shim="$HOME/.local/bin/claude-master"
+if [ -x "$_cm_shim" ]; then
+  _cm_r="$("$_cm_shim" root 2>/dev/null)"
+  [ -n "$_cm_r" ] && [ -f "$_cm_r/shell/claude-master.sh" ] && . "$_cm_r/shell/claude-master.sh"
+  unset _cm_r
+fi
+unset _cm_shim
+"""
+
+
+def write_shell(cfg):
+    p = home() / ".config" / "claude-master" / "shell.sh"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(SHELL_STUB)
+    print(msg(cfg, "init.shell_written", path=p))
+
+
+def cron_setup(cfg, install):
+    """`init --cron`: la riga di riconciliazione del registro (registry.cron_minutes)."""
+    minutes = int(cfg["registry"]["cron_minutes"] or 0)
+    if minutes <= 0:
+        print(msg(cfg, "init.cron_off"))
+        return 0
+    shim = home() / ".local" / "bin" / "claude-master"
+    line = f"*/{minutes} * * * * {shim} registry >/dev/null 2>&1"
+    if not install:
+        print(msg(cfg, "init.cron_line", min=minutes, line=line))
+        return 0
+    crontab = os.environ.get("CM_CRONTAB_CMD", "crontab")
+    current = subprocess.run([crontab, "-l"], capture_output=True, text=True).stdout
+    if "claude-master registry" in current or f"{shim} registry" in current:
+        print(msg(cfg, "init.cron_present"))
+        return 0
+    new = current.rstrip("\n") + ("\n" if current.strip() else "") + "# claude-master: riconciliazione del registro delle sessioni\n" + line + "\n"
+    subprocess.run([crontab, "-"], input=new, text=True, check=True)
+    print(msg(cfg, "init.cron_installed", line=line))
+    return 0
+
+
+TMUX_MARK = "# claude-master: disposizione delle sessioni (generato da `claude-master init --tmux`)"
+
+
+def tmux_block(cfg):
+    """Il blocco per ~/.tmux.conf da tmux.keybindings: tile/merge su due tasti, frecce = move.
+
+    Le frecce sono legate solo quando la finestra ha un pannello solo (una sessione, un
+    pannello): con piu' pannelli tornano a select-pane senza disfare niente.
+    run-shell -b non blocca il server tmux mentre il giro e' in corso.
+    """
+    kb = cfg["tmux"]["keybindings"]
+    shim = "$HOME/.local/bin/claude-master"
+    log = str(cfg["tile"]["log"] or "").replace("~", "$HOME", 1) or "/dev/null"
+    lines = [TMUX_MARK]
+    if kb.get("tile"):
+        lines.append(f'bind {kb["tile"]} run-shell -b "{shim} tile  >> {log} 2>&1"')
+    if kb.get("merge"):
+        lines.append(f'bind {kb["merge"]} run-shell -b "{shim} merge >> {log} 2>&1"')
+    if kb.get("move_arrows"):
+        for key, direction, pane in (("Left", "left", "L"), ("Right", "right", "R"), ("Up", "up", "U"), ("Down", "down", "D")):
+            lines.append(f"bind -r {key:<5} if -F '#{{==:#{{window_panes}},1}}' "
+                         f"\"run-shell -b '{shim} move {direction} >> {log} 2>&1'\" 'select-pane -{pane}'")
+    lines.append("# claude-master: fine")
+    return "\n".join(lines) + "\n"
+
+
+def tmux_setup(cfg, install):
+    """`init --tmux`: stampa il blocco; con --yes lo accoda a ~/.tmux.conf (una volta sola)."""
+    block = tmux_block(cfg)
+    conf = home() / ".tmux.conf"
+    if not install:
+        print(msg(cfg, "init.tmux_block", path=conf, block=block.rstrip("\n")))
+        return 0
+    current = conf.read_text() if conf.is_file() else ""
+    if TMUX_MARK in current:
+        print(msg(cfg, "init.tmux_present", path=conf))
+        return 0
+    conf.write_text(current.rstrip("\n") + ("\n\n" if current.strip() else "") + block)
+    print(msg(cfg, "init.tmux_installed", path=conf))
+    return 0
+
+
+def cmd_init(args):
+    m = Machine()
+    cfg, src = detect(m)
+    dry = "--dry-run" in args
+    yes = "--yes" in args
+    force = "--force" in args
+    target = config_path()
+    # --shim e' un'azione a se', idempotente: da solo installa lo shim e basta;
+    # con --yes installa lo shim E scrive la config.
+    if "--shim" in args:
+        write_shim(cfg)
+    if "--shell" in args:
+        write_shell(cfg)
+    live = load(config_path(), warn=False) if config_path().is_file() else cfg
+    if "--cron" in args:
+        cron_setup(live, yes)
+    if "--tmux" in args:
+        tmux_setup(live, yes)
+    if ("--cron" in args or "--tmux" in args) and not dry:
+        return 0
+    if ("--shim" in args or "--shell" in args) and not yes and not dry:
+        return 0
+    if "--json" in args:
+        print(json.dumps({"config": cfg, "sources": src, "path": str(target)}, ensure_ascii=False, indent=2))
+        if not (yes and not dry):
+            return 0
+    else:
+        print_detected(cfg, src)
+    if dry or not yes:
+        if not yes:
+            print(msg(cfg, "init.dry_run", path=target))
+        return 0
+    if target.exists() and not force:
+        print(msg(cfg, "init.exists", path=target))
+        return 2
+    if target.exists():
+        shutil.copy(target, str(target) + ".bak")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    # si scrive senza i default espansi dello stato: le chiavi vuote restano
+    # vuote cosi' un cambio di state_dir le segue
+    to_write = json.loads(json.dumps(cfg))
+    target.write_text(json.dumps(to_write, ensure_ascii=False, indent=2) + "\n")
+    print(msg(cfg, "init.written", path=target))
+    return 0
+
+
+# ------------------------------------------------------------------ doctor
+BACKEND_BIN = {"chromeos": None, "gnome": "gnome-terminal", "kitty": "kitty", "iterm2": "osascript",
+               "macos-terminal": "osascript", "wt": "wt.exe", "none": None, "auto": None}
+
+
+def cmd_doctor():
+    m = Machine()
+    p = config_path()
+    rows = []   # (level, key, kwargs, fixkey)
+    try:
+        cfg = load(p, warn=False)
+        if p.is_file():
+            rows.append(("PASS", "config", {"path": p}, None))
+        else:
+            rows.append(("WARN", "doctor.no_config", {"path": p}, "doctor.fix_no_config"))
+    except (ValueError, OSError) as e:
+        cfg = load(None, warn=False) if False else normalize_accounts(apply_state_defaults(defaults_for("en")))
+        rows.append(("FAIL", "doctor.config_bad", {"error": e}, None))
+
+    for tool in ("tmux", "claude", "python3"):
+        if m.which(tool):
+            rows.append(("PASS", "doctor.tool_ok", {"tool": tool, "version": m.version(tool) if m.fake is None else ""}, None))
+        else:
+            rows.append(("FAIL", "doctor.tool_missing", {"tool": tool}, None))
+
+    for name, a in cfg["accounts"].items():
+        d = expand(a["config_dir"])
+        if os.path.isdir(d):
+            rows.append(("PASS", "doctor.account_ok", {"account": name, "path": a["config_dir"]}, None))
+            st = read_json(os.path.join(d, "settings.json"))
+            if st.get("crossSessionInbound") != "accept":
+                rows.append(("WARN", "doctor.inbound_held", {"account": name}, "doctor.fix_inbound"))
+            if cfg["hooks"]["local_time"]["enabled"] and has_local_time_hook(st):
+                rows.append(("WARN", "doctor.hook_dup", {"account": name, "path": a["config_dir"] + "/settings.json"}, "doctor.fix_hook_dup"))
+        else:
+            rows.append(("FAIL", "doctor.account_dir_missing", {"account": name, "path": a["config_dir"]}, None))
+
+    be = cfg["terminal"]["backend"]
+    if be == "chromeos":
+        g = cfg["terminal"]["garcon"]
+        rows.append(("PASS" if m.exists(g) else "FAIL", "doctor.backend_ok" if m.exists(g) else "doctor.backend_bin_missing",
+                     {"backend": be, "bin": g}, None))
+    elif be in ("none", "auto"):
+        rows.append(("INFO", "doctor.backend_none", {}, None))
+    else:
+        b = BACKEND_BIN.get(be, be)
+        rows.append(("PASS" if m.which(b) else "FAIL", "doctor.backend_ok" if m.which(b) else "doctor.backend_bin_missing",
+                     {"backend": be, "bin": b}, None))
+
+    cb = cfg["tile"]["chrome_bridge_cli"]
+    if not cb:
+        rows.append(("INFO", "doctor.cb_unset", {}, None))
+    elif os.path.isfile(expand(cb)):
+        rows.append(("PASS", "doctor.cb_ok", {"path": cb}, None))
+    else:
+        rows.append(("WARN", "doctor.cb_missing", {"path": cb}, "doctor.fix_cb"))
+
+    shim = home() / ".local" / "bin" / "claude-master"
+    if shim.is_file():
+        rows.append(("PASS", "doctor.shim_ok", {"path": contract(str(shim))}, None))
+    else:
+        rows.append(("WARN", "doctor.shim_missing", {"path": contract(str(shim))}, "doctor.fix_shim"))
+
+    sd = expand(cfg["state_dir"])
+    try:
+        os.makedirs(sd, exist_ok=True)
+        ok = os.access(sd, os.W_OK)
+    except OSError:
+        ok = False
+    rows.append(("PASS" if ok else "FAIL", "doctor.state_ok" if ok else "doctor.state_bad", {"path": cfg["state_dir"]}, None))
+
+    if os.path.isdir(expand(LEGACY_SKILL)):
+        rows.append(("INFO", "doctor.legacy", {"path": LEGACY_SKILL}, None))
+
+    print(msg(cfg, "doctor.header"))
+    fails = warns = 0
+    for level, key, kw, fix in rows:
+        detail = msg(cfg, key, **kw) if key.startswith("doctor.") else f"{key} {kw.get('path', '')}"
+        print(msg(cfg, f"doctor.{level.lower()}", name=key.split(".")[-1], detail=detail))
+        if fix:
+            print(msg(cfg, "doctor.fix", fix=msg(cfg, fix)))
+        fails += level == "FAIL"
+        warns += level == "WARN"
+    print(msg(cfg, "doctor.summary", fails=fails, warns=warns))
+    return 1 if fails else 0
+
+
+# ------------------------------------------------------------------ main
+def main(argv):
+    if not argv:
+        print(__doc__)
+        return 2
+    a = argv[0]
+    if a == "--dump-defaults":
+        cfg = normalize_accounts(apply_state_defaults(json.loads(json.dumps(DEFAULTS))))
+        print(json.dumps(cfg, ensure_ascii=False, indent=2))
+        return 0
+    if a == "--path":
+        print(config_path())
+        return 0
+    if a == "init":
+        return cmd_init(argv[1:])
+    if a == "doctor":
+        return cmd_doctor()
+    cfg = load()
+    if a == "--sh":
+        sys.stdout.write(flatten_sh(cfg))
+        if "--messages" in argv:
+            sys.stdout.write(messages_sh(cfg))
+        return 0
+    if a == "--messages":
+        sys.stdout.write(messages_sh(cfg))
+        return 0
+    if a == "--msg":
+        kw = dict(x.split("=", 1) for x in argv[2:] if "=" in x)
+        print(msg(cfg, argv[1], **kw))
+        return 0
+    if a == "--get":
+        try:
+            v = expand_all(get_raw(cfg, argv[1]))
+        except (KeyError, IndexError):
+            print(f"cm-config: unknown key {argv[1:2]}", file=sys.stderr)
+            return 1
+        if isinstance(v, (dict, list)):
+            print(json.dumps(v, ensure_ascii=False))
+        elif isinstance(v, bool):
+            print("true" if v else "false")
+        else:
+            print(v)
+        return 0
+    print(__doc__)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

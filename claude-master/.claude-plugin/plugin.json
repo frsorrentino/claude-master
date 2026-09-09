@@ -1,0 +1,18 @@
+{
+  "name": "claude-master",
+  "description": "Run many Claude Code sessions on one machine: launch them in the right folder and account, in tmux, with a terminal window whose tab tells you which is which; list, close, restart, talk to them and restore them after a reboot. Configurable per machine, generic across terminals.",
+  "version": "0.3.0",
+  "author": {
+    "name": "Francesco Sorrentino",
+    "email": "info@francescosorrentino.com"
+  },
+  "license": "MIT",
+  "keywords": [
+    "sessions",
+    "tmux",
+    "multi-account",
+    "remote-control",
+    "terminal",
+    "chromeos"
+  ]
+}

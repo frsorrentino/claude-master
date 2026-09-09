@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.bak
+.DS_Store
+# release zips live outside the repo
+*.zip
+# test scratch
+tests/.scratch/

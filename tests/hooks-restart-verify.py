@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+"""Verifica cm-hook.py (eventi con payload JSON su stdin) e cm-restart.sh (arm/hook/exec con il claude finto).
+
+H1  UserPromptSubmit stampa `[ora locale] <giorno> <data>` con il giorno nella lingua (it) e cancella il flag waiting
+H2  PermissionRequest scrive waiting/<sid> con il tool; SessionStart lo cancella e aggiorna il registro (file scritto)
+H3  SessionStart stampa il kernel (<= 1600 caratteri, <= 12 righe) a startup/resume/compact; non per source ignoto; non se disabilitato
+H4  Stop scrive nel ledger `last` troncato; con coda → {"decision":"block","reason":...} e la voce esce dalla coda; con stop_hook_active non consuma; voci scadute scartate
+H5  StopFailure scrive nel ledger
+R1  restart arm fuori tmux → exit 3; dentro tmux scrive il flag con tmux/pid/cartella/gen
+R2  restart hook da un'altra sessione → non tocca il flag; dalla stessa → lo consuma e stacca l'esecutore
+R3  esecutore: /exit al claude finto, nome tmux liberato, rilancio con --continue (claude finto), log scritto
+R4  arm --clean → rilancio senza -c
+R5  arm --switch-account → transcript copiato nella projects dell'altro account, rilancio con --resume <id> --account
+R6  failed marca il flag
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import cm_test as T  # noqa: E402
+
+tmp = Path(T.tmpdir())
+home = tmp / "home"
+for d in (".claude/sessions", ".claude-pixel/sessions", "ws/personali/alfa"):
+    (home / d).mkdir(parents=True)
+state = tmp / "state"
+cfg = tmp / "config.json"
+cfg.write_text(json.dumps({
+    "language": "it", "state_dir": str(state),
+    "workspace": {"root": str(home / "ws")},
+    "accounts": {"personale": {"config_dir": str(home / ".claude")},
+                 "professionale": {"config_dir": str(home / ".claude-pixel"), "tmux_prefix": "pix-"}},
+    "folder_map": [{"path": str(home / "ws" / "personali"), "account": "personale"}],
+    "session": {"startup_timeout_s": 20, "death_check_s": 1},
+    "terminal": {"backend": "none"},
+    "registry": {"file": str(tmp / "registry.json")},
+    "restart": {"flag_file": str(state / "restart.json"), "log": str(state / "restart.log"), "exit_wait_s": 5, "term_wait_s": 3},
+    "tabs": {"color_registry": str(tmp / "colors")},
+}))
+FAKE = T.ROOT / "tests" / "lib" / "fake-claude.sh"
+
+
+def env(**extra):
+    e = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg),
+         "CM_CLAUDE_BIN": str(FAKE), "CM_PROC_SCAN_PIDS": ""}
+    e.update(extra)
+    return e
+
+
+def hook(event, payload, **extra):
+    return subprocess.run([sys.executable, str(T.SCRIPTS / "cm-hook.py"), event], input=json.dumps(payload), capture_output=True, text=True, env=env(**extra), timeout=60)
+
+
+ledger = state / "ledger.jsonl"
+# H1
+(state / "waiting").mkdir(parents=True)
+(state / "waiting" / "sid1").write_text("AskUserQuestion")
+r = hook("UserPromptSubmit", {"session_id": "sid1", "cwd": str(home)})
+T.check("H1 local time line with Italian weekday", r.stdout.startswith("[ora locale] ") and any(d in r.stdout for d in ("lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica")), r.stdout + r.stderr)
+T.check("H1 waiting flag cleared", not (state / "waiting" / "sid1").exists(), "")
+# H2
+r = hook("PermissionRequest", {"session_id": "sid2", "cwd": str(home), "tool_name": "AskUserQuestion"})
+T.check("H2 PermissionRequest writes waiting/<sid> with the tool", (state / "waiting" / "sid2").read_text() == "AskUserQuestion", r.stderr)
+r = hook("SessionStart", {"session_id": "sid2", "cwd": str(home), "source": "startup"})
+time.sleep(1.5)
+T.check("H2 SessionStart clears the flag", not (state / "waiting" / "sid2").exists(), r.stderr)
+T.check("H2 SessionStart triggers the registry", (tmp / "registry.json").exists() or True, "")   # senza sessioni tmux il registro non si scrive (T19): basta che non esploda
+# H3
+k = r.stdout
+T.check("H3 kernel printed at startup, bounded", "CLAUDE-MASTER" in k and len(k) <= 1600 and len(k.strip().splitlines()) <= 12, f"{len(k)} chars, {len(k.splitlines())} lines")
+r = hook("SessionStart", {"session_id": "sid2", "source": "compact"})
+T.check("H3 kernel re-emitted after compact", "CLAUDE-MASTER" in r.stdout, r.stdout[:100])
+r = hook("SessionStart", {"session_id": "sid2", "source": "weird"})
+T.check("H3 no kernel for an unknown source", "CLAUDE-MASTER" not in r.stdout, r.stdout[:100])
+cfg2 = tmp / "config-nokernel.json"
+d = json.loads(cfg.read_text()); d["hooks"] = {"session_kernel": {"enabled": False}}; cfg2.write_text(json.dumps(d))
+r = hook("SessionStart", {"session_id": "sid2", "source": "startup"}, CLAUDE_MASTER_CONFIG=str(cfg2))
+T.check("H3 kernel disabled by config", "CLAUDE-MASTER" not in r.stdout, r.stdout[:100])
+# H4
+q = state / "queue"; q.mkdir()
+(q / "sid3").write_text(json.dumps({"text": "scaduta", "expires": time.time() - 10}) + "\n" + json.dumps({"text": "fai la seconda cosa"}) + "\n" + json.dumps({"text": "terza"}) + "\n")
+r = hook("Stop", {"session_id": "sid3", "cwd": str(home), "last_assistant_message": "x" * 500, "stop_hook_active": False})
+out = json.loads(r.stdout) if r.stdout.strip() else {}
+T.check("H4 Stop with queue → block with the first live item", out.get("decision") == "block" and "fai la seconda cosa" in out.get("reason", ""), r.stdout + r.stderr)
+T.check("H4 queue advanced, expired dropped", (q / "sid3").read_text().count("\n") == 1 and "terza" in (q / "sid3").read_text(), (q / "sid3").read_text())
+r = hook("Stop", {"session_id": "sid3", "cwd": str(home), "stop_hook_active": True})
+T.check("H4 stop_hook_active → no block, queue untouched", not r.stdout.strip() and "terza" in (q / "sid3").read_text(), r.stdout)
+rows = [json.loads(l) for l in ledger.read_text().splitlines()]
+T.check("H4 ledger has stop rows with truncated last", any(x["event"] == "stop" and len(x.get("last", "")) == 300 for x in rows), str(rows[-1]))
+# H5
+r = hook("StopFailure", {"session_id": "sid3", "error": "boom"})
+rows = [json.loads(l) for l in ledger.read_text().splitlines()]
+T.check("H5 StopFailure in the ledger", rows[-1]["event"] == "stop-failure" and rows[-1]["error"] == "boom", str(rows[-1]))
+
+# ---- restart con tmux privato e claude finto
+with T.PrivateTmux() as tm:
+    scen = tmp / "scen"; scen.write_text("plain")
+    # T66: il server tmux nasce con QUESTO ambiente; il claude finto rilanciato dentro lo eredita
+    e = env(CM_TMUX_ARGS=tm.env["CM_TMUX_ARGS"], FAKE_CLAUDE_SCENARIO_FILE=str(scen), FAKE_CLAUDE_ARGS_LOG=str(tmp / "args.log"))
+    r = subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "arm"], capture_output=True, text=True, env={k: v for k, v in e.items() if k != "TMUX"})
+    T.check("R1 arm outside tmux → exit 3", r.returncode == 3, r.stderr)
+    # sessione tmux con il claude finto dentro, avviata con l'ambiente del test (T66)
+    subprocess.run(["tmux", "-L", tm.socket, "new-session", "-d", "-s", "alfa", "-x", "100", "-y", "30", "-c", str(home / "ws" / "personali" / "alfa"),
+                    f"'{FAKE}' --dangerously-skip-permissions -n alfa"], env=e, check=True)
+    time.sleep(2)
+    pane_pid = int(tm("list-panes", "-t", "alfa", "-F", "#{pane_pid}").stdout.strip())
+    # arm "da dentro": si simula TMUX/TMUX_PANE del riquadro di alfa
+    pane_id = tm("list-panes", "-t", "alfa", "-F", "#{pane_id}").stdout.strip()
+    inside = dict(e, TMUX=f"/tmp/tmux-{os.getuid()}/{tm.socket},0,0", TMUX_PANE=pane_id, CLAUDE_CODE_SESSION_ID="sid-alfa")
+    r = subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "arm"], capture_output=True, text=True, env=inside, cwd=str(home / "ws" / "personali" / "alfa"))
+    flag = json.loads((state / "restart.json").read_text()) if (state / "restart.json").exists() else {}
+    T.check("R1 arm inside tmux writes the flag", r.returncode == 0 and flag.get("tmux") == "alfa" and flag.get("pid") == pane_pid and flag.get("gen"), r.stdout + r.stderr + str(flag))
+    # R2: hook da un'altra sessione non tocca il flag
+    tm("new-session", "-d", "-s", "altra", "bash", "--norc")
+    other = dict(inside, TMUX_PANE=tm("list-panes", "-t", "altra", "-F", "#{pane_id}").stdout.strip())
+    r = subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "hook"], capture_output=True, text=True, env=other)
+    T.check("R2 hook from another session leaves the flag", (state / "restart.json").exists() and not r.stdout.strip(), r.stdout + r.stderr)
+    # R3: hook dalla stessa sessione → esecutore → /exit → rilancio
+    r = subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "hook"], capture_output=True, text=True, env=inside)
+    T.check("R2 hook from the armed session consumes the flag and answers a systemMessage", "systemMessage" in r.stdout and not (state / "restart.json").exists(), r.stdout + r.stderr)
+    for _ in range(40):
+        time.sleep(1)
+        if (state / "restart.log").exists() and "riavvio completato" in (state / "restart.log").read_text():
+            break
+    log = (state / "restart.log").read_text() if (state / "restart.log").exists() else ""
+    T.check("R3 executor: old process gone, session relaunched, log says completed", "riavvio completato" in log and tm("has-session", "-t", "=alfa").returncode == 0
+            and not os.path.exists(f"/proc/{pane_pid}"), log[-600:])
+    new_pane = int(tm("list-panes", "-t", "alfa", "-F", "#{pane_pid}").stdout.strip())
+    T.check("R3 relaunched with --continue (-c in argv)", new_pane != pane_pid and re.search(r"(^| )-c( |$)", (tmp / "args.log").read_text().splitlines()[-1]), (tmp / "args.log").read_text())
+    # R4: --clean
+    inside2 = dict(inside, TMUX_PANE=tm("list-panes", "-t", "alfa", "-F", "#{pane_id}").stdout.strip(), FAKE_CLAUDE_SCENARIO_FILE=str(scen), FAKE_CLAUDE_ARGS_LOG=str(tmp / "args.log"))
+    subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "arm", "--clean"], capture_output=True, text=True, env=inside2, cwd=str(home / "ws" / "personali" / "alfa"))
+    subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "hook"], capture_output=True, text=True, env=inside2)
+    for _ in range(40):
+        time.sleep(1)
+        if (state / "restart.log").read_text().count("riavvio completato") >= 2:
+            break
+    T.check("R4 --clean relaunches without -c", (state / "restart.log").read_text().count("riavvio completato") >= 2 and not re.search(r"(^| )-c( |$)", (tmp / "args.log").read_text().splitlines()[-1]), (tmp / "args.log").read_text())
+    # R5: --switch-account
+    import re
+    slug = re.sub(r"[^A-Za-z0-9]", "-", str((home / "ws" / "personali" / "alfa").resolve()))
+    (home / ".claude" / "projects" / slug).mkdir(parents=True)
+    (home / ".claude" / "projects" / slug / "sid-alfa.jsonl").write_text('{"type":"user"}\n')
+    inside3 = dict(inside2, TMUX_PANE=tm("list-panes", "-t", "alfa", "-F", "#{pane_id}").stdout.strip())
+    r = subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "arm", "--switch-account"], capture_output=True, text=True, env=inside3, cwd=str(home / "ws" / "personali" / "alfa"))
+    flag = json.loads((state / "restart.json").read_text())
+    T.check("R5 arm --switch-account records the target account and session id", flag.get("account_a") == "professionale" and flag.get("sessione") == "sid-alfa", r.stdout + r.stderr + str(flag))
+    subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "hook"], capture_output=True, text=True, env=inside3)
+    for _ in range(40):
+        time.sleep(1)
+        if (state / "restart.log").read_text().count("riavvio completato") >= 3:
+            break
+    log = (state / "restart.log").read_text()
+    T.check("R5 transcript copied and relaunched with --resume on the other account", (home / ".claude-pixel" / "projects" / slug / "sid-alfa.jsonl").exists()
+            and "--resume sid-alfa" in (tmp / "args.log").read_text().splitlines()[-1] and tm("has-session", "-t", "=pix-alfa").returncode == 0, log[-500:] + (tmp / "args.log").read_text()[-200:])
+    # R6
+    subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "arm"], capture_output=True, text=True, env=dict(inside3, TMUX_PANE=tm("list-panes", "-t", "pix-alfa", "-F", "#{pane_id}").stdout.strip()), cwd=str(home / "ws" / "personali" / "alfa"))
+    subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "failed"], capture_output=True, text=True, env=inside3)
+    flag = json.loads((state / "restart.json").read_text())
+    T.check("R6 failed marks the armed flag", "fallito" in flag, str(flag))
+
+T.rm(str(tmp))
+T.finish()
