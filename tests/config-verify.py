@@ -194,6 +194,22 @@ T.check("C13 WARN missing chrome-bridge cli", "WARN" in r.stdout and "nope/cli.j
 r = T.run_config(["doctor"], home, cfg_missing, machine)
 T.check("C13 WARN no config → suggests init", r.returncode == 0 and "init" in r.stdout, r.stdout)
 
+VER_CHECKOUT = json.loads((T.PLUGIN / ".claude-plugin" / "plugin.json").read_text())["version"]
+# C13b doctor: plugin nella cache via `claude plugin list --json` (finto: CM_FAKE_PLUGIN_LIST)
+pl = Path(tmp) / "plugins.json"
+pl.write_text(json.dumps([{"id": "claude-master@claude-master-dev", "version": "0.0.1", "enabled": True}]))
+r = T.run_config(["doctor"], home, target, machine, extra_env={"CM_FAKE_PLUGIN_LIST": str(pl)})
+T.check("C13b cache older than the checkout → WARN with both versions and the update command", "WARN" in r.stdout and "0.0.1" in r.stdout and "claude plugin update claude-master" in r.stdout, r.stdout)
+pl.write_text(json.dumps([{"id": "claude-master@claude-master-dev", "version": VER_CHECKOUT, "enabled": True, "noteDetails": "auto-update on"}]))
+r = T.run_config(["doctor"], home, target, machine, extra_env={"CM_FAKE_PLUGIN_LIST": str(pl)})
+T.check("C13b same version → PASS with the note", "PASS plugin_ok" in r.stdout and "auto-update on" in r.stdout, r.stdout)
+pl.write_text(json.dumps([{"id": "claude-master@claude-master-dev", "version": VER_CHECKOUT, "enabled": True, "errorDetails": "hooks.json invalid"}]))
+r = T.run_config(["doctor"], home, target, machine, extra_env={"CM_FAKE_PLUGIN_LIST": str(pl)})
+T.check("C13b errorDetails → WARN quoting it", "WARN plugin_error" in r.stdout and "hooks.json invalid" in r.stdout, r.stdout)
+pl.write_text("[]")
+r = T.run_config(["doctor"], home, target, machine, extra_env={"CM_FAKE_PLUGIN_LIST": str(pl)})
+T.check("C13b not installed → WARN with the install command", "WARN plugin_missing" in r.stdout and "claude plugin install" in r.stdout, r.stdout)
+
 # C14 shim
 r = T.run_config(["init", "--shim", "--yes"], home, target, machine)
 shim = home / ".local" / "bin" / "claude-master"

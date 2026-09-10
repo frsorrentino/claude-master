@@ -98,7 +98,10 @@ PY
 }
 
 # ---------------------------------------------------------------- exec
-vivo() { kill -0 "$1" 2>/dev/null; }
+# Vivo = esiste E non e' uno zombie: dopo SIGKILL il processo puo' restare <defunct> finche' il
+# padre (tmux) non lo raccoglie, e kill -0 risponde ancora si' (visto il 10/09/2026 nella suite,
+# «pid 1198 non muore»). Uno zombie e' morto per noi.
+vivo() { kill -0 "$1" 2>/dev/null && ! grep -q '^State:.*Z' "/proc/$1/status" 2>/dev/null; }
 
 esegui() {
   local flag="$1" nome pid cartella conf_da conf_a sid acc_a pulita gen

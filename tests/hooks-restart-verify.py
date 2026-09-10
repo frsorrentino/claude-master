@@ -3,7 +3,7 @@
 
 H1  UserPromptSubmit stampa `[ora locale] <giorno> <data>` con il giorno nella lingua (it) e cancella il flag waiting
 H2  PermissionRequest scrive waiting/<sid> con il tool; SessionStart lo cancella e aggiorna il registro (file scritto)
-H3  SessionStart stampa il kernel (<= 1600 caratteri, <= 12 righe) a startup/resume/compact; non per source ignoto; non se disabilitato
+H3  SessionStart stampa il kernel (<= 1900 caratteri, <= 13 righe) a startup/resume/compact; non per source ignoto; non se disabilitato
 H4  Stop scrive nel ledger `last` troncato; con coda → {"decision":"block","reason":...} e la voce esce dalla coda; con stop_hook_active non consuma; voci scadute scartate
 H5  StopFailure scrive nel ledger
 R1  restart arm fuori tmux → exit 3; dentro tmux scrive il flag con tmux/pid/cartella/gen
@@ -72,9 +72,17 @@ T.check("H2 SessionStart clears the flag", not (state / "waiting" / "sid2").exis
 T.check("H2 SessionStart triggers the registry", (tmp / "registry.json").exists() or True, "")   # senza sessioni tmux il registro non si scrive (T19): basta che non esploda
 # H3
 k = r.stdout
-T.check("H3 kernel printed at startup, bounded", "CLAUDE-MASTER" in k and len(k) <= 1600 and len(k.strip().splitlines()) <= 12, f"{len(k)} chars, {len(k.splitlines())} lines")
+T.check("H3 kernel printed at startup, bounded", "CLAUDE-MASTER" in k and len(k) <= 1900 and len(k.strip().splitlines()) <= 13, f"{len(k)} chars, {len(k.splitlines())} lines")
 r = hook("SessionStart", {"session_id": "sid2", "source": "compact"})
 T.check("H3 kernel re-emitted after compact", "CLAUDE-MASTER" in r.stdout, r.stdout[:100])
+# H4: la sessione nasce con le ultime righe del recap del progetto
+proj = home / "ws" / "personali" / "alfa"
+(proj / "docs").mkdir(parents=True, exist_ok=True)
+(proj / "docs" / "recap.md").write_text("# Recap di alfa\n\n" + "\n".join(f"- 2026-09-0{i}: riga {i}" for i in range(1, 8)) + "\n")
+r = hook("SessionStart", {"session_id": "sid3", "cwd": str(proj), "source": "startup"})
+T.check("H4 SessionStart prints the last 5 recap lines of the project after the kernel", "RECAP RECENTE (docs/recap.md)" in r.stdout and "riga 7" in r.stdout and "riga 3" in r.stdout and "riga 2" not in r.stdout and r.stdout.index("CLAUDE-MASTER") < r.stdout.index("RECAP RECENTE"), r.stdout[-400:])
+r = hook("SessionStart", {"session_id": "sid3", "cwd": str(home / "ws"), "source": "startup"})
+T.check("H4 no recap file → nothing extra", "RECAP" not in r.stdout, r.stdout[-200:])
 r = hook("SessionStart", {"session_id": "sid2", "source": "weird"})
 T.check("H3 no kernel for an unknown source", "CLAUDE-MASTER" not in r.stdout, r.stdout[:100])
 cfg2 = tmp / "config-nokernel.json"
@@ -136,7 +144,7 @@ with T.PrivateTmux() as tm:
     inside2 = dict(inside, TMUX_PANE=tm("list-panes", "-t", "alfa", "-F", "#{pane_id}").stdout.strip(), FAKE_CLAUDE_SCENARIO_FILE=str(scen), FAKE_CLAUDE_ARGS_LOG=str(tmp / "args.log"))
     subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "arm", "--clean"], capture_output=True, text=True, env=inside2, cwd=str(home / "ws" / "personali" / "alfa"))
     subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "hook"], capture_output=True, text=True, env=inside2)
-    for _ in range(40):
+    for _ in range(70):   # due riavvii di fila: exit_wait + term_wait + launch, x2, con margine
         time.sleep(1)
         if (state / "restart.log").read_text().count("riavvio completato") >= 2:
             break

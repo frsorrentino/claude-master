@@ -126,8 +126,15 @@ DEFAULTS = {
             "api_base": "https://api.telegram.org", "offset_file": "", "log": "",
             "cron_minutes": 1, "http_timeout_s": 20, "command_timeout_s": 120, "max_candidates": 8,
             "first_run_max_age_s": 180},
-    # diario serale dal ledger (N7): ora del cron e lunghezza dell'ultimo messaggio citato
-    "diary": {"cron_time": "20:00", "max_last_chars": 160},
+    # recap serale dal ledger (N7): ora del cron, citazioni, riassunto col modello, riga del giorno nei progetti
+    # last: none | short (solo le ferme su domanda, 60 caratteri) | full; hide_zero_turns: le chiuse
+    # senza turni non compaiono
+    "recap": {"cron_time": "20:00", "max_last_chars": 160, "last": "short", "hide_zero_turns": True, "closed_chars": 90,
+              "summary": "model", "summary_model": "haiku", "summary_timeout_s": 120, "project_log": "docs/recap.md", "startup_lines": 5},
+    # guardia della quota: avviso sopra warn_pct (una volta per finestra), ripresa delle sessioni
+    # fallite e della coda notturna quando la finestra si resetta
+    "guard": {"warn_pct": 95, "cron_minutes": 5, "night_after_reset": True, "night_timeout_s": 3600,
+              "resume_prompt": "La quota è tornata disponibile: riprendi da dove eri rimasto."},
     # turno di notte (N5): coda di lavori `claude -p` non presidiati, con guardie su RAM e quota
     "night": {"cron_time": "02:00", "min_free_mb": 1500, "max_quota_pct": 80, "item_timeout_s": 3600,
               "max_turns": 40, "permission_mode": "acceptEdits", "tool_memory_limit": "2g",
@@ -299,6 +306,13 @@ def set_key(cfg, dotted, value):
 
 
 def load(path=None, warn=True):
+    cfg = _load_raw(path, warn)
+    if "diary" in cfg and "recap" not in cfg:   # nome vecchio (fino alla 0.3.3)
+        cfg["recap"] = cfg.pop("diary")
+    return cfg
+
+
+def _load_raw(path=None, warn=True):
     """Default ← file. Il file puo' essere assente (valgono i default)."""
     p = Path(path) if path else config_path()
     data = {}
@@ -909,6 +923,38 @@ BACKEND_BIN = {"chromeos": None, "gnome": "gnome-terminal", "kitty": "kitty", "i
                "macos-terminal": "osascript", "wt": "wt.exe", "none": None, "auto": None}
 
 
+def plugin_row(name, a, checkout_ver):
+    """Una riga di doctor per account: il plugin claude-master risulta installato? che versione ha la
+    cache rispetto al checkout? errorDetails/noteDetails (Claude Code >= 2.1.268)?"""
+    fake = os.environ.get("CM_FAKE_PLUGIN_LIST")
+    try:
+        if fake:
+            data = json.loads(Path(fake).read_text())
+        else:
+            env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CONFIG_DIR"}
+            conf = expand(a.get("config_dir", ""))
+            if os.path.realpath(conf) != os.path.realpath(expand("~/.claude")):   # T68
+                env["CLAUDE_CONFIG_DIR"] = conf
+            p = subprocess.run(["claude", "plugin", "list", "--json"], capture_output=True, text=True, timeout=30, env=env)
+            data = json.loads(p.stdout) if p.stdout.strip().startswith("[") else None
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        data = None
+    if not isinstance(data, list):
+        return ("INFO", "doctor.plugin_unknown", {"account": name}, None)
+    row = next((r for r in data if str(r.get("id", "")).startswith("claude-master@")), None)
+    if row is None:
+        return ("WARN", "doctor.plugin_missing", {"account": name}, "doctor.fix_plugin_missing")
+    ver = str(row.get("version", ""))
+    if row.get("errorDetails"):
+        return ("WARN", "doctor.plugin_error", {"account": name, "error": str(row["errorDetails"])[:200]}, None)
+    if not row.get("enabled", True):
+        return ("WARN", "doctor.plugin_disabled", {"account": name}, "doctor.fix_plugin_disabled")
+    if checkout_ver and ver != checkout_ver:
+        return ("WARN", "doctor.plugin_stale", {"account": name, "cache": ver, "checkout": checkout_ver}, "doctor.fix_plugin_stale")
+    note = str(row.get("noteDetails") or "")[:120]
+    return ("PASS", "doctor.plugin_ok", {"account": name, "version": ver, "note": f" · {note}" if note else ""}, None)
+
+
 def cmd_doctor():
     m = Machine()
     p = config_path()
@@ -961,6 +1007,15 @@ def cmd_doctor():
     else:
         rows.append(("WARN", "doctor.cb_missing", {"path": cb}, "doctor.fix_cb"))
 
+    # plugin nella cache di ogni account: `claude plugin list --json` (Claude Code 2.1.268: righe con
+    # errorDetails/noteDetails). Nei test CM_FAKE_PLUGIN_LIST (file JSON); con la macchina finta si salta.
+    try:
+        checkout_ver = json.loads((HERE.parent / ".claude-plugin" / "plugin.json").read_text()).get("version", "")
+    except (OSError, ValueError):
+        checkout_ver = ""
+    if m.fake is None or os.environ.get("CM_FAKE_PLUGIN_LIST"):
+        for name, a in cfg["accounts"].items():
+            rows.append(plugin_row(name, a, checkout_ver))
     shim = home() / ".local" / "bin" / "claude-master"
     if shim.is_file():
         rows.append(("PASS", "doctor.shim_ok", {"path": contract(str(shim))}, None))

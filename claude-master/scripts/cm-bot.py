@@ -14,6 +14,7 @@ si ignora (le chat non autorizzate in silenzio, quelle autorizzate con la lista 
   /launch <frammento> risolve il percorso come la skill: un candidato → lancia; più di uno o
                       nessuno → elenca e NON crea
   /sessions           l'output di `claude-master sessions`
+  /recap              il recap di oggi (come alle 20:00; /diary è un alias)
 
 Telegram consegna gli update a UN solo consumatore per token: il plugin `telegram` delle sessioni
 vive fa polling e scrive bot.pid. Questo poller gira SOLO se quel pid è assente o morto, altrimenti
@@ -52,7 +53,7 @@ CFG = cm.load(warn=False)
 M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
 B = CFG["bot"]
 CM_BIN = os.environ.get("CM_BOT_CM") or str(HERE / "claude-master")
-COMMANDS = ("/master", "/launch", "/sessions")
+COMMANDS = ("/master", "/launch", "/sessions", "/recap")
 MAX_TEXT = 3900   # Telegram: 4096 caratteri per messaggio
 
 
@@ -120,10 +121,10 @@ def api(method, **params):
         return json.loads(r.read().decode())
 
 
-def reply(chat_id, text):
+def reply(chat_id, text, parse_mode=None):
     text = text if len(text) <= MAX_TEXT else text[:MAX_TEXT] + "\n…"
     try:
-        api("sendMessage", chat_id=chat_id, text=text, disable_web_page_preview="true")
+        api("sendMessage", chat_id=chat_id, text=text, disable_web_page_preview="true", parse_mode=parse_mode)
     except (urllib.error.URLError, OSError, ValueError) as e:
         log(f"reply to {chat_id} FAILED: {e}")
 
@@ -204,6 +205,10 @@ def handle(text):
         return do_launch(rest)
     if cmd == "/sessions":
         return do_sessions()
+    if cmd in ("/recap", "/diary"):
+        d = _load("cm-recap")
+        _, _, groups, label = d.build(["--full"] if rest.strip() in ("full", "tutto") else [])
+        return d.render_short(groups, label, as_html=False)
     return M("bot.help")
 
 

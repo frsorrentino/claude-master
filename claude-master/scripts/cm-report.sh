@@ -6,7 +6,7 @@
 # riceverlo con il testo. Tre passi che diventano uno.
 #
 # Uso: claude-master report <progetto> <immagine|-> "testo" [--no-launch]     (it: --senza-lancio)
-#   <progetto>   nome o pezzo del nome della cartella (joy, med-systems, social): si cerca in
+#   <progetto>   nome o pezzo del nome della cartella (sito, cliente-a): si cerca in
 #                `workspace.project_dirs` sotto la radice, prima esatto, poi prefisso, poi sottostringa
 #   <immagine>   percorso del file (png/jpg/webp/gif); "-" per nessuna immagine
 #   --no-launch  se la sessione non c'e', non la lancia: archivia e basta

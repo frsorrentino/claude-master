@@ -7,3 +7,4 @@ CLAUDE-MASTER (parallel sessions; commands `claude-master sessions|launch|close|
 6. Window closed = session over; no window = it survives. Account deduced from the folder: a default with a warning, never a ban.
 7. `--resume` with a missing id opens an EMPTY conversation with no error: with two sessions on one folder use `--resume <id>`, not `--continue`.
 8. Partial paths: resolve them, ask if ambiguous; never create a folder for a typo (`--create` only on explicit request).
+9. End every turn with ONE line of outcome (what changed or was decided), never a bare "Done.": it feeds the recap, `next`, the registry.

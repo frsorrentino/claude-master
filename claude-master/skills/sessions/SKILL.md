@@ -99,12 +99,20 @@ minuto, stesso bot, `bot.enabled` in config) risponde a `/master`, `/launch <fra
 `/sessions`. Resta muto finché una sessione ascolta Telegram. Dopo un riavvio della macchina
 serve il login a mano: copre «sessioni chiuse, macchina sveglia».
 
+## Rispondere alla domanda di un'altra sessione
+
+Una sessione ferma su `AskUserQuestion` (o su un permesso) aspetta una scelta nel suo terminale:
+un messaggio nell'inbox NON la sblocca. `claude-master answer NOME --show` legge la domanda e le
+opzioni numerate; `claude-master answer NOME 2` sceglie la 2 (più numeri = più domande di fila;
+`--text "…"` per «Type something.»). Dal telefono: «rispondi 2 a progetto-x» → la master esegue
+`answer progetto-x 2` e riferisce la riga «risposto 2. …». Mai scegliere al posto dell'utente.
+
 ## Segnalazioni dal telefono
 
     claude-master report <progetto> <immagine|-> "testo" [--no-launch]
 
 Il gesto più frequente: uno screenshot di un cliente va nel progetto giusto e la sua sessione
-deve riceverlo col testo. `<progetto>` è un pezzo del nome della cartella (`joy`, `med-systems`):
+deve riceverlo col testo. `<progetto>` è un pezzo del nome della cartella (`sito`, `cliente-a`):
 esatto, poi prefisso, poi sottostringa. L'immagine finisce in `docs/segnalazioni/<data>-<slug>`
 (o `report.subdir`), la sessione viene lanciata se manca, il testo consegnato senza aspettare.
 Le foto arrivate via Remote Control hanno già un percorso su disco: passalo a `report`.

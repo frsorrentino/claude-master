@@ -99,6 +99,9 @@ with T.PrivateTmux() as tm:
     # W6
     r = bash("unset -f _cm_wrap; claude --version")
     T.check("W6 snapshot guard: no _cm_wrap → command claude", "fake" in r.stdout, r.stdout + r.stderr)
+    # T76: lo snapshot vero porta SOLO i wrapper: niente helper, niente _cm_fn_exists
+    r = bash("unset -f _cm_wrap _cm_fn_exists _cm_tmux; claude --version")
+    T.check("W6b snapshot guard: wrappers alone (no helper at all) → command claude, no 'command not found'", "fake" in r.stdout and "command not found" not in r.stderr, r.stdout + r.stderr)
     # W7: segnaposto
     ph = tmp / "next-session"
     subprocess.run(["tmux", "-L", tm.socket, "new-session", "-d", "-s", "ph-target", "bash", "--norc"], env=base_env(), check=True)

@@ -7,3 +7,4 @@ CLAUDE-MASTER (sessioni parallele; comandi `claude-master sessions|launch|close|
 6. Finestra chiusa = sessione finita; senza finestra sopravvive. Account dedotto dalla cartella: default con avviso, mai divieto.
 7. `--resume` con id inesistente apre una conversazione VUOTA senza errore: con due sessioni sulla stessa cartella usa `--resume <id>`, non `--continue`.
 8. Percorsi parziali: risolvili tu, chiedi se ambiguo; mai creare una cartella per un refuso (`--create` solo su richiesta esplicita).
+9. Chiudi ogni turno con UNA riga di esito (cosa è cambiato o deciso), mai «Fatto.» da solo: alimenta recap, `next`, registro.

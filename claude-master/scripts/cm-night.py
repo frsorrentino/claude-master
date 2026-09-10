@@ -296,7 +296,7 @@ def run(argv):
         if bot.token():
             for c in sorted(bot.allowed_chats()):
                 bot.reply(c, text)
-            print(M("diary.sent", n=len(bot.allowed_chats())))
+            print(M("recap.sent", n=len(bot.allowed_chats())))
         else:
             print(M("bot.no_token", path=CFG["bot"]["token_file"]), file=sys.stderr)
     return 0

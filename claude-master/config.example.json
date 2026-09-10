@@ -156,9 +156,24 @@
     "max_candidates": 8,
     "first_run_max_age_s": 180
   },
-  "diary": {
+  "recap": {
     "cron_time": "20:00",
-    "max_last_chars": 160
+    "max_last_chars": 160,
+    "last": "short",
+    "hide_zero_turns": true,
+    "closed_chars": 90,
+    "summary": "model",
+    "summary_model": "haiku",
+    "summary_timeout_s": 120,
+    "project_log": "docs/recap.md",
+    "startup_lines": 5
+  },
+  "guard": {
+    "warn_pct": 95,
+    "cron_minutes": 5,
+    "night_after_reset": true,
+    "night_timeout_s": 3600,
+    "resume_prompt": "La quota è tornata disponibile: riprendi da dove eri rimasto."
   },
   "night": {
     "cron_time": "02:00",

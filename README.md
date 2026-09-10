@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.3.2-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.3.4-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 **Run several Claude Code sessions on one computer without losing track of
 them.** Each project gets its own terminal tab with a name and a colour; one
@@ -85,8 +85,10 @@ turned those on.
 
 - **The phone works even when nothing is running.** A small Telegram bot answers
   `/master` and `/launch <project>` when every session is closed. Each evening
-  it sends the day's diary: which sessions ran, where they waited for you, what
-  each one said last. And a queue of overnight jobs runs while you sleep, one at
+  it sends the day's recap: one sentence per project on what was done, the
+  ones waiting on a question first, with a link to open each live one; the same
+  line lands in the project's `docs/recap.md`, so every folder keeps its own
+  history for free. And a queue of overnight jobs runs while you sleep, one at
   a time, only while free memory and your quota allow, leaving a report in the
   project.
 
@@ -106,6 +108,7 @@ Ten commands cover a normal day; the complete reference is at the end.
 | see everything running | `claude-master sessions` |
 | find what needs you | `claude-master next` |
 | talk to another session | `claude-master talk <name> "…"` |
+| answer the question another session is stuck on | `claude-master answer <name> --show` · `answer <name> 2` |
 | close one | `claude-master close <name>` (refuses one with a tab attached: close the tab instead) |
 | restart this one, keep the conversation | `claude-master restart arm` |
 | send a screenshot to a project | `claude-master report <project> <image> "…"` |
@@ -184,7 +187,7 @@ longer adds up. A minimal example for two accounts:
 | `session.claude_args` · `session.link_wait_s` | flags every session starts with; how long `launch` waits for the Remote Control link (20 s) |
 | `terminal.backend` | `chromeos`, `gnome`, `kitty`, `iterm2`, `macos-terminal`, `wt`, `none` |
 | `shell.*` · `tmux.keybindings` · `tile.*` | the wrappers and aliases `init --shell` generates, the three keys of the `.tmux.conf` block, the window layout rules |
-| `bot.*` · `diary.*` · `night.*` | the Telegram bot, the evening diary, the night queue: all off or empty until you turn them on |
+| `bot.*` · `recap.*` · `night.*` · `guard.*` | the Telegram bot, the evening diary, the night queue: all off or empty until you turn them on |
 | `language` | `it` or `en` |
 
 The full list with defaults: [`claude-master/config.example.json`](claude-master/config.example.json).
@@ -194,10 +197,10 @@ The full list with defaults: [`claude-master/config.example.json`](claude-master
 Claude Code's `telegram` plugin lets you talk to a live session from your
 phone. When every session is closed there is nobody to talk to. `claude-master
 bot` fills that gap: a scheduled task, once a minute, polls the same Telegram
-bot (same token, same allowed chats) and answers three commands only —
+bot (same token, same allowed chats) and answers four commands only —
 `/master` starts the root session and replies with its link, `/launch <name>`
 starts a project (one match starts it; several or none are listed, never
-created), `/sessions` lists what is running. It stays quiet while a session's
+created), `/sessions` lists what is running, `/recap` sends today's diary. It stays quiet while a session's
 plugin is listening.
 
 Turning it on, and the two companions:
@@ -205,7 +208,7 @@ Turning it on, and the two companions:
 ```bash
 # config.json: "bot": {"enabled": true}
 claude-master bot install      # the once-a-minute task; `bot status` says who is listening
-claude-master diary install    # the day's diary to the same chats at 20:00 (diary.cron_time)
+claude-master recap install    # the day's diary to the same chats at 20:00 (diary.cron_time)
 claude-master night install    # the overnight queue at 02:00 (night.cron_time); fill it with `night add`
 ```
 
@@ -257,6 +260,7 @@ The complete reference. Italian aliases (`lancia`, `chiudi`, `sessioni`,
 | `claude-master close <name> \| --abandoned [--dry-run]` | closes a session nobody is attached to; refuses one with a tab |
 | `claude-master restart arm [--clean\|--switch-account [N]]` | restart when the turn ends |
 | `claude-master talk <name> "prompt" [--wait S] [--force]` | a prompt to another session, the reply read from its transcript |
+| `claude-master answer <name> --show` · `answer <name> <n> [--text "…"]` | reads the question another session is stuck on (options numbered) and answers it by number, from any session or from the phone through the root session |
 | `claude-master wait <name> [--timeout S]` | blocks until that session is idle |
 | `claude-master report <project> <image\|-> "text" [--no-launch]` | screenshot into the project's `docs/segnalazioni/`, prompt delivered |
 | `claude-master queue <name> "prompt" [--expires M] \| --show \| --clear` | a prompt delivered when that session's next turn ends |
@@ -268,8 +272,9 @@ The complete reference. Italian aliases (`lancia`, `chiudi`, `sessioni`,
 | `claude-master desk [start\|stop\|status]` | a Remote Control desk in the workspace root (optional, off by default) |
 | `claude-master tile [names] [--rows\|--grid] [--on PLACE] [--dry-run] [--where]` · `claude-master merge` · `claude-master move PLACE` · `claude-master layout save\|restore\|list NAME` | windows side by side, as tabs, on another monitor, or by saved layout (ChromeOS) |
 | `claude-master attach <name>` · `claude-master color <name>` · `claude-master quota` | attach a terminal; the tab's shape and colour; how full each account's quota is |
-| `claude-master bot poll\|install\|uninstall\|status` | the Telegram bot for when nothing is running |
-| `claude-master diary [--date D\|--since H] [--send]` · `diary install\|uninstall\|status` | the day's diary |
+| `claude-master guard run` · `install\|uninstall\|status` | quota guard: one Telegram warning per window above `guard.warn_pct` with the reset time; at the reset, the sessions that hit the wall get «resume where you were» and a pending night queue runs | |
+| `claude-master bot poll\|install\|uninstall\|status` | the Telegram bot for when nothing is running (`/master`, `/launch`, `/sessions`, `/recap`) |
+| `claude-master recap [--date D\|--since H] [--send] [--full]` · `recap install\|uninstall\|status` | the day's diary, per project: waiting on a question first (with a link), then alive, then closed |
 | `claude-master night add <dir> "prompt" [--model M] [--effort E] [--max-turns N]` · `list` · `remove <id>` · `run [--dry-run\|--one] [--send]` · `install\|uninstall\|status` | the overnight queue |
 
 ## Tests

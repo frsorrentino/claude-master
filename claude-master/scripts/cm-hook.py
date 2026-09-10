@@ -87,6 +87,27 @@ def local_time():
     return f"{h['prefix']} " + now.strftime(h["format"]).replace(now.strftime("%A"), day)
 
 
+def recent_recap(p):
+    """Le ultime righe del recap del progetto (`<cwd>/<recap.project_log>`, scritto ogni sera da
+    `claude-master recap`): la sessione nasce sapendo cosa è successo nei giorni scorsi, ~100 token
+    invece di rileggere i transcript. Niente file, niente riga."""
+    rc = CFG.get("recap") or {}
+    rel = str(rc.get("project_log") or "").strip()
+    n = int(rc.get("startup_lines") or 0)
+    cwd = p.get("cwd") or ""
+    if not rel or n <= 0 or not cwd or p.get("source", "startup") not in ("startup", "resume", "clear", "compact", ""):
+        return ""
+    f = Path(cwd) / rel
+    try:
+        rows = [l for l in f.read_text(encoding="utf-8").splitlines() if l.startswith("- ")]
+    except OSError:
+        return ""
+    if not rows:
+        return ""
+    head = "RECAP RECENTE" if CFG.get("language") == "it" else "RECENT RECAP"
+    return f"{head} ({rel}):\n" + "\n".join(rows[-n:])
+
+
 def kernel_text(p):
     if not CFG["hooks"]["session_kernel"]["enabled"]:
         return ""
@@ -135,6 +156,9 @@ def main(argv):
         k = kernel_text(p)
         if k:
             sys.stdout.write(k + "\n")
+        r = recent_recap(p)
+        if r:
+            sys.stdout.write(r + "\n")
     elif ev == "SessionEnd":
         registry_update()
         ledger("end", p, reason=p.get("reason", ""))

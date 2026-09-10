@@ -1,7 +1,7 @@
 # claude-master — integrazione con la shell (bash e zsh). Si fa `source` dal file rc.
 #
 # Cosa mette nella shell (tutto da configurazione):
-#   - i wrapper `shell.wrappers` (qui `claude` e `claude-pixel`): ogni sessione Claude
+#   - i wrapper `shell.wrappers` (per esempio `claude` e `claude-work`): ogni sessione Claude
 #     lanciata a mano nasce DENTRO tmux, con lo stesso schema di nomi di `launch`, il
 #     titolo di scheda di `color` e la regola unica «finestra chiusa = sessione finita»;
 #   - gli alias `shell.aliases` (lancia, sessioni, chiudi, ...);
@@ -94,7 +94,10 @@ _cm_wrap() {
 # --- wrapper per account (da shell.wrappers: comando<TAB>account) ----------------------
 while IFS=$'\t' read -r _cm_cmd _cm_acc; do
   [ -n "$_cm_cmd" ] && [ -n "$_cm_acc" ] || continue
-  eval "$_cm_cmd() { if _cm_fn_exists _cm_wrap; then _cm_wrap '$_cm_acc' \"\$@\"; else command claude \"\$@\"; fi; }"
+  # T76 (10/09/2026): lo shell snapshot di Claude Code cattura i wrapper per account
+  # ma NON gli helper (_cm_fn_exists, _cm_wrap): dentro una sessione ogni `claude --version`
+  # stampava «_cm_fn_exists: command not found». Il wrapper usa solo il builtin `declare`.
+  eval "$_cm_cmd() { if declare -F _cm_wrap >/dev/null 2>&1; then _cm_wrap '$_cm_acc' \"\$@\"; else command claude \"\$@\"; fi; }"
 done <<<"${CM_SHELL_WRAPPERS:-}"
 
 # --- alias (da shell.aliases: alias<TAB>sottocomando) ----------------------------------
