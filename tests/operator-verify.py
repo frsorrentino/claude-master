@@ -9,7 +9,8 @@ P3  park --ram-below con /proc/meminfo finto: sotto soglia parcheggia UNA sessio
 P4  unpark: `launch <cwd> --resume <id> --account <acc>` (claude finto: argv) e la voce sparisce
 C1  cloud: argv `--cloud "task"` nella cartella, account dedotto (CLAUDE_CONFIG_DIR per il secondo); follow: `-p msg --cloud id`
 C2  launch --teleport <id>: argv con --teleport, senza -c
-D1  desk start: sessione tmux `sportello` con `remote-control --name sportello --capacity 4`; status; stop
+D0  desk spento di default: start rifiuta (desk.enabled)
+D1  desk (abilitato): sessione tmux `sportello` con `remote-control --name sportello --capacity 4`; status; stop
 S1  sessions: colonna «busy da N min» (stallo) e riga quota sotto soglia
 """
 import json
@@ -147,6 +148,11 @@ with T.PrivateTmux() as tm:
     r = run("cm-launch.sh", str(home / "ws" / "personali" / "alfa"), "--teleport", "session_01T", "--no-window", FAKE_CLAUDE_SCENARIO_FILE=str(scen))
     last = argslog.read_text().splitlines()[-1]
     T.check("C2 launch --teleport → argv --teleport id, no -c", r.returncode == 0 and "--teleport session_01T" in last and " -c" not in last, last + r.stderr)
+    # D0: spento di default (10/09/2026): start rifiuta e dice la chiave; status/stop restano
+    r = run("cm-cloud.sh", "desk", "start", "--no-window", FAKE_CLAUDE_SCENARIO_FILE=str(scen))
+    T.check("D0 desk start refuses by default (desk.enabled false) naming the key", r.returncode == 3 and "desk.enabled" in r.stderr and tm("has-session", "-t", "=sportello").returncode != 0, r.stdout + r.stderr)
+    import json as _json
+    _c = _json.loads(cfg.read_text()); _c["desk"] = {"enabled": True}; cfg.write_text(_json.dumps(_c))
     # D1
     r = run("cm-cloud.sh", "desk", "start", "--no-window", FAKE_CLAUDE_SCENARIO_FILE=str(scen))
     last = argslog.read_text().splitlines()[-1]

@@ -84,6 +84,8 @@ with T.PrivateTmux() as tm:
     T.check("L8 --no-window → no terminal open", not fakelog.exists() or "nuova" not in fakelog.read_text(), fakelog.read_text() if fakelog.exists() else "")
     T.check("L11 registry written with the session", reg.exists() and '"nuova"' in reg.read_text(), reg.read_text() if reg.exists() else "missing")
     T.check("L11 link from the peer registry", "link:      https://claude.ai/code/session_01FAKE" in r.stdout, r.stdout)
+    r = run(str(home / "ws" / "personali" / "tardi"), "--no-window", "--create", scenario="bridge-late", extra={"FAKE_CLAUDE_DELAY": "3"})
+    T.check("L11b bridgeSessionId arriving late (3 s) is waited for: link printed, no «not yet» line", r.returncode == 0 and "link:      https://claude.ai/code/session_01FAKE" in r.stdout and "telefono" not in r.stdout, r.stdout + r.stderr)
 
     r = run(str(home / "ws" / "pro" / "beta"), "--no-window")
     T.check("L2 account deduced from folder_map → professionale", r.returncode == 0 and "professionale" in r.stdout and "dedotto" in r.stdout, r.stdout + r.stderr)

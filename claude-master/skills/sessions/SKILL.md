@@ -92,6 +92,13 @@ bocca all'utente una decisione che non ha preso, e nel caso peggiore fa premere 
 un'azione che nessuno ha autorizzato. Chiamalo «un suggerimento di Claude Code»; inviare quel
 testo solo se l'utente lo ripete in questa conversazione.
 
+## Dal telefono a sessioni chiuse
+
+Quando nessuna sessione è viva il plugin telegram non ascolta: `claude-master bot` (cron ogni
+minuto, stesso bot, `bot.enabled` in config) risponde a `/master`, `/launch <frammento>`,
+`/sessions`. Resta muto finché una sessione ascolta Telegram. Dopo un riavvio della macchina
+serve il login a mano: copre «sessioni chiuse, macchina sveglia».
+
 ## Segnalazioni dal telefono
 
     claude-master report <progetto> <immagine|-> "testo" [--no-launch]

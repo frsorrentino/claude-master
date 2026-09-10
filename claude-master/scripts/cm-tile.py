@@ -62,6 +62,9 @@ URL_TERMINALE = T["terminal_url"]
 SEGNAPOSTO = cm.expand(T["placeholder_file"])
 REGISTRO_MONITOR = cm.expand(T["monitor_registry"])
 SOGLIA = int(T["min_column_px"])
+# Due misure dello stesso monitor differiscono di 13-34 px (finestra massimizzata vs registro,
+# 10/09: -1462 vs -1475; 09/09: 749 vs 783): sotto TOLL sono lo stesso monitor
+TOLL = int(T.get("monitor_tolerance_px", 40))
 NOMI = T["monitor_names"]          # interno → nome mostrato (nativo, sinistra, ...)
 NOMI_INV = {v: k for k, v in NOMI.items()}
 DIREZIONI = {"su": "above", "alto": "above", "sopra": "above", "up": "above",
@@ -287,7 +290,7 @@ def registro_salva(aree):
         if not (a and a.get("width")):
             continue
         for b in vecchie:
-            if all(abs(a[k] - b[k]) <= 8 for k in ("left", "top", "width", "height")):
+            if all(abs(a[k] - b[k]) <= TOLL for k in ("left", "top", "width", "height")):
                 break
         else:
             vecchie.append({k: a[k] for k in ("left", "top", "width", "height")})
@@ -386,7 +389,7 @@ def monitor_noti(riquadri, schede):
 
     def aggiungi(a):
         for b in aree:
-            if all(abs(a[k] - b[k]) <= 8 for k in ("left", "top", "width", "height")):
+            if all(abs(a[k] - b[k]) <= TOLL for k in ("left", "top", "width", "height")):
                 return
         aree.append(a)
     for f in riquadri:
@@ -650,7 +653,7 @@ def affianca(a):
             scelto = sonda_direzione(ordinate[0], a.on, per_id)
             if scelto:
                 for x in posti.values():
-                    if all(abs(scelto[k] - x[k]) <= 8 for k in scelto):
+                    if all(abs(scelto[k] - x[k]) <= TOLL for k in ("left", "top", "width", "height")):
                         scelto = None
                         break
         if not scelto:
@@ -664,14 +667,14 @@ def affianca(a):
                    include_types=["normal", "popup", "app"])
         esiti = r.get("results", [])
         if esiti and "visible screen space" in str(esiti[0].get("error") or ""):
-            vive_reg = [b for b in registro_carica() if not all(abs(scelto[k] - b[k]) <= 8 for k in ("left", "top", "width", "height"))]
+            vive_reg = [b for b in registro_carica() if not all(abs(scelto[k] - b[k]) <= TOLL for k in ("left", "top", "width", "height"))]
             try:
                 json.dump(vive_reg, open(REGISTRO_MONITOR, "w"))
             except OSError:
                 pass
             sys.exit(M("tile.stale_monitor", name=a.on, w=scelto["width"], h=scelto["height"], l=scelto["left"], t=scelto["top"]))
         area = scelto
-        print(M("tile.monitor_line", name=a.on, w=area["width"], h=area["height"], l=area["left"], t=area["top"]))
+        print(M("tile.monitor_line", name=nome_posto(a.on), w=area["width"], h=area["height"], l=area["left"], t=area["top"]))
     elif a.area:
         l, top, w, h = (int(x) for x in a.area.split(","))
         area = {"left": l, "top": top, "width": w, "height": h}
@@ -752,10 +755,22 @@ def layout_cmd(argv):
         if mancano:
             print(M("tile.layout_missing", names=", ".join(mancano)))
         r = bridge("window_layout", action="restore", name=nome)
-        print(json.dumps(r, ensure_ascii=False)[:600])
+        if isinstance(r, dict) and "matched" in r:
+            print(M("tile.layout_restored", name=nome, n=r.get("matched", 0), missing=r.get("unmatched_saved", 0), extra=len(r.get("unmatched_current") or [])))
+            for x in r.get("results", []):
+                w = x.get("window") or {}
+                print(f"  {x.get('window_id')}  " + (M("tile.not_applied") + f" ({x['error']})" if x.get("error") else f"ok  {w.get('left')},{w.get('top')} {w.get('width')}x{w.get('height')}"))
+        else:
+            print(json.dumps(r, ensure_ascii=False)[:600])
     else:
         r = bridge("window_layout", action="list")
-        print(json.dumps(r, ensure_ascii=False)[:1200])
+        rows = (r or {}).get("layouts", []) if isinstance(r, dict) else []
+        for x in rows:
+            if not isinstance(x, dict):
+                x = {"name": str(x)}
+            print(f"  {x.get('name'):<24} {x.get('windows', '?')} finestre  {str(x.get('savedAt', ''))[:16]}")
+        if not rows:
+            print(M("tile.layout_none"))
 
 
 def main():

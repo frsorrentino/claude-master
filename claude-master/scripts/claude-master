@@ -52,6 +52,9 @@ case "$cmd" in
   merge|unisci)           exec python3 "$S/cm-tile.py" merge "$@" ;;
   move|sposta)            exec python3 "$S/cm-tile.py" move "$@" ;;
   layout)                 exec python3 "$S/cm-tile.py" layout "$@" ;;
+  bot)                    exec python3 "$S/cm-bot.py" "$@" ;;
+  diary|diario)           exec python3 "$S/cm-diary.py" "$@" ;;
+  night|notte)            exec python3 "$S/cm-night.py" "$@" ;;
   *)
     python3 "$S/cm-config.py" --msg cli.unknown "cmd=$cmd" >&2
     python3 "$S/cm-config.py" --msg cli.usage >&2

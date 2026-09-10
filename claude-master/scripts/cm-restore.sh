@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # claude-master restore — rilancia le sessioni registrate prima di un riavvio.
 #
-#   claude-master restore            rilancia (chiede conferma se c'e' un terminale, N s poi si')
+#   claude-master restore            rilancia: con un terminale chiede conferma (N s poi si'),
+#                                    SENZA terminale si ferma alla lista (serve --yes)
 #   claude-master restore --dry-run  dice cosa farebbe                                  (it: --prova)
 #   claude-master restore --yes      non chiede                                          (it: --si)
 #
@@ -43,9 +44,17 @@ done
 cm_msg restore.todo "n=${#DA_FARE[@]}" "saved=$SALVATO"
 for r in "${DA_FARE[@]}"; do IFS=$'\t' read -r nome cartella acct <<<"$r"; printf '  %-28s %-13s %s\n' "$nome" "$acct" "$cartella"; done
 [ "$PROVA" = si ] && exit 0
-if [ "$CONFERMA" = si ] && [ -t 0 ]; then
-  read -r -t "$CM_RESTORE_CONFIRM_TIMEOUT_S" -p "$(cm_msg restore.confirm "s=$CM_RESTORE_CONFIRM_TIMEOUT_S") " risp || risp=s
-  case "${risp:-s}" in n|N) cm_msg restore.aborted; exit 0 ;; esac
+if [ "$CONFERMA" = si ]; then
+  if [ -t 0 ]; then
+    read -r -t "$CM_RESTORE_CONFIRM_TIMEOUT_S" -p "$(cm_msg restore.confirm "s=$CM_RESTORE_CONFIRM_TIMEOUT_S") " risp || risp=s
+    case "${risp:-s}" in n|N) cm_msg restore.aborted; exit 0 ;; esac
+  else
+    # senza terminale nessuno puo' rispondere: si ferma alla lista (come --dry-run) e dice
+    # come eseguire davvero. Un `restore` letto «per vedere» da una sessione Claude rilanciava
+    # tutto (master, 09/09/2026 23:20).
+    cm_msg restore.no_tty
+    exit 0
+  fi
 fi
 
 # tutte in parallelo tranne l'ultima (restore.last), che va per ultima

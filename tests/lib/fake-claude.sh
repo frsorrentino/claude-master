@@ -10,6 +10,8 @@
 #   slow          schermo vuoto per FAKE_CLAUDE_DELAY secondi prima del prompt (T5)
 #   die           esce subito con errore (sessione morta dopo l'avvio)
 #   question      dopo il prompt mostra un menu numerato con «Enter to select» (T13)
+#   bridge-late   si registra SUBITO ma il bridgeSessionId (link) arriva dopo FAKE_CLAUDE_DELAY secondi,
+#                 e niente link sullo schermo: nota (a) della master, 09/09/2026
 #   plain         prompt subito
 # Scrive il registro peer come Claude Code: $CLAUDE_CONFIG_DIR/sessions/<pid>.json
 # (FAKE_CLAUDE_REGISTER=0 per non farlo). Stampa il link Remote Control se
@@ -25,7 +27,10 @@ SCEN="${FAKE_CLAUDE_SCENARIO:-plain}"
 SCEN=",${SCEN},"
 DELAY="${FAKE_CLAUDE_DELAY:-4}"
 case "${1:-}" in agents|attach|logs|stop) exit 1 ;; esac
-case " $* " in *" --cloud "*|*" -p "*) [ -n "${FAKE_CLAUDE_ARGS_LOG:-}" ] && printf '%s\n' "$*" >> "$FAKE_CLAUDE_ARGS_LOG"; echo "Sent to cloud session (fake)"; exit 0 ;; esac
+case " $* " in *" --cloud "*|*" -p "*)
+  ev=""; [ -n "${FAKE_CLAUDE_ECHO_ENV:-}" ] && ev=" ENV $FAKE_CLAUDE_ECHO_ENV=${!FAKE_CLAUDE_ECHO_ENV:-}"
+  [ -n "${FAKE_CLAUDE_ARGS_LOG:-}" ] && printf '%s%s\n' "$*" "$ev" >> "$FAKE_CLAUDE_ARGS_LOG"; echo "Sent to cloud session (fake)"; exit 0 ;;
+esac
 if [ "${1:-}" = remote-control ]; then [ -n "${FAKE_CLAUDE_ARGS_LOG:-}" ] && printf '%s\n' "$*" >> "$FAKE_CLAUDE_ARGS_LOG"; echo "Remote Control server (fake) https://claude.ai/code/session_01FAKEDESK"; sleep 600; exit 0; fi
 if [ -n "${FAKE_CLAUDE_ARGS_LOG:-}" ]; then
   ev=""; [ -n "${FAKE_CLAUDE_ECHO_ENV:-}" ] && ev=" ENV $FAKE_CLAUDE_ECHO_ENV=${!FAKE_CLAUDE_ECHO_ENV:-}"
@@ -56,7 +61,10 @@ register() {
   ps=$(awk '{print $22}' /proc/$$/stat)
   tm=$(tmux display-message -p '#S:@#{window_index}.%#{pane_index}' 2>/dev/null || echo "")
   printf '{"pid":%s,"sessionId":"fake-%s","cwd":"%s","startedAt":%s,"procStart":"%s","version":"2.1.265","kind":"interactive","tmux":"%s","messagingSocketPath":"/tmp/fake-%s.sock","name":"%s","status":"idle","bridgeSessionId":"%s"}\n' \
-    "$$" "$$" "$PWD" "$(date +%s)000" "$ps" "$tm" "$$" "${NAME:-$(basename "$PWD")}" "${RC:+session_01FAKE$$}" > "$dir/$$.json"
+    "$$" "$$" "$PWD" "$(date +%s)000" "$ps" "$tm" "$$" "${NAME:-$(basename "$PWD")}" "$(case "$SCEN" in *,bridge-late,*) ;; *) printf '%s' "${RC:+session_01FAKE$$}";; esac)" > "$dir/$$.json"
+  case "$SCEN" in *,bridge-late,*)
+    ( sleep "$DELAY"; sed -i "s/\"bridgeSessionId\":\"\"/\"bridgeSessionId\":\"session_01FAKE$$\"/" "$dir/$$.json" ) & ;;
+  esac
   printf '{"peerToken":"faketoken%s","procStart":"%s"}\n' "$$" "$ps" > "$dir/$$.fakehash.key"
   trap 'rm -f "$dir/$$.json" "$dir/$$.fakehash.key"; exit' EXIT INT TERM HUP   # anche su kill-server (SIGHUP)
 }
@@ -89,7 +97,7 @@ case "$SCEN" in *,slow,*) sleep "$DELAY";; esac
 register
 clear 2>/dev/null || true
 echo " ▐▛███▛█   Claude Code v2.1.265 (fake)"
-[ -n "$RC" ] && echo "▎ Keep working from anywhere: https://claude.ai/code/session_01FAKE$$"
+case "$SCEN" in *,bridge-late,*) ;; *) [ -n "$RC" ] && echo "▎ Keep working from anywhere: https://claude.ai/code/session_01FAKE$$";; esac
 echo "──────────────────────────── ${NAME:-$(basename "$PWD")} ─"
 case "$SCEN" in *,question,*)
   printf '\n ☐ Colore\ncolore preferito?\n❯ 1. rosso\n  2. blu\nEnter to select · ↑/↓ to navigate · Esc to cancel\n' ;;

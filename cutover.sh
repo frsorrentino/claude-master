@@ -13,6 +13,7 @@
 # Test hooks: CM_HOME (fake home), CM_BIN (claude-master dispatcher), CM_CRONTAB_CMD,
 # CM_SKIP_DOCTOR=1, CLAUDE_MASTER_CONFIG.
 set -euo pipefail
+if [ -n "${CM_TRACE:-}" ]; then set -x; fi
 
 YES=0
 for a in "$@"; do
@@ -174,7 +175,10 @@ PY
 crontab_step() {
   say "== crontab: registro.sh out, claude-master registry in"
   [ "$YES" = 1 ] || { plan crontab "remove the nuova-sessione/registro.sh line; claude-master init --cron --yes"; return; }
-  ("$CRONTAB" -l 2>/dev/null || true) | grep -v 'nuova-sessione/registro.sh' | "$CRONTAB" -
+  # read first, write after: a `crontab -l | … | crontab -` pipeline races on the spool file
+  # (the fake crontab of the tests lost that race once, 09/09 22:55); an empty result is fine
+  current="$("$CRONTAB" -l 2>/dev/null || true)"
+  printf '%s\n' "$current" | { grep -v 'nuova-sessione/registro.sh' || true; } | "$CRONTAB" -
   "$CM" init --cron --yes
 }
 

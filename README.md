@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.3.0-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Status](https://img.shields.io/badge/status-beta-yellow)
+![Version](https://img.shields.io/badge/version-0.3.1-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Status](https://img.shields.io/badge/status-beta-yellow)
 
 **A Claude Code plugin for running many sessions on one machine.** Every session
 lives in tmux, in the right folder and the right account, with a terminal window
@@ -70,14 +70,17 @@ named, coloured tab.
 | `claude-master restore` | relaunch the sessions registered before a reboot | the shell integration proposes it after a fresh boot |
 | `claude-master cloud <dir> "task" [--account N]` | a cloud session (`claude --cloud`) from the account of the folder | the folder needs a reachable GitHub remote |
 | `claude-master follow <id\|url> "message"` | queue a message to a cloud session | |
-| `claude-master desk [start\|stop\|status] [--no-window]` | a Remote Control desk in the workspace root: sessions opened on demand from the phone | |
+| `claude-master desk [start\|stop\|status] [--no-window]` | a Remote Control desk in the workspace root: sessions opened on demand from the phone | optional, off by default (`desk.enabled`): the root session is the phone's entry point |
 | `claude-master tile [names] [--rows\|--grid] [--on PLACE] [--dry-run] [--where]` | one window per session, side by side (grid when columns would be too narrow) | ChromeOS + chrome-bridge |
 | `claude-master merge [names]` | every session as a tab of one Terminal window | |
-| `claude-master move PLACE [names]` | to another monitor, and tile there | |
+| `claude-master move PLACE [names]` | to another monitor, and tile there | a monitor with no window on it is invisible to Chrome: drag one there first |
 | `claude-master layout save\|restore\|list NAME` | named window layouts | |
 | `claude-master attach <name> [ephemeral]` | attach the current terminal to a session | used by the tabs |
 | `claude-master color <name>` | the tab shape and colour of a session | |
 | `claude-master quota` | how full each account's quota is | reads fable-director's quota files if present |
+| `claude-master diary [--date D\|--since H] [--send]` / `diary install\|uninstall\|status` | the day's diary from the hooks' ledger: per session start→end, turns, waits on a question, last assistant message; `--send` to Telegram, cron at `diary.cron_time` | |
+| `claude-master night add <dir> "prompt" [--account N] [--model M] [--effort E] [--max-turns N]` / `list` / `remove <id>` / `run [--dry-run\|--one] [--send]` / `install\|uninstall\|status` | a queue of unattended jobs run with `claude -p` one at a time (cron at `night.cron_time`), guarded by free RAM and the account's five-hour quota; report in `<dir>/docs/notte/`, summary on Telegram | |
+| `claude-master bot poll\|install\|uninstall\|status` | Telegram commands `/master`, `/launch <fragment>`, `/sessions` answered by a cron poller when no session is alive | off by default (`bot.enabled`), reuses the `telegram` plugin's bot |
 
 `init --shell` also generates aliases in your language (`lancia`, `chiudi`,
 `sessioni`, `affianca`… for Italian) from `shell.aliases`; every flag accepts
@@ -86,6 +89,50 @@ both spellings (`--crea`/`--create`, `--prova`/`--dry-run`, …).
 Slash commands inside a session: `/claude-master:sessions`, `:launch`, `:close`,
 `:restart`, `:report`, `:quota`. Skills: `claude-master:sessions` (the rules),
 `claude-master:screen-layout`.
+
+## From the phone when nothing is running
+
+The `telegram` plugin of Claude Code lets you talk to a live session from your
+phone. When every session is closed there is nobody to talk to: `claude-master
+bot` fills that gap with a one-minute cron job that polls the same Telegram bot
+(same token, same allowed chats as the plugin) and answers three commands only:
+
+| command | what |
+|---|---|
+| `/master` | launches the root session (`workspace.root`) without a window and replies with its link |
+| `/launch <fragment>` | resolves the folder like the skill does (one candidate → launches it; several or none → lists, never creates) |
+| `/sessions` | the output of `claude-master sessions` |
+
+Anything else from an allowed chat gets the list of commands; anything from a
+chat not in `allowFrom` is ignored and logged (`<state_dir>/bot.log`). Telegram
+delivers updates to **one** consumer per token, so the poller stays quiet while
+a session's plugin is polling (its `bot.pid` is alive) and takes over only when
+none is. On its first run it discards the backlog: yesterday's `/master` does
+not launch anything today.
+
+```bash
+# config.json: "bot": {"enabled": true}
+claude-master bot install    # * * * * * claude-master bot poll
+claude-master bot status
+```
+
+Limits, stated plainly: after a **reboot** of the machine nobody is logged in
+and cron does not run — the bot covers «sessions closed, machine awake», not
+«machine off». On a Chromebook set the power settings so the machine does not
+sleep while charging and closing the lid does not suspend it; a session left
+alive (`--no-window`) keeps the plugin listening and is the surest bridge.
+
+Every evening (`diary.cron_time`, 20:00) `claude-master diary --send` posts the
+day's diary from the hooks' ledger to the same chats: which sessions ran, when,
+how many turns, where they waited for you, what each one said last. Costs live
+elsewhere (fable-director's receipts): the diary is *what happened*.
+
+The night shift (`claude-master night`) is the third piece: queue jobs during
+the day (`night add <dir> "prompt"`), and at `night.cron_time` they run one at
+a time with `claude -p`, each in its folder and account, capped in turns and
+time, only while free RAM and the account's five-hour quota allow; every job
+leaves a report in the project's `docs/notte/` and the summary reaches the
+same Telegram chats.
 
 ## Configuration
 
@@ -101,6 +148,7 @@ list of keys with defaults is `claude-master/config.example.json`.
 |---|---|
 | `accounts.<name>` | `config_dir` (`CLAUDE_CONFIG_DIR` of the account), `tmux_prefix`, `shape`, `shell_command`, `label` |
 | `folder_map`, `workspace.root` | which folders belong to which account; the root maps to the `master` session |
+| `session.link_wait_s` | seconds `launch` waits for the Remote Control link after the session registered (20; after a reboot six sessions start at once and the bridge is slower) |
 | `session.claude_args` | flags passed to `claude` at launch; without `--dangerously-skip-permissions` a session starts in `dontAsk` mode and every Bash call is denied (init proposes it when your live sessions carry it) |
 | `terminal.backend` | `chromeos`, `gnome`, `kitty`, `iterm2`, `macos-terminal`, `wt`, `none`, `auto` |
 | `tabs.*` | title template, colour palette and registry |
@@ -109,6 +157,9 @@ list of keys with defaults is `claude-master/config.example.json`.
 | `tile.*` | chrome-bridge CLI path, minimum column width, monitor names, placeholder and waits |
 | `talk.*`, `report.*`, `restore.*`, `restart.*`, `registry.cron_minutes` | timeouts, subfolder for screenshots, uptime window, flag and log files, cron cadence |
 | `hooks.*` | local time (format, prefix), Stop-hook restart, session kernel |
+| `diary.*` | `cron_time` of the evening diary, `max_last_chars` |
+| `night.*` | night shift: `cron_time`, `min_free_mb`, `max_quota_pct`, `item_timeout_s`, `max_turns`, `permission_mode`, `tool_memory_limit`, `out_subdir`, `max_items_per_run` |
+| `bot.*` | Telegram poller: `enabled` (off), token/access/pid files of the `telegram` plugin, `cron_minutes`, `api_base` |
 | `language` | `it` or `en` for every message |
 
 State (session registry, colour registry, placeholder, restart flag, ledger,

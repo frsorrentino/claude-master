@@ -42,7 +42,10 @@ shim.chmod(0o755)
 cron = tmp / "crontab"
 cron.write_text("30 3 * * * /home/x/backup.sh\n*/5 * * * * /home/x/.claude/skills/nuova-sessione/registro.sh >/dev/null 2>&1\n")
 fake_crontab = tmp / "crontab.sh"
-fake_crontab.write_text('#!/bin/sh\nif [ "$1" = "-l" ]; then cat "%s"; elif [ "$1" = "-" ] || [ -z "$1" ]; then cat > "%s"; else cp "$1" "%s"; fi\n' % (cron, cron, cron))
+# crontab finto ATOMICO: legge tutto lo stdin in un file temporaneo e poi lo rinomina, come il
+# crontab vero (spool scritto per intero); un `cat > file` diretto troncava il file mentre
+# `crontab -l` della stessa pipeline lo stava ancora leggendo (race, visto il 09/09 alle 22:55)
+fake_crontab.write_text('#!/bin/sh\nif [ "$1" = "-l" ]; then cat "%s"; elif [ "$1" = "-" ] || [ -z "$1" ]; then cat > "%s.tmp" && mv "%s.tmp" "%s"; else cp "$1" "%s"; fi\n' % (cron, cron, cron, cron, cron))
 fake_crontab.chmod(0o755)
 cfg = home / ".config" / "claude-master" / "config.json"
 cfg.parent.mkdir(parents=True)

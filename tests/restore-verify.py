@@ -59,6 +59,8 @@ with T.PrivateTmux() as tm:
     r = subprocess.run([str(T.SCRIPTS / "cm-restore.sh"), "--dry-run"], capture_output=True, text=True, env=env(), timeout=60)
     T.check("X1 dry-run lists 3 to restore, skips the live one and the missing folder", r.returncode == 0 and "(3)" in r.stdout and "viva" in r.stdout and "sparita" in r.stdout
             and "alfa" in r.stdout and "pix-beta" in r.stdout and tm("has-session", "-t", "=alfa").returncode != 0, r.stdout + r.stderr)
+    r = subprocess.run([str(T.SCRIPTS / "cm-restore.sh")], capture_output=True, text=True, env=env(), timeout=60)
+    T.check("R2b no terminal and no --yes: lists, relaunches nothing, says how", r.returncode == 0 and "--yes" in r.stdout and not tm("has-session", "-t", "=alfa").returncode == 0, r.stdout + r.stderr)
     r = subprocess.run([str(T.SCRIPTS / "cm-restore.sh"), "--yes"], capture_output=True, text=True, env=env(), timeout=240)
     T.check("X2 --yes relaunches alfa, pix-beta and master", r.returncode == 0 and all(tm("has-session", "-t", f"={n}").returncode == 0 for n in ("alfa", "pix-beta", "master")), r.stdout + r.stderr + tm("list-sessions").stdout)
     lines = argslog.read_text().splitlines()

@@ -38,7 +38,8 @@
     "env": {},
     "window_by_default": true,
     "bg_remote_control": false,
-    "death_check_s": 3
+    "death_check_s": 3,
+    "link_wait_s": 20
   },
   "terminal": {
     "backend": "auto",
@@ -136,9 +137,42 @@
     "warn_pct": 85
   },
   "desk": {
+    "enabled": false,
     "name": "sportello",
     "capacity": 4,
     "permission_mode": "acceptEdits"
+  },
+  "bot": {
+    "enabled": false,
+    "token_file": "~/.claude/channels/telegram/.env",
+    "access_file": "~/.claude/channels/telegram/access.json",
+    "pid_file": "~/.claude/channels/telegram/bot.pid",
+    "api_base": "https://api.telegram.org",
+    "offset_file": "~/.local/state/claude-master/bot-offset",
+    "log": "~/.local/state/claude-master/bot.log",
+    "cron_minutes": 1,
+    "http_timeout_s": 20,
+    "command_timeout_s": 120,
+    "max_candidates": 8,
+    "first_run_max_age_s": 180
+  },
+  "diary": {
+    "cron_time": "20:00",
+    "max_last_chars": 160
+  },
+  "night": {
+    "cron_time": "02:00",
+    "min_free_mb": 1500,
+    "max_quota_pct": 80,
+    "item_timeout_s": 3600,
+    "max_turns": 40,
+    "permission_mode": "acceptEdits",
+    "tool_memory_limit": "2g",
+    "out_subdir": "docs/notte",
+    "max_items_per_run": 3,
+    "queue_file": "~/.local/state/claude-master/night-queue.jsonl",
+    "done_file": "~/.local/state/claude-master/night-done.jsonl",
+    "log": "~/.local/state/claude-master/night.log"
   },
   "hooks": {
     "local_time": {

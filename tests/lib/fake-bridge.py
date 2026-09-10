@@ -153,7 +153,7 @@ def main():
                     win.update({k: s_[k] for k in ("left", "top", "width", "height")}); n += 1
             out = {"restored": n, "missing": len(saved) - n}
         else:
-            out = {"layouts": list(lay)}
+            out = {"layouts": [{"name": n, "windows": len(v.get("windows", [])) if isinstance(v, dict) else 0, "savedAt": "2026-09-10T00:00:00.000Z"} for n, v in lay.items()]}
     else:
         print(f"fake-bridge: unknown command {cmd}", file=sys.stderr)
         sys.exit(1)

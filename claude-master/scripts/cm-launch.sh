@@ -28,6 +28,7 @@
 # nomi. La tolleranza sui percorsi parziali sta nella skill.
 set -u
 source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/cm-lib.sh"
+if [ -n "${CM_TRACE:-}" ]; then PS4='+ $(date +%T) '; set -x; fi   # CM_TRACE=1: traccia con orari (diagnosi dei tempi)
 
 CARTELLA="${1:-}"
 CREA=no; CONTINUA=no; RIPRENDI=""; ACCOUNT=""; FINESTRA="$CM_SESSION_WINDOW_BY_DEFAULT"; BG=no
@@ -187,7 +188,18 @@ cm_tmux new-session -d -s "$NOME" -c "$CARTELLA" env "${ENVARGS[@]}" "$CLAUDE" "
 # Il file di registro NON e' <pane_pid>.json: il binario `claude` si rilancia
 # in un figlio (visto dal vivo il 09/09: pane 1122 → sessione registrata 1146),
 # quindi si cerca il file che dichiara QUESTA sessione tmux nel campo `tmux`.
-reg_file() { grep -l "\"tmux\":\"$NOME:" "$CONF_DIR"/sessions/*.json 2>/dev/null | head -1; }
+# Il file piu' RECENTE fra quelli che dichiarano questa sessione tmux e il cui pid e' vivo: dopo
+# un riavvio il file del processo vecchio puo' restare qualche secondo (kill -KILL non esegue la
+# pulizia) e `head -1` riportava il suo link (visto nella traccia del 10/09).
+reg_file() {
+  local f pid
+  for f in $(ls -t "$CONF_DIR"/sessions/*.json 2>/dev/null); do
+    grep -q "\"tmux\":\"$NOME:" "$f" 2>/dev/null || continue
+    pid="${f##*/}"; pid="${pid%%.*}"
+    [ -d "/proc/$pid" ] && { printf '%s\n' "$f"; return 0; }
+  done
+  return 1
+}
 REG_FILE=""
 
 # T1/T54: il prefisso "=" vale per has-session, non per capture-pane/send-keys.
@@ -236,7 +248,14 @@ if e_dialogo <<<"$SCHERMO"; then cm_msg launch.stuck_dialog "name=$NOME" >&2; ex
 
 # --- finestra sul desktop, verificata ATTACCATA (T8) ----------------------------------
 FINESTRA_APERTA=""
-if [ "$FINESTRA" = true ]; then
+# Backend «none» o nessun display: niente da aprire e niente da aspettare (prima si aspettava
+# attach_wait_s per una finestra impossibile: 25 s a ogni riavvio, traccia del 10/09)
+if [ "$FINESTRA" = true ] && [ "$("$CM_SCRIPTS/cm-terminal.sh" detect)" = none ]; then
+  FINESTRA_IMPOSSIBILE=si
+else
+  FINESTRA_IMPOSSIBILE=no
+fi
+if [ "$FINESTRA" = true ] && [ "$FINESTRA_IMPOSSIBILE" = no ]; then
   attaccata() { [ "$(cm_tmux list-sessions -F '#{session_name} #{session_attached}' 2>/dev/null | awk -v n="$NOME" '$1 == n {print $2}')" = 1 ]; }
   MODE=""; [ "$CM_TERMINAL_EPHEMERAL" = true ] && MODE=ephemeral
   # "Finestra aperta" vuol dire ATTACCATA: una scheda che nasce ma non si attacca
@@ -264,10 +283,22 @@ else
   echo "  locale:    $(cm_msg launch.window_none "name=$NOME")"
 fi
 [ "$ILLEGGIBILE" = si ] && echo "  nota:      $(cm_msg launch.slow_screen)"
-# Il link Remote Control: dal registro (1.2), altrimenti dallo schermo (ripiego T55)
-LINK=""
-[ -n "$REG_FILE" ] || REG_FILE=$(reg_file)
+# Il link Remote Control: dal registro (1.2), altrimenti dallo schermo (ripiego T55).
+# Il registro nasce PRIMA che il bridge sia connesso: bridgeSessionId arriva qualche secondo
+# dopo (con --continue la master ha letto «non ancora nel registro» il 09/09, poi il link c'era):
+# si aspetta fino a session.link_wait_s, solo se il Remote Control e' stato chiesto.
 # bridgeSessionId porta gia' il prefisso "session_" (visto dal vivo il 09/09): non si raddoppia
-[ -n "$REG_FILE" ] && [ -f "$REG_FILE" ] && LINK=$(sed -n 's/.*"bridgeSessionId":"\([^"]*\)".*/\1/p' "$REG_FILE" | head -1 | sed 's|^session_||; s|^\(.\)|https://claude.ai/code/session_\1|')
+leggi_link() {
+  [ -n "$REG_FILE" ] || REG_FILE=$(reg_file)
+  [ -n "$REG_FILE" ] && [ -f "$REG_FILE" ] && sed -n 's/.*"bridgeSessionId":"\([^"]*\)".*/\1/p' "$REG_FILE" | head -1 | sed 's|^session_||; s|^\(.\)|https://claude.ai/code/session_\1|'
+}
+LINK=""; ATTESA=0; [ "$CM_SESSION_REMOTE_CONTROL" = true ] && ATTESA="${CM_SESSION_LINK_WAIT_S:-10}"
+i=0
+while :; do
+  LINK=$(leggi_link)
+  [ -n "$LINK" ] && break
+  [ "$i" -ge "$ATTESA" ] && break
+  i=$((i + 1)); sleep 1
+done
 [ -n "$LINK" ] || LINK=$(grep -oE 'https://claude\.ai/code/session_[A-Za-z0-9]+' <<<"$SCHERMO" | head -1)
 if [ -n "$LINK" ]; then echo "  link:      $LINK"; else echo "  telefono:  $(cm_msg launch.no_link)"; fi

@@ -70,6 +70,7 @@ DEFAULTS = {
         "window_by_default": True,
         "bg_remote_control": False,
         "death_check_s": 3,
+        "link_wait_s": 20,
     },
     "terminal": {
         "backend": "auto",
@@ -113,7 +114,24 @@ DEFAULTS = {
     "report": {"subdir": "docs/reports", "image_exts": ["png", "jpg", "jpeg", "webp", "gif"]},
     "sessions": {"stall_min": 20, "recent_min": 5},
     "quota": {"source": "~/.claude/fable-director", "warn_pct": 85},
-    "desk": {"name": "sportello", "capacity": 4, "permission_mode": "acceptEdits"},
+    # spento di default (Franz, 10/09/2026): la master resta l'unico ingresso dal telefono; lo
+    # sportello apre sessioni senza progetto, con nome casuale e cartella fissa, e costa un
+    # processo sempre acceso
+    "desk": {"enabled": False, "name": "sportello", "capacity": 4, "permission_mode": "acceptEdits"},
+    # bot Telegram a cron: /master, /launch, /sessions dal telefono quando nessuna sessione e' viva;
+    # riusa token e chat autorizzate del plugin `telegram` di Claude Code (scelta di Franz, 10/09/2026)
+    "bot": {"enabled": False, "token_file": "~/.claude/channels/telegram/.env",
+            "access_file": "~/.claude/channels/telegram/access.json",
+            "pid_file": "~/.claude/channels/telegram/bot.pid",
+            "api_base": "https://api.telegram.org", "offset_file": "", "log": "",
+            "cron_minutes": 1, "http_timeout_s": 20, "command_timeout_s": 120, "max_candidates": 8,
+            "first_run_max_age_s": 180},
+    # diario serale dal ledger (N7): ora del cron e lunghezza dell'ultimo messaggio citato
+    "diary": {"cron_time": "20:00", "max_last_chars": 160},
+    # turno di notte (N5): coda di lavori `claude -p` non presidiati, con guardie su RAM e quota
+    "night": {"cron_time": "02:00", "min_free_mb": 1500, "max_quota_pct": 80, "item_timeout_s": 3600,
+              "max_turns": 40, "permission_mode": "acceptEdits", "tool_memory_limit": "2g",
+              "out_subdir": "docs/notte", "max_items_per_run": 3, "queue_file": "", "done_file": "", "log": ""},
     "hooks": {
         "local_time": {"enabled": True, "format": "%A %Y-%m-%d %H:%M", "prefix": "[local time]"},
         "restart_stop": {"enabled": True},
@@ -157,6 +175,11 @@ STATE_FILES = {
     "registry.file": "sessions.json",
     "restart.flag_file": "restart.json",
     "restart.log": "restart.log",
+    "bot.offset_file": "bot-offset",
+    "bot.log": "bot.log",
+    "night.queue_file": "night-queue.jsonl",
+    "night.done_file": "night-done.jsonl",
+    "night.log": "night.log",
 }
 
 # Percorsi legacy di questa postazione (D4): stessi formati, si condividono
