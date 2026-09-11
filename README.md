@@ -1,12 +1,14 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.3.4-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.3.5-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 **Run several Claude Code sessions on one computer without losing track of
 them.** Each project gets its own terminal tab with a name and a colour; one
 list shows what is running; you can send a prompt from one session to another,
 or from your phone; a restart keeps the conversation; and after a reboot, the
-first shell you open offers to bring every session back.
+first shell you open offers to bring every session back. One session, the
+**master** on your workspace root, runs all the others: it is the one your
+phone talks to, and it launches, watches, answers and closes the rest.
 
 **Who it is for, honestly:** people who keep three or more Claude Code sessions
 open at once, on one machine, with one or two Claude accounts. If you open one

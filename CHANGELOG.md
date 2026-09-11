@@ -2,6 +2,8 @@
 
 ## 0.3.x
 
+- **0.3.5 — 2026-09-11: README opening names the master session.**
+
 - **0.3.4 — 2026-09-10 (0.3.3 never left the machine).**
   - `doctor` checks the plugin in every account's cache through `claude plugin list --json` (Claude Code 2.1.268): version against the checkout, `errorDetails`/`noteDetails`, disabled or missing, with the fix.
   - Shell wrappers no longer depend on helper functions: Claude Code's shell snapshot captures the per-account wrappers but not the helpers, so `claude --version` inside a session printed «_cm_fn_exists: command not found» (T76).
