@@ -9,6 +9,10 @@ G5  T34/T72: finestra massimizzata o minimizzata → la sessione riparte in una 
     (attach NOME, client nuovo T27), la scheda vecchia chiusa, poi il tiling; MAI popup (Franz 11/09 13:26)
 G10 sessioni in finestre popup (versioni precedenti) → convertite in finestre app via garcon; dopo tile
     nessuna finestra popup
+G11 DISPARI con la master (Franz 11/09 15:50, tile.odd_layout master-primary): master grande a sinistra (60%),
+    le altre impilate a destra in N-1 righe; home 0, popup 0; G12 PARI → colonne come prima;
+    G13 dispari SENZA master → colonne uniformi (ripiego); G14 odd_layout uniform → comportamento vecchio;
+    sotto min_column_px la colonna impilata è consentita ma segnalata
 G6  T39: sessioni sparse su due monitor → radunate dove sta la maggioranza
 G7  T40: sotto min_column_px si passa a griglia
 G8  move destra: monitor dal registro; T32: voce stantia rifiutata dal tile di prova e tolta dal registro
@@ -48,14 +52,14 @@ FAKE_GARCON = T.ROOT / "tests" / "lib" / "fake-garcon.py"
 garcon_log = tmp / "garcon.log"
 
 
-def write_cfg(backend="chromeos", cli=str(FAKE_BRIDGE)):
+def write_cfg(backend="chromeos", cli=str(FAKE_BRIDGE), odd_layout=None):
     cfg.write_text(json.dumps({
         "language": "it", "state_dir": str(state),
         "accounts": {"personale": {"config_dir": str(home / ".claude")}, "professionale": {"config_dir": str(home / ".claude-pixel"), "tmux_prefix": "pix-"}},
         "terminal": {"backend": backend, "garcon": str(FAKE_GARCON)},
         "tile": {"chrome_bridge_cli": cli, "terminal_url": "chrome-untrusted://terminal/", "min_column_px": 340,
                  "monitor_registry": str(state / "monitors.json"), "placeholder_file": str(state / "next-session"),
-                 "new_client_wait_s": 15, "window_open_wait_s": 3},
+                 "new_client_wait_s": 15, "window_open_wait_s": 3, **({"odd_layout": odd_layout} if odd_layout else {})},
         "tabs": {"color_registry": str(tmp / "colors")},
     }))
 
@@ -149,6 +153,51 @@ with T.PrivateTmux() as tm:
     T.check("G4 one tile_windows call per window (T35)", len(tiles) == 3 and all(len(c["params"]["window_ids"]) == 1 for c in tiles), str([c["params"]["window_ids"] for c in tiles]))
     r = tile("tile", "gamma", "alfa", "beta")
     T.check("G4 re-run with windows already in place: no crash (T37), reports ok", r.returncode == 0 and "3/3" in r.stdout, r.stdout + r.stderr)
+    # G11: cinque con la master → master-primary
+    tm("new-session", "-d", "-s", "master", "bash", "--norc")
+    for s_ in ("delta",):
+        tm("new-session", "-d", "-s", s_, "bash", "--norc")
+    five = ["master", "alfa", "beta", "gamma", "delta"]
+    world([win(20 + i, 10 + 40 * i, 10) for i in range(5)] + [win(9, 700, 500, 700, 300, "normal", "normal")],
+          [term_tab(200 + i, 20 + i, n_) for i, n_ in enumerate(five)] + [{"id": 90, "windowId": 9, "url": "https://example.com/", "title": "ex", "active": True}], [NATIVE])
+    r = tile("tile", *five)
+    ws = windows()
+    T.check("G11 odd with master: master big on the left (60%, full height), the four stacked on the right in 4 rows", r.returncode == 0 and "main-vertical" in r.stdout and ws[20]["left"] == 0 and ws[20]["width"] == 921 and ws[20]["height"] == 864
+            and all(ws[21 + i]["left"] == 921 and ws[21 + i]["width"] == 615 and ws[21 + i]["height"] == 216 and ws[21 + i]["top"] == 216 * i for i in range(4)),
+            r.stdout + r.stderr + str({k: (v["left"], v["top"], v["width"], v["height"]) for k, v in ws.items()}))
+    T.check("G11 no home next to sessions, no popup", not homes_with_sessions() and not popups(), str(json.load(open(bridge_state))["tabs"]))
+    # G12: quattro → colonne come prima
+    four = ["alfa", "beta", "gamma", "delta"]
+    world([win(20 + i, 10 + 40 * i, 10) for i in range(4)] + [win(9, 700, 500, 700, 300, "normal", "normal")],
+          [term_tab(200 + i, 20 + i, n_) for i, n_ in enumerate(four)] + [{"id": 90, "windowId": 9, "url": "https://example.com/", "title": "ex", "active": True}], [NATIVE])
+    r = tile("tile", *four)
+    ws = windows()
+    T.check("G12 even: equal columns as before", r.returncode == 0 and "main-vertical" not in r.stdout and all(ws[20 + i]["width"] == 384 and ws[20 + i]["left"] == 384 * i for i in range(4)), r.stdout + r.stderr + str({k: (v["left"], v["width"]) for k, v in ws.items()}))
+    # G13: tre SENZA master → colonne uniformi
+    three = ["alfa", "beta", "gamma"]
+    world([win(20 + i, 10 + 40 * i, 10) for i in range(3)] + [win(9, 700, 500, 700, 300, "normal", "normal")],
+          [term_tab(200 + i, 20 + i, n_) for i, n_ in enumerate(three)] + [{"id": 90, "windowId": 9, "url": "https://example.com/", "title": "ex", "active": True}], [NATIVE])
+    r = tile("tile", *three)
+    ws = windows()
+    T.check("G13 odd without master: uniform columns (fallback)", r.returncode == 0 and "main-vertical" not in r.stdout and all(ws[20 + i]["width"] == 512 for i in range(3)), r.stdout + r.stderr + str({k: (v["left"], v["width"]) for k, v in ws.items()}))
+    # G14: odd_layout uniform → vecchio comportamento (5 su 1536 = 307 < 340 → griglia)
+    write_cfg(odd_layout="uniform")
+    world([win(20 + i, 10 + 40 * i, 10) for i in range(5)] + [win(9, 700, 500, 700, 300, "normal", "normal")],
+          [term_tab(200 + i, 20 + i, n_) for i, n_ in enumerate(five)] + [{"id": 90, "windowId": 9, "url": "https://example.com/", "title": "ex", "active": True}], [NATIVE])
+    r = tile("tile", *five)
+    T.check("G14 odd_layout uniform: the old behaviour (grid below min_column_px)", r.returncode == 0 and "main-vertical" not in r.stdout and ("grid" in r.stdout or "griglia" in r.stdout), r.stdout + r.stderr)
+    write_cfg()
+    # G11b: sette con la master → colonna impilata sotto min_column_px consentita ma segnalata
+    for s_ in ("e1", "e2"):
+        tm("new-session", "-d", "-s", s_, "bash", "--norc")
+    seven = five + ["e1", "e2"]
+    world([win(20 + i, 10 + 40 * i, 10) for i in range(7)] + [win(9, 700, 500, 700, 300, "normal", "normal")],
+          [term_tab(200 + i, 20 + i, n_) for i, n_ in enumerate(seven)] + [{"id": 90, "windowId": 9, "url": "https://example.com/", "title": "ex", "active": True}], [NATIVE])
+    r = tile("tile", *seven)
+    ws = windows()
+    T.check("G11b seven with master: still main-vertical, stack of 6 at 144 px rows, narrow stack reported not refused", r.returncode == 0 and "main-vertical" in r.stdout and ws[20]["width"] == 921 and ws[26]["top"] == 144 * 5 and ws[26]["height"] == 144, r.stdout + r.stderr + str({k: (v["left"], v["top"], v["height"]) for k, v in ws.items()}))
+    for s_ in ("master", "delta", "e1", "e2"):
+        tm("kill-session", "-t", f"={s_}")
     # G5: massimizzata
     world([win(11, 0, 0, 1536, 864, "maximized", "app"), win(12, 620, 10), win(9, 700, 500, 700, 300, "normal", "normal")],
           [term_tab(101, 11, "alfa"), term_tab(102, 12, "beta"), {"id": 90, "windowId": 9, "url": "https://example.com/", "title": "ex", "active": True}], [NATIVE])

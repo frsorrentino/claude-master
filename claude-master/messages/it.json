@@ -221,6 +221,7 @@
   "tile.window_missing": "finestra non comparsa per: {names}",
   "tile.move_no_window": "move_tab su {name}: nessun window_id nella risposta\n{resp}",
   "tile.maximized_detached": "{name}: finestra {state}, riaperta in una finestra nuova",
+  "tile.narrow_stack": "colonna impilata da {px} px, sotto tile.min_column_px ({min}): scelta di Franz, le finestre a destra sono strette",
   "tile.narrow_grid": "{px} px per colonna, sotto tile.min_column_px ({min}): passo a griglia",
   "tile.scattered": "sessioni sparse su {n} monitor: le raduno su «{where}»",
   "tile.no_monitor_there": "nessun monitor a «{name}»: non mi sono mosso. Quelli che vedo: {known}. Un monitor senza nessuna finestra sopra è invisibile a Chrome: trascinaci una finestra e riprova.",

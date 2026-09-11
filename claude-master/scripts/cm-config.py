@@ -94,6 +94,7 @@ DEFAULTS = {
         "chrome_bridge_cli": "",
         "terminal_url": "chrome-untrusted://terminal/",
         "min_column_px": 340,
+        "odd_layout": "master-primary",
         "padding": 0,
         "monitor_names": {
             "native": "native", "left": "left", "right": "right", "above": "above",

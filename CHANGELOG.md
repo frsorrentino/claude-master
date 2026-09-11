@@ -2,6 +2,9 @@
 
 ## 0.3.x
 
+- **0.3.7 — 2026-09-11: the master leads the odd tilings.**
+  - `tile` with an ODD number of windows that include the root session: the master becomes the big window on the left (60 %), the others stacked on the right in N-1 rows (`tile.odd_layout`: `master-primary`, the default, or `uniform` for the old behaviour). Even counts, explicit `--rows`/`--grid`, or a subset without the master keep the uniform layout; a stacked column below `tile.min_column_px` is allowed and reported, never refused.
+
 - **0.3.6 — 2026-09-11: the phone knows when a session stops.**
   - When a session stops on a question or a permission, the `PermissionRequest` hook sends the allowed Telegram chats the question, its numbered options as they appear on the session's screen and «reply “2 to NAME” to the master» (`hooks.ask_notify`, on by default, silent without the `telegram` plugin's token). Text, not an inline keyboard: a tap would reach the plugin's poller, not this one. `claude-master answer` gained the `--notify` entry the hook runs detached.
   - `claude-master screen <name> [--lines N]`: the last lines of a session's terminal, so «screen NAME» to the root session shows from the phone what a session is doing.

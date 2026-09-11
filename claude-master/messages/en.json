@@ -221,6 +221,7 @@
   "tile.window_missing": "no window appeared for: {names}",
   "tile.move_no_window": "move_tab on {name}: no window id in the reply\n{resp}",
   "tile.maximized_detached": "{name}: window {state}, reopened in a new window",
+  "tile.narrow_stack": "stacked column of {px} px, below tile.min_column_px ({min}): the windows on the right are narrow",
   "tile.narrow_grid": "{px} px per column is below tile.min_column_px ({min}): grid instead",
   "tile.scattered": "sessions scattered over {n} monitors: gathering them on “{where}”",
   "tile.no_monitor_there": "no monitor at “{name}”: I did not move. Those I see: {known}. A monitor with no window on it is invisible to Chrome: drag a window there and retry.",

@@ -801,6 +801,15 @@ def affianca(a):
         sys.exit(M("tile.no_reference"))
 
     n = len(ordinate)
+    # DISPARI con la master (Franz, 11/09/2026 15:50; `tile.odd_layout`: master-primary | uniform):
+    # la sessione della radice diventa la finestra grande a sinistra (60%), le altre impilate a
+    # destra in n-1 righe. Solo col layout di default (colonne), con n >= 3 dispari e la master
+    # fra le affiancate; altrimenti il ripiego uniforme di sempre. La colonna impilata puo' scendere
+    # sotto min_column_px: consentito, segnalato, mai rifiutato.
+    master_nome = CFG["workspace"]["root_session_name"]
+    if (layout == "columns" and n >= 3 and n % 2 == 1 and master_nome in nomi
+            and str(T.get("odd_layout", "master-primary")) == "master-primary"):
+        layout = "main-vertical"
     # colonne sotto tile.min_column_px non sono piu' un terminale (80 colonne di testo non ci
     # stanno): si passa da soli a griglia, come la doc prometteva e il codice legacy non faceva
     if layout == "columns" and n > 1 and (area["width"] - a.padding * 2) // n < SOGLIA:
@@ -814,15 +823,26 @@ def affianca(a):
         colonne = max(1, min(n, area["width"] // SOGLIA))
         righe = math.ceil(n / colonne)
         colonne = math.ceil(n / righe)
-    passo_x = (area["width"] - a.padding * 2) // colonne
-    passo_y = (area["height"] - a.padding * 2) // righe
     esiti = []
+    if layout == "main-vertical":
+        wid_master = next(w for n_, w in finestre if n_ == master_nome)
+        pila = [w for w in ordinate if w != wid_master]
+        larga = int((area["width"] - a.padding * 2) * 0.6)
+        stretta = area["width"] - a.padding * 2 - larga
+        riga = (area["height"] - a.padding * 2) // len(pila)
+        if stretta < SOGLIA:
+            print(M("tile.narrow_stack", px=stretta, min=SOGLIA))
+        slots = [(wid_master, {"left": area["left"] + a.padding, "top": area["top"] + a.padding, "width": larga, "height": area["height"] - a.padding * 2})]
+        slots += [(w, {"left": area["left"] + a.padding + larga, "top": area["top"] + a.padding + i * riga, "width": stretta, "height": riga}) for i, w in enumerate(pila)]
+        colonne, righe = 2, len(pila)
+    else:
+        passo_x = (area["width"] - a.padding * 2) // colonne
+        passo_y = (area["height"] - a.padding * 2) // righe
+        slots = [(wid, {"left": area["left"] + a.padding + (i % colonne) * passo_x, "top": area["top"] + a.padding + (i // colonne) * passo_y,
+                        "width": passo_x, "height": passo_y}) for i, wid in enumerate(ordinate)]
     # UNA PER VOLTA con l'area del proprio slot (T35): passandole tutte insieme tile_windows
     # sceglie da se' quale va dove e l'ordine chiesto si perde
-    for i, wid in enumerate(ordinate):
-        cx, cy = i % colonne, i // colonne
-        slot = {"left": area["left"] + a.padding + cx * passo_x, "top": area["top"] + a.padding + cy * passo_y,
-                "width": passo_x, "height": passo_y}
+    for wid, slot in slots:
         r = bridge("tile_windows", window_ids=[wid], area=slot, include_types=["normal", "popup", "app"])
         esiti += r.get("results", [])
     chiuse = pulisci_home()

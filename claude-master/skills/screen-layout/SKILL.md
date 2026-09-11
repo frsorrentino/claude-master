@@ -31,6 +31,12 @@ Alias: `affianca`, `riaffianca`, `unisci`, `sposta`; tasti tmux `Ctrl+b a` / `Ct
 - **Sessioni sparse su più monitor** vengono radunate dove sta la maggioranza (a parità,
   dove sta la prima chiesta): `tile` lo dice.
 - **Meno di 340 px per colonna** (`tile.min_column_px`): griglia automatica.
+- **Numero DISPARI di finestre con la master fra loro** (Franz 11/09, `tile.odd_layout` =
+  `master-primary`): la master è la finestra grande a sinistra (60%), le altre impilate a destra
+  in N-1 righe; `tile` lo dice («main-vertical»). Con un numero pari, con `--rows`/`--grid`, o
+  se la master non è fra le affiancate: colonne/griglia uniformi come sempre. La colonna impilata
+  può scendere sotto `min_column_px`: consentito e segnalato, non rifiutato. `odd_layout: uniform`
+  ripristina il vecchio comportamento.
 - **`merge` non è il contrario di `tile`**: tornare a schede passa da una scheda duplicata
   e da un segnaposto consumato dalla shell; se «nessuna scheda nuova attaccata entro N s»,
   le vecchie NON sono state chiuse e la sessione è salva. Non riprovare a raffica.
