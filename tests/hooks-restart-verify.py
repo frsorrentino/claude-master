@@ -3,6 +3,8 @@
 
 H1  UserPromptSubmit stampa `[ora locale] <giorno> <data>` con il giorno nella lingua (it) e cancella il flag waiting
 H2  PermissionRequest scrive waiting/<sid> con il tool; SessionStart lo cancella e aggiorna il registro (file scritto)
+H2b PermissionRequest con hooks.ask_notify abilitato: l'hook esce subito e un processo staccato manda il messaggio
+    Telegram (domanda e opzioni dal payload); H2c con ask_notify.enabled false: nessun messaggio
 H3  SessionStart stampa il kernel (<= 1900 caratteri, <= 13 righe) a startup/resume/compact; non per source ignoto; non se disabilitato
 H4  Stop scrive nel ledger `last` troncato; con coda → {"decision":"block","reason":...} e la voce esce dalla coda; con stop_hook_active non consuma; voci scadute scartate
 H5  StopFailure scrive nel ledger
@@ -12,6 +14,9 @@ R3  esecutore: /exit al claude finto, nome tmux liberato, rilancio con --continu
 R4  arm --clean → rilancio senza -c
 R5  arm --switch-account → transcript copiato nella projects dell'altro account, rilancio con --resume <id> --account
 R6  failed marca il flag
+R7  UN FLAG PER SESSIONE (13:10 dell'11/09: 8 arm in due minuti, 4 riavvii — l'ultimo arm sovrascriveva gli altri):
+    due sessioni armano in sequenza, entrambe hanno il proprio file; `restart list` le elenca; l'hook della
+    prima consuma SOLO il suo, l'altro resta
 """
 import json
 import os
@@ -29,6 +34,11 @@ home = tmp / "home"
 for d in (".claude/sessions", ".claude-pixel/sessions", "ws/personali/alfa"):
     (home / d).mkdir(parents=True)
 state = tmp / "state"
+tg = home / ".claude" / "channels" / "telegram"
+tg.mkdir(parents=True)
+(tg / ".env").write_text("TELEGRAM_BOT_TOKEN=123:ABC\n")
+(tg / "access.json").write_text(json.dumps({"dmPolicy": "allowlist", "allowFrom": ["1001"]}))
+TG_API, TG_CALLS, _ = T.fake_telegram()
 cfg = tmp / "config.json"
 cfg.write_text(json.dumps({
     "language": "it", "state_dir": str(state),
@@ -41,6 +51,8 @@ cfg.write_text(json.dumps({
     "registry": {"file": str(tmp / "registry.json")},
     "restart": {"flag_file": str(state / "restart.json"), "log": str(state / "restart.log"), "exit_wait_s": 5, "term_wait_s": 3},
     "tabs": {"color_registry": str(tmp / "colors")},
+    "bot": {"api_base": TG_API, "token_file": str(tg / ".env"), "access_file": str(tg / "access.json")},
+    "hooks": {"ask_notify": {"enabled": True, "delay_s": 0.2}},
 }))
 FAKE = T.ROOT / "tests" / "lib" / "fake-claude.sh"
 
@@ -66,6 +78,20 @@ T.check("H1 waiting flag cleared", not (state / "waiting" / "sid1").exists(), ""
 # H2
 r = hook("PermissionRequest", {"session_id": "sid2", "cwd": str(home), "tool_name": "AskUserQuestion"})
 T.check("H2 PermissionRequest writes waiting/<sid> with the tool", (state / "waiting" / "sid2").read_text() == "AskUserQuestion", r.stderr)
+# H2b
+t0 = time.time()
+r = hook("PermissionRequest", {"session_id": "sid2b", "cwd": str(home / "ws" / "personali" / "alfa"), "tool_name": "AskUserQuestion",
+                               "tool_input": {"questions": [{"question": "procedo?", "header": "Via", "options": [{"label": "sì"}, {"label": "no"}]}]}})
+T.check("H2b hook returns at once (< 1.5 s), exit 0", r.returncode == 0 and time.time() - t0 < 1.5, f"{time.time() - t0:.1f}s " + r.stderr)
+found = lambda: [c["text"] for c in TG_CALLS["sendMessage"] if "procedo?" in c["text"]]  # noqa: E731  (anche H2 manda un avviso: si cerca questo)
+T.check("H2b Telegram message from a detached process: name, question, options", T.wait_until(found, 8) and "alfa" in found()[0] and "2. no" in found()[0], str(TG_CALLS["sendMessage"]))
+# H2c
+TG_CALLS["sendMessage"].clear()
+c = json.loads(cfg.read_text()); c["hooks"]["ask_notify"]["enabled"] = False; cfg.write_text(json.dumps(c))
+r = hook("PermissionRequest", {"session_id": "sid2c", "cwd": str(home), "tool_name": "AskUserQuestion", "tool_input": {"questions": [{"question": "x?", "options": [{"label": "a"}]}]}})
+time.sleep(1.5)
+T.check("H2c ask_notify disabled: no message", r.returncode == 0 and not TG_CALLS["sendMessage"], str(TG_CALLS["sendMessage"]))
+c["hooks"]["ask_notify"]["enabled"] = True; cfg.write_text(json.dumps(c))
 r = hook("SessionStart", {"session_id": "sid2", "cwd": str(home), "source": "startup"})
 time.sleep(1.5)
 T.check("H2 SessionStart clears the flag", not (state / "waiting" / "sid2").exists(), r.stderr)
@@ -121,16 +147,16 @@ with T.PrivateTmux() as tm:
     pane_id = tm("list-panes", "-t", "alfa", "-F", "#{pane_id}").stdout.strip()
     inside = dict(e, TMUX=f"/tmp/tmux-{os.getuid()}/{tm.socket},0,0", TMUX_PANE=pane_id, CLAUDE_CODE_SESSION_ID="sid-alfa")
     r = subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "arm"], capture_output=True, text=True, env=inside, cwd=str(home / "ws" / "personali" / "alfa"))
-    flag = json.loads((state / "restart.json").read_text()) if (state / "restart.json").exists() else {}
+    flag = json.loads((state / "restart-alfa.json").read_text()) if (state / "restart-alfa.json").exists() else {}
     T.check("R1 arm inside tmux writes the flag", r.returncode == 0 and flag.get("tmux") == "alfa" and flag.get("pid") == pane_pid and flag.get("gen"), r.stdout + r.stderr + str(flag))
     # R2: hook da un'altra sessione non tocca il flag
     tm("new-session", "-d", "-s", "altra", "bash", "--norc")
     other = dict(inside, TMUX_PANE=tm("list-panes", "-t", "altra", "-F", "#{pane_id}").stdout.strip())
     r = subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "hook"], capture_output=True, text=True, env=other)
-    T.check("R2 hook from another session leaves the flag", (state / "restart.json").exists() and not r.stdout.strip(), r.stdout + r.stderr)
+    T.check("R2 hook from another session leaves the flag", (state / "restart-alfa.json").exists() and not r.stdout.strip(), r.stdout + r.stderr)
     # R3: hook dalla stessa sessione → esecutore → /exit → rilancio
     r = subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "hook"], capture_output=True, text=True, env=inside)
-    T.check("R2 hook from the armed session consumes the flag and answers a systemMessage", "systemMessage" in r.stdout and not (state / "restart.json").exists(), r.stdout + r.stderr)
+    T.check("R2 hook from the armed session consumes the flag and answers a systemMessage", "systemMessage" in r.stdout and not (state / "restart-alfa.json").exists(), r.stdout + r.stderr)
     for _ in range(40):
         time.sleep(1)
         if (state / "restart.log").exists() and "riavvio completato" in (state / "restart.log").read_text():
@@ -156,7 +182,7 @@ with T.PrivateTmux() as tm:
     (home / ".claude" / "projects" / slug / "sid-alfa.jsonl").write_text('{"type":"user"}\n')
     inside3 = dict(inside2, TMUX_PANE=tm("list-panes", "-t", "alfa", "-F", "#{pane_id}").stdout.strip())
     r = subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "arm", "--switch-account"], capture_output=True, text=True, env=inside3, cwd=str(home / "ws" / "personali" / "alfa"))
-    flag = json.loads((state / "restart.json").read_text())
+    flag = json.loads((state / "restart-alfa.json").read_text())
     T.check("R5 arm --switch-account records the target account and session id", flag.get("account_a") == "professionale" and flag.get("sessione") == "sid-alfa", r.stdout + r.stderr + str(flag))
     subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "hook"], capture_output=True, text=True, env=inside3)
     for _ in range(40):
@@ -167,10 +193,22 @@ with T.PrivateTmux() as tm:
     T.check("R5 transcript copied and relaunched with --resume on the other account", (home / ".claude-pixel" / "projects" / slug / "sid-alfa.jsonl").exists()
             and "--resume sid-alfa" in (tmp / "args.log").read_text().splitlines()[-1] and tm("has-session", "-t", "=pix-alfa").returncode == 0, log[-500:] + (tmp / "args.log").read_text()[-200:])
     # R6
-    subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "arm"], capture_output=True, text=True, env=dict(inside3, TMUX_PANE=tm("list-panes", "-t", "pix-alfa", "-F", "#{pane_id}").stdout.strip()), cwd=str(home / "ws" / "personali" / "alfa"))
-    subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "failed"], capture_output=True, text=True, env=inside3)
-    flag = json.loads((state / "restart.json").read_text())
+    inside_pix = dict(inside3, TMUX_PANE=tm("list-panes", "-t", "pix-alfa", "-F", "#{pane_id}").stdout.strip())
+    subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "arm"], capture_output=True, text=True, env=inside_pix, cwd=str(home / "ws" / "personali" / "alfa"))
+    subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "failed"], capture_output=True, text=True, env=inside_pix)   # StopFailure gira DENTRO la sessione armata
+    flag = json.loads((state / "restart-pix-alfa.json").read_text())
     T.check("R6 failed marks the armed flag", "fallito" in flag, str(flag))
+    # R7: due sessioni armano una dopo l'altra
+    other = dict(inside, TMUX_PANE=tm("list-panes", "-t", "altra", "-F", "#{pane_id}").stdout.strip())
+    r1 = subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "arm"], capture_output=True, text=True, env=other, cwd=str(home / "ws" / "personali" / "alfa"))
+    r2 = subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "arm"], capture_output=True, text=True, env=dict(inside3, TMUX_PANE=tm("list-panes", "-t", "pix-alfa", "-F", "#{pane_id}").stdout.strip()), cwd=str(home / "ws" / "personali" / "alfa"))
+    fa, fb = state / "restart-altra.json", state / "restart-pix-alfa.json"
+    T.check("R7 two arms in a row: two flag files, each with its own tmux name", r1.returncode == 0 and r2.returncode == 0 and fa.is_file() and fb.is_file() and json.loads(fa.read_text())["tmux"] == "altra" and json.loads(fb.read_text())["tmux"] == "pix-alfa", r1.stdout + r1.stderr + r2.stdout + r2.stderr + str(sorted(x.name for x in state.glob("restart*"))))
+    r = subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "list"], capture_output=True, text=True, env=e)
+    T.check("R7 restart list names both armed sessions", r.returncode == 0 and "altra" in r.stdout and "pix-alfa" in r.stdout, r.stdout + r.stderr)
+    r = subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "hook"], capture_output=True, text=True, env=other)
+    T.check("R7 hook of the first consumes only its own flag; the other stays armed", "systemMessage" in r.stdout and not fa.exists() and fb.is_file(), r.stdout + r.stderr + str(sorted(x.name for x in state.glob("restart*"))))
+    time.sleep(3)
 
 T.rm(str(tmp))
 T.finish()

@@ -15,6 +15,9 @@ si ignora (le chat non autorizzate in silenzio, quelle autorizzate con la lista 
                       nessuno → elenca e NON crea
   /sessions           l'output di `claude-master sessions`
   /recap              il recap di oggi (come alle 20:00; /diary è un alias)
+  /start              «vuoi /master?» con un bottone inline (Franz l'ha scritto due volte credendo di
+                      lanciare la master, 11/09/2026); il tap e' un callback_query che, a sessioni chiuse,
+                      arriva a QUESTO poller: lancia la master come /master
 
 Telegram consegna gli update a UN solo consumatore per token: il plugin `telegram` delle sessioni
 vive fa polling e scrive bot.pid. Questo poller gira SOLO se quel pid è assente o morto, altrimenti
@@ -121,10 +124,11 @@ def api(method, **params):
         return json.loads(r.read().decode())
 
 
-def reply(chat_id, text, parse_mode=None):
+def reply(chat_id, text, parse_mode=None, reply_markup=None):
     text = text if len(text) <= MAX_TEXT else text[:MAX_TEXT] + "\n…"
     try:
-        api("sendMessage", chat_id=chat_id, text=text, disable_web_page_preview="true", parse_mode=parse_mode)
+        api("sendMessage", chat_id=chat_id, text=text, disable_web_page_preview="true", parse_mode=parse_mode,
+            reply_markup=json.dumps(reply_markup) if reply_markup else None)
     except (urllib.error.URLError, OSError, ValueError) as e:
         log(f"reply to {chat_id} FAILED: {e}")
 
@@ -192,13 +196,18 @@ def do_sessions():
     return out or M("bot.no_output")
 
 
+START_MARKUP = {"inline_keyboard": [[{"text": "/master", "callback_data": "master"}]]}
+
+
 def handle(text):
-    """Il testo di un messaggio autorizzato → la risposta (o None se non è un comando)."""
+    """Il testo di un messaggio autorizzato → la risposta: una stringa, o (stringa, reply_markup)."""
     t = text.strip()
     if not t.startswith("/"):
         return M("bot.help")
     cmd, _, rest = t.partition(" ")
     cmd = cmd.split("@", 1)[0].lower()   # «/master@nomebot» nei gruppi e nei suggerimenti
+    if cmd == "/start":
+        return M("bot.start"), START_MARKUP
     if cmd == "/master":
         return do_master()
     if cmd == "/launch":
@@ -238,7 +247,7 @@ def poll():
             except ValueError:
                 offset = None
         try:
-            r = api("getUpdates", offset=offset, timeout=0, allowed_updates='["message"]')
+            r = api("getUpdates", offset=offset, timeout=0, allowed_updates='["message","callback_query"]')
         except urllib.error.HTTPError as e:
             if e.code == 409:
                 log("409 conflict: another poller holds the token (plugin just started?)")
@@ -263,25 +272,35 @@ def poll():
         allowed = allowed_chats()
         for u in updates:
             uid = u.get("update_id", 0)
-            msg = u.get("message") or {}
+            cq = u.get("callback_query") or {}
+            msg = cq.get("message") if cq else (u.get("message") or {})
+            msg = msg or {}
             chat = msg.get("chat") or {}
             chat_id = chat.get("id")
-            frm = (msg.get("from") or {}).get("id")
-            text = msg.get("text") or ""
+            frm = ((cq.get("from") if cq else msg.get("from")) or {}).get("id")
+            text = ("/" + str(cq.get("data") or "")) if cq else (msg.get("text") or "")
             authorized = chat.get("type") == "private" and (str(chat_id) in allowed or str(frm) in allowed)
             if not authorized:
                 log(f"ignored update {uid}: chat {chat_id} ({chat.get('type')}) not allowed")
-            elif not text:
+            elif not text.strip("/"):
                 log(f"ignored update {uid}: no text from {chat_id}")
             else:
                 head = text.strip().split()[0] if text.strip() else ""
-                log(f"update {uid} from {chat_id}: {head[:40]}")
+                log(f"update {uid} from {chat_id}: {'tap ' if cq else ''}{head[:40]}")
+                if cq:
+                    try:
+                        api("answerCallbackQuery", callback_query_id=cq.get("id"))
+                    except (urllib.error.URLError, OSError, ValueError) as e:
+                        log(f"answerCallbackQuery FAILED: {e}")
                 try:
                     answer = handle(text)
                 except subprocess.TimeoutExpired:
                     answer = M("bot.timeout")
+                markup = None
+                if isinstance(answer, tuple):
+                    answer, markup = answer
                 log(f"  → {answer.splitlines()[0][:120] if answer else '-'}")
-                reply(chat_id, answer)
+                reply(chat_id, answer, reply_markup=markup)
             off_p.write_text(str(uid + 1))
         return 0
     finally:

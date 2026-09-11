@@ -7,6 +7,8 @@ DI2 --json: struttura per sessione
 DI3 --since: solo gli eventi recenti
 DI4 --send: sendMessage a ogni chat di allowFrom col testo del diario
 DI5 install (riga 0 20 * * *), status, uninstall
+DI6 recap.min_turns (soglia di sostanza): le chiuse sotto la soglia finiscono in UNA riga «altro: a, b»
+    invece di una riga ciascuna; le ferme e le vive restano intere; il conteggio del titolo non cambia
 """
 import json
 import os
@@ -76,7 +78,7 @@ cfg.write_text(json.dumps({
     "tabs": {"color_registry": str(tmp / "colors")},
     "tile": {"chrome_bridge_cli": ""},
     "bot": {"api_base": f"http://127.0.0.1:{srv.server_port}", "token_file": str(tg / ".env"), "access_file": str(tg / "access.json")},
-    "recap": {"cron_time": "20:00", "max_last_chars": 40, "summary": "last"},
+    "recap": {"cron_time": "20:00", "max_last_chars": 40, "summary": "last", "min_turns": 1},
 }))
 
 
@@ -127,6 +129,13 @@ T.check("DI1c project log carries «prossimo» when the model gave one", sito_lo
 recap("--date", "2026-09-09")
 T.check("DI1c idempotent: a second run leaves ONE line for the date", logf.read_text().count("- 2026-09-09:") == 1, logf.read_text())
 T.check("DI1c the root project (master) gets its line too, sito.com as well", (ws / "docs" / "recap.md").is_file() and (ws / "pixelfarm" / "clienti" / "sito.com" / "docs" / "recap.md").is_file(), str(list(ws.rglob("recap.md"))))
+# DI6: soglia di sostanza
+cfg_thr = json.loads(cfg.read_text()); cfg_thr["recap"]["min_turns"] = 3; cfg.write_text(json.dumps(cfg_thr))
+r = recap("--date", "2026-09-09")
+out = r.stdout
+T.check("DI6 min_turns 3: sito.com (1 turn) folded into one «altro» line, alfa (3 turns) keeps its line", r.returncode == 0 and "✓ sito" not in out and "altro: sito.\u2060com" in out and "✓ alfa: riga buona senza email" in out, out + r.stderr)
+T.check("DI6 title still counts 3 projects, master (waiting, 1 turn) untouched", "3 progetti" in out and "🟠 master (https://claude.ai/code/session_01LINK)" in out, out)
+cfg_thr["recap"]["min_turns"] = 1; cfg.write_text(json.dumps(cfg_thr))
 r = recap("--date", "2026-09-09", "--full")
 out = r.stdout
 T.check("DI1 --full: one row per session, old format, email/letter lines skipped in «ultimo»", "personale · alfa" in out and "5 sessioni" in out and "ultimo: riga buona senza email" in out and "Gentile" not in out, out)

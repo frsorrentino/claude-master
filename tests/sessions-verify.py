@@ -13,6 +13,8 @@ S9  CANALE: cartella sessions condivisa via symlink → nativo anche per l'altro
 S10 CANALE: pid antenato di questo processo → (questa)
 S11 --json: campi pid, account, name, status, tmux, link, channel
 S12 le sessioni ferme e staccate vanno per prime; avviso server tmux morto
+S13 NOME = nome tmux (quello che ogni comando accetta); se l'app l'ha rinominata (/rename: `name`
+    del registro diverso) il nome dell'app segue fra parentesi (idea 9, 11/09)
 """
 import json
 import os
@@ -159,6 +161,7 @@ with T.PrivateTmux() as tm:
     r = run()
     T.check("S table renders header and rows", "PID" in r.stdout and "alfa" in r.stdout and "aperta" in r.stdout, r.stdout[:500])
     T.check("S table abandoned note", "nessuno la guarda" in r.stdout or "ferma" in r.stdout, r.stdout)
+    T.check("S13 renamed in the app: tmux name first, app name in parentheses", "gamma (questa-prova)" in r.stdout, r.stdout)
 
     # S9: cartella condivisa via symlink
     import shutil

@@ -50,6 +50,15 @@ cm_terminal_open() {
   case "$be" in
     chromeos)
       [ -x "$CM_TERMINAL_GARCON" ] || { cm_msg terminal.backend_missing "backend=chromeos" "bin=$CM_TERMINAL_GARCON" >&2; return 3; }
+      # «sempre tutte schede» (terminal.open_as_tab, 11/09/2026): prima come scheda di una finestra
+      # gia' aperta (cm-tile.py open-tab: duplicazione + segnaposto; senza finestre ne apre UNA semplice);
+      # garcon col comando attach solo senza bridge (exit 5), con open_as_tab false, o quando
+      # `tile` vuole apposta una finestra app nuova (CM_TERMINAL_FORCE_WINDOW=1)
+      if [ "${CM_TERMINAL_OPEN_AS_TAB:-true}" = true ] && [ "${CM_TERMINAL_FORCE_WINDOW:-}" != 1 ] && [ "${CM_TERMINAL_DRY_RUN:-}" != 1 ]; then
+        python3 "$CM_SCRIPTS/cm-tile.py" open-tab "$nome" ${mode:+"$mode"}; local rc=$?
+        [ "$rc" -eq 0 ] && return 0
+        [ "$rc" -eq 5 ] || return "$rc"
+      fi
       run_detached "$CM_TERMINAL_GARCON" --client --terminal "$DISPATCH" attach "$nome" ${mode:+"$mode"} ;;
     gnome)
       run_detached gnome-terminal --title "$nome" -- "$DISPATCH" attach "$nome" ${mode:+"$mode"} ;;

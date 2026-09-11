@@ -11,6 +11,10 @@ B6  /sessions: output di sessions nella risposta; testo qualsiasi da chat autori
 B7  guardia: bot.pid del plugin VIVO → poll non chiama l'API
 B8  install (rifiuta se spento; riga nel crontab), status, uninstall
 B9  lock: due poll insieme, uno solo lavora
+B10 /start (Franz l'ha scritto due volte credendo di lanciare la master, 11/09): risposta «vuoi /master?»
+    con un bottone inline; il tap (callback_query, che a sessioni chiuse arriva a QUESTO poller) lancia
+    la master, risponde al callback e alla chat; un tap da chat non autorizzata si ignora; getUpdates
+    chiede anche i callback_query
 """
 import json
 import os
@@ -207,6 +211,25 @@ procs = [subprocess.Popen([sys.executable, str(T.SCRIPTS / "cm-bot.py"), "poll"]
 for p in procs:
     p.wait(timeout=60)
 T.check("B9 two concurrent polls → one launch", len(launches()) == n_l + 1, str(launches()[-2:]))
+
+# B10: /start → bottone; il tap → launch
+CALLS["sendMessage"].clear(); CALLS.pop("answerCallbackQuery", None)
+n_l = len(launches())
+QUEUE[:] = [msg(14, 1001, "/start")]
+r = bot("poll")
+sm = sent()
+T.check("B10 /start: one reply with an inline button whose callback_data is master, no launch", r.returncode == 0 and len(sm) == 1 and "/master" in sm[0]["text"] and '"inline_keyboard"' in sm[0].get("reply_markup", "") and '"callback_data": "master"' in sm[0].get("reply_markup", "") and len(launches()) == n_l, r.stdout + r.stderr + str(sm))
+T.check("B10 getUpdates asks for callback_query too", "callback_query" in CALLS["getUpdates"][-1].get("allowed_updates", ""), str(CALLS["getUpdates"][-1]))
+CALLS["sendMessage"].clear()
+QUEUE[:] = [{"update_id": 15, "callback_query": {"id": "cb15", "data": "master", "from": {"id": 1001},
+                                                 "message": {"message_id": 14, "chat": {"id": 1001, "type": "private"}}}}]
+r = bot("poll")
+T.check("B10 tap from the allowed chat → launch <root>, callback answered, reply in the chat, offset advanced", r.returncode == 0 and len(launches()) == n_l + 1 and CALLS.get("answerCallbackQuery") and CALLS["answerCallbackQuery"][-1].get("callback_query_id") == "cb15" and sent() and "avviata" in sent()[-1]["text"] and offset_file.read_text().strip() == "16", r.stdout + r.stderr + str(CALLS.get("answerCallbackQuery")) + str(sent()))
+CALLS["sendMessage"].clear()
+QUEUE[:] = [{"update_id": 16, "callback_query": {"id": "cb16", "data": "master", "from": {"id": 4242},
+                                                 "message": {"message_id": 14, "chat": {"id": 4242, "type": "private"}}}}]
+r = bot("poll")
+T.check("B10 tap from a stranger: ignored, no launch, no reply", r.returncode == 0 and len(launches()) == n_l + 1 and not sent() and offset_file.read_text().strip() == "17", r.stdout + r.stderr + str(sent()))
 
 srv.shutdown()
 T.rm(tmp)

@@ -31,6 +31,7 @@ attaccata() {
 chiudi() {
   if [ "$PROVA" = si ]; then echo "  $(cm_msg close.would_close "name=$1")"; return; fi
   cm_tmux kill-session -t "=$1" 2>/dev/null && echo "  $(cm_msg close.closed "name=$1")"
+  "$CM_SCRIPTS/cm-registry.sh" --closed "$1" >/dev/null 2>&1   # chiusura esplicita: esce dalla fotografia
 }
 
 if [ "$ABBANDONATE" = si ]; then

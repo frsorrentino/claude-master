@@ -75,6 +75,7 @@ DEFAULTS = {
     "terminal": {
         "backend": "auto",
         "garcon": "/opt/google/cros-containers/bin/garcon",
+        "open_as_tab": True,
         "attach_wait_s": 25,
         "attach_retry_wait_s": 20,
         "ephemeral": True,
@@ -106,7 +107,7 @@ DEFAULTS = {
         "log": "",
     },
     "profiles": {},
-    "registry": {"file": "", "cron_minutes": 5},
+    "registry": {"file": "", "good_file": "", "cron_minutes": 5},
     "restore": {"uptime_max_min": 15, "confirm_timeout_s": 15, "last": ""},
     "restart": {"flag_file": "", "log": "", "exit_wait_s": 20, "term_wait_s": 10},
     "talk": {"quiet_s": 6, "max_wait_s": 240, "warn_native_channel": True,
@@ -130,7 +131,8 @@ DEFAULTS = {
     # last: none | short (solo le ferme su domanda, 60 caratteri) | full; hide_zero_turns: le chiuse
     # senza turni non compaiono
     "recap": {"cron_time": "20:00", "max_last_chars": 160, "last": "short", "hide_zero_turns": True, "closed_chars": 90,
-              "summary": "model", "summary_model": "haiku", "summary_timeout_s": 120, "project_log": "docs/recap.md", "startup_lines": 5},
+              "summary": "model", "summary_model": "haiku", "summary_timeout_s": 120, "project_log": "docs/recap.md", "startup_lines": 5,
+              "min_turns": 3},
     # guardia della quota: avviso sopra warn_pct (una volta per finestra), ripresa delle sessioni
     # fallite e della coda notturna quando la finestra si resetta
     "guard": {"warn_pct": 95, "cron_minutes": 5, "night_after_reset": True, "night_timeout_s": 3600,
@@ -143,6 +145,7 @@ DEFAULTS = {
         "local_time": {"enabled": True, "format": "%A %Y-%m-%d %H:%M", "prefix": "[local time]"},
         "restart_stop": {"enabled": True},
         "session_kernel": {"enabled": True},
+        "ask_notify": {"enabled": True, "delay_s": 1.5},
     },
     "shell": {
         "wrappers": {"claude": "default"},
@@ -180,6 +183,7 @@ STATE_FILES = {
     "tile.placeholder_file": "next-session",
     "tile.log": "tile.log",
     "registry.file": "sessions.json",
+    "registry.good_file": "sessions-good.json",
     "restart.flag_file": "restart.json",
     "restart.log": "restart.log",
     "bot.offset_file": "bot-offset",

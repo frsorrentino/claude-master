@@ -12,6 +12,12 @@
 #   claude-master restart hook                 chiamato dallo Stop hook: se armato, stacca l'esecutore
 #   claude-master restart failed               chiamato da StopFailure: il flag armato resta, marcato fallito
 #   claude-master restart exec <flag>          l'esecutore staccato (non invocarlo a mano)
+#   claude-master restart [list]               le sessioni armate (un flag per sessione)
+#
+# UN FLAG PER SESSIONE (11/09/2026 13:10: otto `arm` in due minuti, quattro riavvii — un
+# solo file `restart.flag_file`, l'ultimo arm sovrascriveva gli altri in silenzio): il file
+# di ogni sessione e' `<flag_file senza .json>-<nome tmux>.json`; lo Stop hook legge SOLO il
+# proprio.
 #
 # Perche' passare dallo Stop hook invece di uccidere e basta (T15): un kill
 # lanciato da un tool del modello arriva a TURNO APERTO, e il transcript resta
@@ -29,6 +35,7 @@ FLAG="$CM_RESTART_FLAG_FILE"
 LOG="$CM_RESTART_LOG"
 mkdir -p "$(dirname "$FLAG")" "$(dirname "$LOG")"
 
+flag_of() { printf '%s-%s.json' "${FLAG%.json}" "$1"; }
 json_get() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); v=d.get(sys.argv[2],""); print(v if not isinstance(v,bool) else str(v).lower())' "$1" "$2" 2>/dev/null; }
 my_tmux() { cm_tmux display-message -p -t "${TMUX_PANE:-}" '#S' 2>/dev/null; }
 
@@ -60,7 +67,7 @@ arm() {
     esac
     shift
   done
-  python3 - "$FLAG" "$nome" "$pid" "$cartella" "$clean" "$conf_da" "$conf_a" "$sid" "$acc_a" <<'PY'
+  python3 - "$(flag_of "$nome")" "$nome" "$pid" "$cartella" "$clean" "$conf_da" "$conf_a" "$sid" "$acc_a" <<'PY'
 import json, sys, time, uuid
 f, nome, pid, cartella, clean, conf_da, conf_a, sid, acc_a = sys.argv[1:]
 json.dump({"tmux": nome, "pid": int(pid), "cartella": cartella, "armato": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -75,22 +82,26 @@ PY
 
 # ---------------------------------------------------------------- hook
 hook() {
-  [ -f "$FLAG" ] || exit 0
-  local suo mio
-  suo=$(json_get "$FLAG" tmux)
-  mio=$(my_tmux)
+  local mio f suo
+  mio=$(my_tmux); [ -n "$mio" ] || exit 0
+  f=$(flag_of "$mio")
+  # compatibilita': un flag unico armato dalla versione precedente, se e' di questa sessione
+  [ -f "$f" ] || { [ -f "$FLAG" ] && [ "$(json_get "$FLAG" tmux)" = "$mio" ] && f="$FLAG"; }
+  [ -f "$f" ] || exit 0
+  suo=$(json_get "$f" tmux)
   # Il flag e' di questa sessione? Altrimenti lo lascia a chi lo ha armato: due
   # sessioni aperte insieme non devono chiudersi a vicenda.
-  [ -n "$mio" ] && [ "$mio" = "$suo" ] || exit 0
-  local pending="$FLAG.in-corso"
-  mv "$FLAG" "$pending" 2>/dev/null || exit 0
+  [ "$mio" = "$suo" ] || exit 0
+  local pending="$f.in-corso"
+  mv "$f" "$pending" 2>/dev/null || exit 0
   setsid nohup "$CM_SCRIPTS/cm-restart.sh" exec "$pending" </dev/null >>"$LOG" 2>&1 &
   printf '{"systemMessage":"%s"}\n' "$(cm_msg restart.in_progress "log=$LOG" | sed 's/"/\\"/g')"
 }
 
 failed() {
-  [ -f "$FLAG" ] || exit 0
-  python3 - "$FLAG" <<'PY'
+  local f; f=$(flag_of "$(my_tmux)")
+  [ -f "$f" ] || exit 0
+  python3 - "$f" <<'PY'
 import json, sys, time
 f = sys.argv[1]; d = json.load(open(f)); d["fallito"] = time.strftime("%Y-%m-%dT%H:%M:%S%z"); json.dump(d, open(f, "w"))
 PY
@@ -153,8 +164,20 @@ esegui() {
   echo "=== riavvio completato $(date -Is) ==="
 }
 
+elenco() {
+  local n=0 f
+  for f in "${FLAG%.json}"-*.json "$FLAG"; do
+    [ -f "$f" ] || continue
+    n=$((n + 1))
+    printf '  %-28s %s  %s%s%s\n' "$(json_get "$f" tmux)" "$(json_get "$f" armato | cut -c1-16)" "$(json_get "$f" cartella)" \
+      "$([ "$(json_get "$f" pulita)" = true ] && printf ' --clean')" "$([ -n "$(json_get "$f" account_a)" ] && printf ' --switch-account %s' "$(json_get "$f" account_a)")"
+  done
+  [ "$n" -gt 0 ] || cm_msg restart.list_none
+}
+
 case "${1:-}" in
   arm|arma) shift; arm "$@" ;;
+  list|elenca|"") elenco ;;
   hook)     hook ;;
   failed)   failed ;;
   exec|esegui) shift; esegui "${1:?serve il file flag}" ;;

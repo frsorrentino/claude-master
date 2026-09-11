@@ -3,7 +3,7 @@
 
 X1  --dry-run: elenca le sessioni da rilanciare, salta la viva e la cartella sparita, non lancia
 X2  --yes: rilancia in parallelo con --continue e --account, quella di `restore.last` per ultima; log per sessione
-X3  registro assente → exit 1; registro vuoto → exit 1
+X3  registro assente → exit 1; registro vuoto → exit 1 (X3b: con la fotografia si propone da quella)
 K1  init --cron stampa la riga del crontab con la cadenza di config; --yes la installa (crontab finto via CM_CRONTAB_CMD)
 """
 import json
@@ -72,6 +72,9 @@ with T.PrivateTmux() as tm:
     # X3
     r = subprocess.run([str(T.SCRIPTS / "cm-restore.sh"), "--dry-run"], capture_output=True, text=True, env=env(CLAUDE_MASTER_CONFIG=str(cfg)), timeout=60)
     reg.write_text(json.dumps({"salvato": "x", "sessioni": []}))
+    r = subprocess.run([str(T.SCRIPTS / "cm-restore.sh"), "--dry-run"], capture_output=True, text=True, env=env(), timeout=60)
+    T.check("X3b empty registry but a snapshot (written by the relaunches): restore reads the snapshot (all alive → skipped, exit 0)", r.returncode == 0 and "viva" in r.stdout, r.stdout + r.stderr)
+    (tmp / "state" / "sessions-good.json").unlink(missing_ok=True)
     r = subprocess.run([str(T.SCRIPTS / "cm-restore.sh"), "--dry-run"], capture_output=True, text=True, env=env(), timeout=60)
     T.check("X3 empty registry → exit 1", r.returncode == 1, r.stdout + r.stderr)
     reg.unlink()

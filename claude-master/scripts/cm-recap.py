@@ -405,9 +405,17 @@ def render_short(groups, label, as_html=False):
             lines.append("")
         lines.append(esc(M("recap.h_closed")))
         lines.append("")
+        # soglia di sostanza (idea 3, 11/09): le chiuse sotto recap.min_turns, o senza frase, in UNA
+        # riga «altro: a, b»: nelle giornate da quindici progetti il rumore sono le toccate e via
+        minor = [g for g in chiuse if g["turns"] < int(D.get("min_turns") or 0) or not said.get(id(g), ("", ""))[0]]
         for g in chiuse:
+            if g in minor:
+                continue
             sm, _ = said.get(id(g), ("", ""))
             lines.append(f"✓ {name_of(g, False)}" + (f": {esc(sm)}" if sm else ""))
+            lines.append("")
+        if minor:
+            lines.append(esc(M("recap.h_other", names=", ".join(shown(g["project"], False) for g in minor))))
             lines.append("")
     if not (ferme or vive or chiuse):
         lines.append(esc(M("recap.empty")))

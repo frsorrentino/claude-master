@@ -249,7 +249,7 @@ def cmd_talk(argv):
     row = find(name)
     if not row:
         print(M("talk.missing", name=name), file=sys.stderr)
-        live = [r["name"] or r["tmux"] for r in sessions.collect(read_screen=False)]
+        live = [r["tmux"] or r["name"] for r in sessions.collect(read_screen=False)]
         print("  " + " ".join(live), file=sys.stderr)
         sys.exit(3)
     if row["channel"] == "(questa)":

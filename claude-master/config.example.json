@@ -44,6 +44,7 @@
   "terminal": {
     "backend": "auto",
     "garcon": "/opt/google/cros-containers/bin/garcon",
+    "open_as_tab": true,
     "attach_wait_s": 25,
     "attach_retry_wait_s": 20,
     "ephemeral": true,
@@ -98,6 +99,7 @@
   "profiles": {},
   "registry": {
     "file": "~/.local/state/claude-master/sessions.json",
+    "good_file": "~/.local/state/claude-master/sessions-good.json",
     "cron_minutes": 5
   },
   "restore": {
@@ -166,7 +168,8 @@
     "summary_model": "haiku",
     "summary_timeout_s": 120,
     "project_log": "docs/recap.md",
-    "startup_lines": 5
+    "startup_lines": 5,
+    "min_turns": 3
   },
   "guard": {
     "warn_pct": 95,
@@ -200,6 +203,10 @@
     },
     "session_kernel": {
       "enabled": true
+    },
+    "ask_notify": {
+      "enabled": true,
+      "delay_s": 1.5
     }
   },
   "shell": {

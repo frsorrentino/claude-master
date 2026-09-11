@@ -6,6 +6,8 @@
     claude-master move POSTO [nomi]              porta le sessioni su un altro monitor e le affianca li'
     claude-master tile --where                   elenca i monitor riconosciuti
     claude-master layout save|restore|list [NOME]   layout con nome (window_layout di chrome-bridge, 2.6)
+    cm-tile.py open-tab NOME [ephemeral] [--dry-run]   (da cm-terminal.sh) la sessione come SCHEDA di una
+                                                 finestra app del Terminale gia' aperta; exit 5 = nessun bridge
     (alias: --righe --griglia --su --prova --dove --unisci; `riaffianca` = tile)
 
 Richiede chrome-bridge in ascolto (una sessione Claude con l'MCP attivo basta) e il
@@ -15,13 +17,12 @@ Due modi, per due situazioni:
 - **tile**: una sessione, una finestra, tutte affiancate in colonne uguali (piu' monitor).
 - **merge**: tutte a schede di un'unica finestra del Terminale (schermo incorporato).
 
-Perche' i due versi non sono simmetrici (T59). Staccare e' una chiamata sola
-(`move_tab --new-window`), ma tornare indietro non si puo' fare spostando: Chrome
-accetta schede in ingresso solo su finestre `normal` e rifiuta popup e finestre *app*
-— e quella del Terminale e' una app della SWA. La via del ritorno: si duplica una
-scheda gia' dentro la finestra app (nasce una shell pulita nel container), lasciandole
-prima un segnaposto (`tile.placeholder_file`) che dice a quale sessione attaccarsi; lo
-consuma la shell (shell/claude-master.sh). Circa 20 secondi a sessione.
+Nessuno dei due versi sposta schede di sessione (T59/T79): Chrome accetta schede in
+ingresso solo su finestre `normal`, e quella del Terminale e' una app della SWA. Staccare =
+una finestra app nuova via garcon (`attach NOME`, ~20 s; MAI piu' popup). La #home che ogni
+finestra di garcon porta con se' si SFRATTA (T80): da sola in un popup e chiusa li'. Tornare a schede = si duplica una scheda gia' dentro la finestra app (nasce una
+shell pulita nel container), lasciandole prima un segnaposto (`tile.placeholder_file`) che
+dice a quale sessione attaccarsi; lo consuma la shell (shell/claude-master.sh). ~20 s a sessione.
 
 Su quale monitor (T30, T41): `native` e' quello con origine (0,0), gli altri prendono
 coordinate negative e si distinguono per posizione. Una finestra massimizzata COMBACIA
@@ -208,6 +209,34 @@ def attendi_nuovo_client(nome, prima, secondi=None):
     return False
 
 
+def stacca_in_finestra_app(n, schede):
+    """La sessione in una finestra app del Terminale TUTTA SUA, via garcon con `attach NOME`
+    (Franz 11/09/2026 13:26: «sempre schede anche quando affiancate» — mai piu' popup: la finestra
+    app ha la barra delle schede e si accorpa a mano; porta con se' la sua #home, prezzo noto T78).
+    Client NUOVO atteso (T27), poi la scheda vecchia si chiude. Torna l'id della finestra nuova."""
+    vecchia = scheda_di(n, schede)
+    prima = client(n)
+    subprocess.run([str(HERE / "cm-terminal.sh"), "open", n, "ephemeral"], check=False,
+                   env={**os.environ, "CM_TERMINAL_FORCE_WINDOW": "1"})
+    if not attendi_nuovo_client(n, prima, int(T["window_open_wait_s"]) + int(T["new_client_wait_s"])):
+        sys.exit(M("tile.no_client", name=n, s=int(T["window_open_wait_s"]) + int(T["new_client_wait_s"])))
+    time.sleep(1)
+    nuova = None
+    for _ in range(int(T["window_open_wait_s"])):
+        schede2 = bridge("get_tabs")
+        nuova = next((t for t in schede2 if t["url"].startswith(URL_TERMINALE) and f"args[]={n}" in t["url"]
+                      and (not vecchia or t["id"] != vecchia["id"])), None)
+        if nuova:
+            break
+        time.sleep(1)
+    if not nuova:
+        sys.exit(M("tile.move_no_window", name=n, resp="-"))
+    if vecchia:
+        bridge("tab_action", action="close", tab_id=vecchia["id"])
+    sfratta_home(nuova["windowId"])
+    return nuova["windowId"]
+
+
 # ---------------------------------------------------------------- merge
 def unisci(nomi):
     """Tutte a schede di un'unica finestra del Terminale. La finestra di raccolta deve
@@ -218,13 +247,14 @@ def unisci(nomi):
     schede = tutte.get("tabs", tutte) if isinstance(tutte, dict) else tutte
     riquadri = tutte.get("windows", []) if isinstance(tutte, dict) else []
     tipo_di = {f["id"]: f.get("type") for f in riquadri}
-    casa = None
-    for t in schede:
-        if tipo_di.get(t["windowId"]) == "popup":
-            continue
-        if sorgente_duplicabile(schede, t["windowId"]):
-            casa = t["windowId"]
-            break
+    # T78 (Franz, 11/09/2026): la scheda iniziale (#home) della SWA del Terminale NON si chiude
+    # finche' nella finestra ci sono altre schede (la x sparisce; via bridge va in timeout): una
+    # finestra app senza #home nasce solo trascinando fuori a mano una scheda di sessione. Si
+    # preferisce QUELLA come raccolta; con la sola finestra con #home si raccoglie li' e si dice
+    con_home = {t["windowId"] for t in schede if t["url"].startswith(URL_TERMINALE) and "#home" in t["url"]}
+    casa = finestra_di_raccolta(schede, riquadri)
+    if casa is not None and casa in con_home:
+        print(M("tile.home_evicted", n=sfratta_home(casa), win=casa))
     if casa is None:
         prima = nomi[0]
         precedenti = {t["id"] for t in schede}
@@ -270,8 +300,89 @@ def unisci(nomi):
             print(f"  {n:24} " + M("tile.already_in"))
         for t in fuori:
             bridge("tab_action", action="close", tab_id=t["id"])
+    sfratta_home(casa)   # la finestra nata da garcon (apri_finestra_semplice) porta la sua #home
     chiuse = pulisci_home()
     print(M("tile.merged", n=len(nomi), win=casa) + (" " + M("tile.home_closed", n=chiuse) if chiuse else ""))
+
+
+# ---------------------------------------------------------------- sfratto della #home (T80)
+def sfratta_home(wid):
+    """La scheda iniziale «Terminale» (#home) NON si chiude finche' ha compagnia (T78), ma si puo'
+    portare via DA SOLA: `move_tab` in un popup nuovo, poi `close` li' (chrome-bridge ed24b83,
+    misurato dal vivo l'11/09/2026 su 8 sessioni). Solo per URL con #home, mai per posizione; solo
+    se la finestra ha ALTRE schede (una finestra con la sola home che sta per ricevere la prima
+    sessione si lascia stare). Torna quante ne ha sfrattate."""
+    schede = bridge("get_tabs")
+    mie = [t for t in schede if t["windowId"] == wid]
+    homes = [t for t in mie if t["url"].startswith(URL_TERMINALE) and "#home" in t["url"]]
+    if not homes or len(mie) <= len(homes):
+        return 0
+    n = 0
+    for h in homes:
+        try:
+            r = bridge("move_tab", tab_id=h["id"], new_window=True, window_type="popup")
+            if not (r.get("to_window") or r.get("window_id") or r.get("windowId")):
+                continue
+            bridge("tab_action", action="close", tab_id=h["id"])
+            n += 1
+        except SystemExit:
+            continue
+    return n
+
+
+# ---------------------------------------------------------------- scheda (terminal.open_as_tab)
+def finestra_di_raccolta(schede, riquadri):
+    """La finestra app del Terminale con una shell duplicabile, preferendo quella SENZA #home (T78)."""
+    tipo_di = {f["id"]: f.get("type") for f in riquadri}
+    con_home = {t["windowId"] for t in schede if t["url"].startswith(URL_TERMINALE) and "#home" in t["url"]}
+    candidate = []
+    for t in schede:
+        if tipo_di.get(t["windowId"]) == "popup" or t["windowId"] in candidate:
+            continue
+        if sorgente_duplicabile(schede, t["windowId"]):
+            candidate.append(t["windowId"])
+    return next((w for w in candidate if w not in con_home), candidate[0] if candidate else None)
+
+
+def apri_scheda(nome, dry=False):
+    """«Sempre tutte schede» (Franz, 11/09/2026): la sessione nasce come scheda di una finestra del
+    Terminale gia' aperta — stessa meccanica di merge (duplicate + segnaposto + client NUOVO, T27/T73).
+    Senza nessuna finestra con una shell duplicabile si apre UNA finestra semplice via garcon con il
+    segnaposto: la sua shell si attacca e resta la sorgente per le sessioni successive (una finestra
+    sola anche per un restore di otto sessioni). Exit 0 = attaccata; 1 = fallita (niente garcon)."""
+    schede, riquadri = tabs_and_windows()
+    casa = finestra_di_raccolta(schede, riquadri)
+    if dry:
+        print(M("tile.tab_plan", name=nome, win=casa) if casa is not None else M("tile.tab_plan_new", name=nome))
+        return 0
+    prima = client(nome)
+    with open(SEGNAPOSTO, "w") as f:
+        f.write(nome + "\n")
+    if casa is None:
+        apri_finestra_semplice()
+        if not attendi_nuovo_client(nome, prima, int(T["window_open_wait_s"]) + int(T["new_client_wait_s"])):
+            if os.path.exists(SEGNAPOSTO):
+                os.remove(SEGNAPOSTO)
+            print(M("tile.no_home_window", name=nome), file=sys.stderr)
+            return 1
+        time.sleep(1)
+        mia = scheda_di(nome, bridge("get_tabs"))
+        if mia:
+            sfratta_home(mia["windowId"])
+        print(M("tile.tab_window_opened", name=nome))
+        return 0
+    sorgente = sorgente_duplicabile(schede, casa)
+    r = bridge("tab_action", action="duplicate", tab_id=sorgente["id"])
+    if r.get("duplicated"):
+        bridge("tab_action", action="activate", tab_id=r["duplicated"])   # T73
+    if not attendi_nuovo_client(nome, prima):
+        if os.path.exists(SEGNAPOSTO):
+            os.remove(SEGNAPOSTO)
+        print(M("tile.no_client", name=nome, s=T["new_client_wait_s"]), file=sys.stderr)
+        return 1
+    sfratta_home(casa)
+    print(M("tile.tab_opened", name=nome, win=casa, tab=r.get("duplicated")))
+    return 0
 
 
 # ---------------------------------------------------------------- monitor
@@ -567,35 +678,34 @@ def affianca(a):
             persi = [n for n in mancanti if not scheda_di(n, schede)]
             sys.exit(M("tile.window_missing", names=", ".join(persi)))
 
-    # 2. una scheda per finestra: chi convive viene staccato (la prima resta: staccarle tutte
-    #    lascerebbe vuota la finestra del Terminale, che poi sparisce con la scheda home)
+    # 2. una scheda per finestra: chi convive riparte in una finestra app propria via garcon (la prima
+    #    resta: staccarle tutte lascerebbe la finestra con la sola #home, che pulisci_home chiude)
+    d0 = bridge("get_tabs", include_windows=True)
+    tipo0 = {f["id"]: f.get("type") for f in (d0.get("windows", []) if isinstance(d0, dict) else [])}
     per_finestra = {}
     for n in nomi:
         per_finestra.setdefault(scheda_di(n, schede)["windowId"], []).append(n)
     finestre = []
     for wid, gruppo in per_finestra.items():
-        finestre.append((gruppo[0], wid))
-        for n in gruppo[1:]:
-            r = bridge("move_tab", tab_id=scheda_di(n, schede)["id"], new_window=True, window_type="popup")
-            nuova = r.get("to_window") or r.get("window_id") or r.get("windowId")   # T36
-            if not nuova:
-                sys.exit(M("tile.move_no_window", name=n, resp=r))
-            finestre.append((n, nuova))
-        if len(gruppo) > 1:
+        # finestre POPUP (staccate dalle versioni precedenti): tutte le loro sessioni in finestre app
+        resta = [] if tipo0.get(wid) == "popup" else gruppo[:1]
+        if resta:
+            finestre.append((resta[0], wid))
+        for n in gruppo[len(resta):]:
+            finestre.append((n, stacca_in_finestra_app(n, schede)))
             schede = bridge("get_tabs")
-    # 2b. le finestre MASSIMIZZATE vanno staccate anche da sole (T34): Chrome ignora i bounds
-    #     in quello stato; in un popup nuovo lo stato e' normal. Vale anche per le MINIMIZZATE
+    # 2b. le finestre MASSIMIZZATE vanno rifatte anche da sole (T34): Chrome ignora i bounds
+    #     in quello stato; in una finestra nuova lo stato e' normal. Vale anche per le MINIMIZZATE
     #     (T72, 09/09/2026: 4/6 «NON applicata» sul nativo, tutte finestre ridotte a icona)
     d = bridge("get_tabs", include_windows=True)
     stato = {f["id"]: f.get("state") for f in (d.get("windows", []) if isinstance(d, dict) else [])}
     for i, (n, wid) in enumerate(finestre):
         if stato.get(wid) not in ("maximized", "minimized", "fullscreen"):
             continue
-        r = bridge("move_tab", tab_id=scheda_di(n, schede)["id"], new_window=True, window_type="popup")
-        nuova = r.get("to_window") or r.get("window_id") or r.get("windowId")
-        if nuova:
-            print(M("tile.maximized_detached", name=n, state=stato.get(wid)))
-            finestre[i] = (n, nuova)
+        nuova = stacca_in_finestra_app(n, schede)
+        schede = bridge("get_tabs")
+        print(M("tile.maximized_detached", name=n, state=stato.get(wid)))
+        finestre[i] = (n, nuova)
     ordinate = [wid for n in nomi for (m_, wid) in finestre if m_ == n]   # ordine richiesto (T35)
     layout = "rows" if a.rows else "grid" if a.grid else "columns"
 
@@ -774,12 +884,23 @@ def layout_cmd(argv):
 
 
 def main():
+    argv = sys.argv[1:]
+    if argv[:1] == ["open-tab"]:
+        # da cm-terminal.sh: senza bridge o fuori da ChromeOS si torna 5 e il chiamante usa garcon
+        if not CLI or not os.path.exists(CLI):
+            sys.exit(5)
+        backend = subprocess.run([str(HERE / "cm-terminal.sh"), "detect"], capture_output=True, text=True).stdout.strip()
+        if backend not in ("chromeos", "fake"):
+            sys.exit(5)
+        resto = [x for x in argv[1:] if x not in ("--dry-run", "--prova", "ephemeral")]
+        if not resto:
+            sys.exit(M("tile.tab_usage"))
+        sys.exit(apri_scheda(resto[0], dry=any(x in argv for x in ("--dry-run", "--prova"))))
     if not CLI or not os.path.exists(CLI):
         sys.exit(M("tile.needs_bridge", path=T["chrome_bridge_cli"] or "-"))
     backend = subprocess.run([str(HERE / "cm-terminal.sh"), "detect"], capture_output=True, text=True).stdout.strip()
     if backend not in ("chromeos", "fake"):
         sys.exit(M("tile.needs_chromeos", backend=backend))
-    argv = sys.argv[1:]
     sub = argv[0] if argv and argv[0] in ("tile", "merge", "move", "where", "layout") else "tile"
     if argv and argv[0] == sub:
         argv = argv[1:]

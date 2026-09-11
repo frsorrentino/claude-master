@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+"""claude-master screen — lo schermo di una sessione, per vedere dal telefono cosa sta facendo.
+
+  claude-master screen <nome> [--lines N]      le ultime N righe (30) del riquadro tmux della sessione
+
+`capture-pane -p` col nome nudo (T1: `-t =nome` non risolve per capture-pane), righe vuote in coda
+tolte. Dal telefono: «schermo NOME» alla master → questo comando, risposta in un blocco di codice.
+Il testo dopo «❯» è un SUGGERIMENTO di Claude Code, non dell'utente (regola 1 del kernel).
+"""
+import importlib.util
+import subprocess
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+
+
+def _load(name):
+    spec = importlib.util.spec_from_file_location(name.replace("-", "_"), HERE / f"{name}.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+cm = _load("cm-config")
+sessions = _load("cm-sessions")
+CFG = cm.load(warn=False)
+M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
+
+
+def tmux(*args):
+    return subprocess.run(sessions.TMUX + list(args), capture_output=True, text=True)
+
+
+def main(argv):
+    lines = 30
+    name = ""
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--lines" and i + 1 < len(argv) and argv[i + 1].isdigit():
+            lines = int(argv[i + 1]); i += 2
+        elif not name and not argv[i].startswith("-"):
+            name = argv[i]; i += 1
+        else:
+            print(M("screen.usage"), file=sys.stderr)
+            return 2
+    if not name:
+        print(M("screen.usage"), file=sys.stderr)
+        return 2
+    if tmux("has-session", "-t", f"={name}").returncode != 0:
+        print(M("screen.no_session", name=name), file=sys.stderr)
+        return 1
+    rows = tmux("capture-pane", "-p", "-t", name).stdout.splitlines()
+    while rows and not rows[-1].strip():
+        rows.pop()
+    print("\n".join(rows[-lines:]))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

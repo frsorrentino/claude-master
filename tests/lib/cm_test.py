@@ -150,6 +150,9 @@ class PrivateTmux:
 
     def __exit__(self, *exc):
         subprocess.run(["tmux", "-L", self.socket, "kill-server"], capture_output=True)
+        # gli aiutanti pty del bridge/garcon finto (`tmux -L <socket> attach`) possono sopravvivere al
+        # server: 34 trovati l'11/09/2026 dopo una suite uccisa a meta'. Il nome del socket e' nel loro argv.
+        subprocess.run(["pkill", "-9", "-f", f"tmux.*{self.socket}"], capture_output=True)
 
     def __call__(self, *args, **kw):
         return subprocess.run(["tmux", "-L", self.socket] + list(args),
@@ -167,3 +170,48 @@ def tmpdir():
 
 def rm(d):
     shutil.rmtree(d, ignore_errors=True)
+
+
+def fake_telegram(token="123:ABC"):
+    """Un Telegram finto su HTTP locale: `sendMessage` registra i parametri in calls["sendMessage"],
+    `getUpdates` serve la coda `queue`. Ritorna (api_base, calls, queue)."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from urllib.parse import parse_qs
+    calls, queue = {"getUpdates": [], "sendMessage": []}, []
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            n = int(self.headers.get("Content-Length") or 0)
+            params = {k: v[0] for k, v in parse_qs(self.rfile.read(n).decode()).items()}
+            method = self.path.rsplit("/", 1)[-1]
+            if not self.path.startswith(f"/bot{token}/"):
+                self.send_response(401); self.end_headers(); return
+            calls.setdefault(method, []).append(params)
+            if method == "getUpdates":
+                off = int(params.get("offset") or 0)
+                body = {"ok": True, "result": [u for u in queue if u["update_id"] >= off]}
+            elif method == "sendMessage":
+                body = {"ok": True, "result": {"message_id": 1}}
+            else:
+                body = {"ok": False}
+            out = json.dumps(body).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(out))); self.end_headers(); self.wfile.write(out)
+
+    srv = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{srv.server_port}", calls, queue
+
+
+def wait_until(pred, timeout=5.0, step=0.2):
+    import time
+    end = time.time() + timeout
+    while time.time() < end:
+        if pred():
+            return True
+        time.sleep(step)
+    return pred()

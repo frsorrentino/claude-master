@@ -72,11 +72,39 @@ def account_name():
     return CFG["default_account"]
 
 
-def registry_update():
+def registry_update(closed=""):
+    """`closed` = nome tmux di una sessione chiusa APPOSTA (/exit): esce dalla fotografia «ultimo
+    insieme buono»; una finestra chiusa a mano o un crash non la toccano (11/09/2026)."""
     try:
-        subprocess.Popen([str(HERE / "cm-registry.sh")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                         start_new_session=True)   # staccato: l'hook non aspetta
+        subprocess.Popen([str(HERE / "cm-registry.sh")] + (["--closed", closed] if closed else []),
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)   # staccato: l'hook non aspetta
     except OSError:
+        pass
+
+
+def my_tmux_name():
+    pane = os.environ.get("TMUX_PANE", "")
+    if not pane:
+        return ""
+    try:
+        r = subprocess.run(["tmux"] + os.environ.get("CM_TMUX_ARGS", "").split() + ["display-message", "-p", "-t", pane, "#{session_name}"],
+                           capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def ask_notify(p):
+    """L'avviso sul telefono (idea 1, 11/09): `cm-answer.py --notify` staccato con il payload su stdin;
+    aspetta lui che il dialogo sia sullo schermo, l'hook torna subito."""
+    if not (CFG["hooks"].get("ask_notify") or {}).get("enabled"):
+        return
+    try:
+        pr = subprocess.Popen([sys.executable, str(HERE / "cm-answer.py"), "--notify"], stdin=subprocess.PIPE,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        pr.stdin.write(json.dumps(p).encode())
+        pr.stdin.close()
+    except (OSError, ValueError):
         pass
 
 
@@ -160,7 +188,8 @@ def main(argv):
         if r:
             sys.stdout.write(r + "\n")
     elif ev == "SessionEnd":
-        registry_update()
+        explicit = p.get("reason", "") in ("prompt_input_exit", "logout")
+        registry_update(closed=my_tmux_name() if explicit else "")
         ledger("end", p, reason=p.get("reason", ""))
     elif ev == "UserPromptSubmit":
         if sid:
@@ -172,6 +201,7 @@ def main(argv):
             (STATE / "waiting").mkdir(parents=True, exist_ok=True)
             (STATE / "waiting" / sid).write_text(p.get("tool_name", "?"))
         ledger("waiting", p, tool=p.get("tool_name", ""))
+        ask_notify(p)
     elif ev == "Stop":
         last = (p.get("last_assistant_message") or "")[:300]
         ledger("stop", p, last=last)

@@ -294,7 +294,7 @@ def collect(read_screen=True):
             "channel": "(questa)" if is_ancestor(pid) else "talk",
         })
     # chi aspetta senza nessuno davanti va per primo: e' lavoro fermo, non in corso
-    rows.sort(key=lambda r: (not (r["waiting"] and not r["attached"]), r["account"], r["name"] or r["tmux"]))
+    rows.sort(key=lambda r: (not (r["waiting"] and not r["attached"]), r["account"], r["tmux"] or r["name"]))
     return rows
 
 
@@ -344,7 +344,12 @@ def render(rows):
             else:
                 note = "  <- " + m("sessions.abandoned")
                 abandoned += 1
-        lines.append(f"{r['pid']:<8} {r['account'][:13]:<13} {(r['name'] or r['tmux'])[:22]:<22} {r['status'][:6]:<6} "
+        # NOME = il nome tmux, quello che answer/talk/close accettano; /rename nell'app cambia solo
+        # `name` nel registro peer (provato l'11/09/2026): lo si mostra accanto, mai al posto
+        shown = r["tmux"] or r["name"]
+        if r["tmux"] and r["name"] and r["name"] != r["tmux"]:
+            shown = f"{r['tmux']} ({r['name']})"
+        lines.append(f"{r['pid']:<8} {r['account'][:13]:<13} {shown[:22]:<22} {r['status'][:6]:<6} "
                      f"{short_cwd(r['cwd'])[:24]:<24} {vista:<9} {r['channel']:<9} {etime(r['started_at']):<9}{note}")
     if not rows:
         lines.append("  " + m("sessions.none"))

@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.3.5-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.3.6-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 **Run several Claude Code sessions on one computer without losing track of
 them.** Each project gets its own terminal tab with a name and a colour; one
@@ -110,9 +110,10 @@ Ten commands cover a normal day; the complete reference is at the end.
 | see everything running | `claude-master sessions` |
 | find what needs you | `claude-master next` |
 | talk to another session | `claude-master talk <name> "…"` |
-| answer the question another session is stuck on | `claude-master answer <name> --show` · `answer <name> 2` |
+| answer the question another session is stuck on | `claude-master answer <name> --show` · `answer <name> 2` (Telegram tells you the options when it stops) |
+| see what a session is doing, from the phone | `claude-master screen <name>` |
 | close one | `claude-master close <name>` (refuses one with a tab attached: close the tab instead) |
-| restart this one, keep the conversation | `claude-master restart arm` |
+| restart this one, keep the conversation | `claude-master restart arm` · `restart list` |
 | send a screenshot to a project | `claude-master report <project> <image> "…"` |
 | get everything back after a reboot | `claude-master restore` (the shell offers it) |
 | arrange the windows | `claude-master tile` · `merge` · `move destra` · `layout save mattina` |
@@ -257,19 +258,20 @@ The complete reference. Italian aliases (`lancia`, `chiudi`, `sessioni`,
 | `claude-master init [--dry-run\|--yes] [--force] [--shim] [--shell] [--cron] [--tmux]` | reads the machine and proposes or writes the configuration; the flags print (or install with `--yes`) the shim, the shell file, the crontab line, the `.tmux.conf` block |
 | `claude-master doctor` | PASS / WARN / FAIL with a remedy per line |
 | `claude-master config [--sh\|--get KEY\|--path]` | the effective configuration |
-| `claude-master launch <dir> [--create] [--continue\|--resume <id>] [--account N] [--no-window] [--bg] [--profile N]` | a session in tmux; dialogs answered, startup confirmed by the registry, tab verified attached |
+| `claude-master launch <dir> [--create] [--continue\|--resume <id>] [--account N] [--no-window] [--bg] [--profile N]` | a session in tmux; dialogs answered, startup confirmed by the registry, tab verified attached — on ChromeOS as a tab of the Terminal window already open (`terminal.open_as_tab`) |
 | `claude-master sessions [--watch]` | every live session of every account |
 | `claude-master close <name> \| --abandoned [--dry-run]` | closes a session nobody is attached to; refuses one with a tab |
 | `claude-master restart arm [--clean\|--switch-account [N]]` | restart when the turn ends |
 | `claude-master talk <name> "prompt" [--wait S] [--force]` | a prompt to another session, the reply read from its transcript |
 | `claude-master answer <name> --show` · `answer <name> <n> [--text "…"]` | reads the question another session is stuck on (options numbered) and answers it by number, from any session or from the phone through the root session |
+| `claude-master screen <name> [--lines N]` | the last 30 lines of a session's terminal, for the phone («screen NAME» to the root session) |
 | `claude-master wait <name> [--timeout S]` | blocks until that session is idle |
 | `claude-master report <project> <image\|-> "text" [--no-launch]` | screenshot into the project's `docs/segnalazioni/`, prompt delivered |
 | `claude-master queue <name> "prompt" [--expires M] \| --show \| --clear` | a prompt delivered when that session's next turn ends |
 | `claude-master next [--all] [--attach]` | the session that needs you most |
 | `claude-master park <name> \| --idle-over D \| --ram-below MB [--auto]` · `claude-master unpark <name>` | hibernate a session and bring it back |
-| `claude-master registry [--show]` | refresh the list of sessions to restore (also from cron) |
-| `claude-master restore [--dry-run\|--yes]` | relaunch the sessions registered before a reboot |
+| `claude-master registry [--show\|--good\|--closed NAME]` | refresh the list of sessions to restore (also from cron); `--good` is the «last good set», which never shrinks on its own |
+| `claude-master restore [--dry-run\|--yes]` | relaunch the sessions registered before a reboot: the union of the registry and the last good set, each with its source and date |
 | `claude-master cloud <dir> "task"` · `claude-master follow <id> "message"` | a cloud session from the folder's account; a message to it |
 | `claude-master desk [start\|stop\|status]` | a Remote Control desk in the workspace root (optional, off by default) |
 | `claude-master tile [names] [--rows\|--grid] [--on PLACE] [--dry-run] [--where]` · `claude-master merge` · `claude-master move PLACE` · `claude-master layout save\|restore\|list NAME` | windows side by side, as tabs, on another monitor, or by saved layout (ChromeOS) |

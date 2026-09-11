@@ -5,13 +5,20 @@ G1  senza chrome-bridge → exit con messaggio; backend non chromeos → exit co
 G2  --where elenca i monitor (dalle finestre massimizzate e dalle schede http)
 G3  --dry-run: piano senza toccare niente
 G4  tile: tre sessioni in tre finestre → colonne uguali nell'ordine chiesto, una per volta (T35); `actual` assente non fa morire (T37)
-G5  T34: finestra massimizzata staccata in popup prima del tiling (move_tab, T36 to_window)
+G5  T34/T72: finestra massimizzata o minimizzata → la sessione riparte in una finestra app NUOVA via garcon
+    (attach NOME, client nuovo T27), la scheda vecchia chiusa, poi il tiling; MAI popup (Franz 11/09 13:26)
+G10 sessioni in finestre popup (versioni precedenti) → convertite in finestre app via garcon; dopo tile
+    nessuna finestra popup
 G6  T39: sessioni sparse su due monitor → radunate dove sta la maggioranza
 G7  T40: sotto min_column_px si passa a griglia
 G8  move destra: monitor dal registro; T32: voce stantia rifiutata dal tile di prova e tolta dal registro
 G9  T33: pagina di riferimento scelta col CENTRO nel riquadro delle sessioni
 M1  merge: sessioni in finestre diverse → segnaposto, duplicate nella finestra di raccolta (non popup, con sorgente), client NUOVO atteso (T27), schede vecchie chiuse, #home sola chiusa (T28)
 M2  T28: le schede #home e quelle di attach non sono sorgenti duplicabili
+M3  T78 (11/09): la scheda iniziale (#home) della SWA non si chiude finché ha altre schede accanto; merge preferisce
+    come finestra di raccolta una finestra app SENZA #home; M4 senza nessuna finestra così usa quella con #home
+    e la SFRATTA (T80, chrome-bridge ed24b83: move_tab della home in un popup, poi close): mai una #home
+    accanto a una sessione
 L1  layout save/restore/list con l'elenco delle sessioni presenti
 """
 import json
@@ -37,11 +44,15 @@ LEFTM = {"left": -2226, "top": -1252, "width": 2226, "height": 1204}
 RIGHTM = {"left": 749, "top": -1252, "width": 2226, "height": 1204}
 
 
-def write_cfg(backend="fake", cli=str(FAKE_BRIDGE)):
+FAKE_GARCON = T.ROOT / "tests" / "lib" / "fake-garcon.py"
+garcon_log = tmp / "garcon.log"
+
+
+def write_cfg(backend="chromeos", cli=str(FAKE_BRIDGE)):
     cfg.write_text(json.dumps({
         "language": "it", "state_dir": str(state),
         "accounts": {"personale": {"config_dir": str(home / ".claude")}, "professionale": {"config_dir": str(home / ".claude-pixel"), "tmux_prefix": "pix-"}},
-        "terminal": {"backend": backend},
+        "terminal": {"backend": backend, "garcon": str(FAKE_GARCON)},
         "tile": {"chrome_bridge_cli": cli, "terminal_url": "chrome-untrusted://terminal/", "min_column_px": 340,
                  "monitor_registry": str(state / "monitors.json"), "placeholder_file": str(state / "next-session"),
                  "new_client_wait_s": 15, "window_open_wait_s": 3},
@@ -55,6 +66,7 @@ write_cfg()
 def env(**extra):
     e = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg),
          "CM_TMUX_ARGS": tm.env["CM_TMUX_ARGS"], "FAKE_BRIDGE_STATE": str(bridge_state), "CM_PROC_SCAN_PIDS": "",
+         "FAKE_GARCON_LOG": str(garcon_log), "FAKE_BRIDGE_TMUX_ARGS": tm.env["CM_TMUX_ARGS"], "WAYLAND_DISPLAY": "wl-0",
          "FAKE_BRIDGE_PLACEHOLDER": str(state / "next-session"), "FAKE_BRIDGE_TMUX_ARGS": tm.env["CM_TMUX_ARGS"]}
     e.update(extra)
     return e
@@ -68,7 +80,7 @@ def term_tab(tid, wid, name):
     return {"id": tid, "windowId": wid, "url": f"{URL}?command=claude-master&args[]=attach&args[]={name}&args[]=ephemeral", "title": f"🔴 {name}", "active": True}
 
 
-def win(wid, l, t, w=600, h=500, state_="normal", type_="popup"):
+def win(wid, l, t, w=600, h=500, state_="normal", type_="app"):
     return {"id": wid, "type": type_, "state": state_, "left": l, "top": t, "width": w, "height": h}
 
 
@@ -82,6 +94,27 @@ def calls():
 
 def windows():
     return {x["id"]: x for x in json.load(open(bridge_state))["windows"]}
+
+
+def garcon_calls():
+    return garcon_log.read_text().splitlines() if garcon_log.exists() else []
+
+
+def popups():
+    return [x for x in json.load(open(bridge_state))["windows"] if x.get("type") == "popup"]
+
+
+def homes_with_sessions():
+    st = json.load(open(bridge_state))
+    with_sess = {t["windowId"] for t in st["tabs"] if "args[]=attach" in t["url"]}
+    return [t for t in st["tabs"] if "#home" in t["url"] and t["windowId"] in with_sess]
+
+
+def win_of(name):
+    """la finestra in cui sta ora la scheda della sessione"""
+    st = json.load(open(bridge_state))
+    t = next((t for t in st["tabs"] if f"args[]={name}" in t["url"]), None)
+    return next((x for x in st["windows"] if t and x["id"] == t["windowId"]), None)
 
 
 with T.PrivateTmux() as tm:
@@ -119,13 +152,24 @@ with T.PrivateTmux() as tm:
     # G5: massimizzata
     world([win(11, 0, 0, 1536, 864, "maximized", "app"), win(12, 620, 10), win(9, 700, 500, 700, 300, "normal", "normal")],
           [term_tab(101, 11, "alfa"), term_tab(102, 12, "beta"), {"id": 90, "windowId": 9, "url": "https://example.com/", "title": "ex", "active": True}], [NATIVE])
+    n_g = len(garcon_calls())
     r = tile("tile", "alfa", "beta")
-    T.check("G5 maximized window detached into a popup, then tiled", r.returncode == 0 and any(c["cmd"] == "move_tab" and c["params"]["tab_id"] == 101 for c in calls()) and "2/2" in r.stdout, r.stdout + r.stderr)
+    tabs = json.load(open(bridge_state))["tabs"]
+    T.check("G5 maximized: alfa reopened in a NEW app window through garcon (attach alfa), old tab closed, no move_tab of a session tab, no popup, then tiled", r.returncode == 0 and any("attach alfa" in l for l in garcon_calls()[n_g:]) and not any(c["cmd"] == "move_tab" and c["params"].get("tab_id") in (101, 102) for c in calls()) and not any(t["id"] == 101 for t in tabs) and not popups() and "2/2" in r.stdout and win_of("alfa") and win_of("alfa")["width"] == 768, r.stdout + r.stderr + str(garcon_calls()) + str(windows()))
     # G5b: minimizzata (T72): stessa sorte della massimizzata
     world([win(11, 795, 0, 573, 864, "minimized", "app"), win(12, 620, 10), win(9, 700, 500, 700, 300, "normal", "normal")],
           [term_tab(101, 11, "alfa"), term_tab(102, 12, "beta"), {"id": 90, "windowId": 9, "url": "https://example.com/", "title": "ex", "active": True}], [NATIVE])
+    n_g = len(garcon_calls())
     r = tile("tile", "alfa", "beta")
-    T.check("G5b minimized window detached into a popup, then tiled", r.returncode == 0 and any(c["cmd"] == "move_tab" and c["params"]["tab_id"] == 101 for c in calls()) and "2/2" in r.stdout and "minimized" in r.stdout, r.stdout + r.stderr)
+    T.check("G5b minimized: same fate, app window through garcon, reported", r.returncode == 0 and any("attach alfa" in l for l in garcon_calls()[n_g:]) and not popups() and "2/2" in r.stdout and "minimized" in r.stdout, r.stdout + r.stderr + str(garcon_calls()))
+    T.check("G5b the garcon window's #home evicted: no #home next to a session, no popup left", not homes_with_sessions() and not popups(), str(json.load(open(bridge_state))["tabs"]))
+    # G10: sessioni in finestre POPUP (staccate da versioni precedenti) → convertite in finestre app
+    world([win(11, 10, 10, type_="popup"), win(12, 620, 10, type_="popup"), win(9, 700, 500, 700, 300, "normal", "normal")],
+          [term_tab(101, 11, "alfa"), term_tab(102, 12, "beta"), {"id": 90, "windowId": 9, "url": "https://example.com/", "title": "ex", "active": True}], [NATIVE])
+    n_g = len(garcon_calls())
+    r = tile("tile", "alfa", "beta")
+    T.check("G10 popup windows converted: two garcon attach calls, no popup left, both tiled as app windows", r.returncode == 0 and len(garcon_calls()) == n_g + 2 and not popups() and "2/2" in r.stdout and win_of("alfa") and win_of("beta") and win_of("alfa")["type"] == "app" and {win_of("alfa")["left"], win_of("beta")["left"]} == {0, 768}, r.stdout + r.stderr + str(garcon_calls()[n_g:]) + str(windows()))
+    T.check("G10 both app windows without #home", not homes_with_sessions(), str(json.load(open(bridge_state))["tabs"]))
     # G5c: sei sessioni su 1536 px = 256 per colonna < 340 → griglia 3x2 da 512
     for s_ in ("delta", "epsilon", "zeta"):
         tm("new-session", "-d", "-s", s_, "bash", "--norc")
@@ -175,7 +219,10 @@ with T.PrivateTmux() as tm:
     r = tile("tile", "alfa", "beta")
     js = [c for c in calls() if c["cmd"] == "execute_js"]
     T.check("G9 reference page chosen by centre inside the sessions' box (near, not far)", r.returncode == 0 and js and js[-1]["params"]["tab_id"] == 90, str([c["params"]["tab_id"] for c in js]))
-    # M1: merge — finestra di raccolta 5 (normal) con una shell duplicabile; alfa in popup 11
+    for s_ in ("alfa", "beta", "gamma"):   # i client finti di G5/G10 restano attaccati: via, M1 conta i NUOVI
+        tm("detach-client", "-s", s_)
+    time.sleep(1)
+    # M1: merge — finestra di raccolta 5 (app) con una shell duplicabile; alfa in finestra 11
     world([win(5, 0, 0, 1536, 864, "normal", "app"), win(11, 10, 10), win(7, 900, 100, 400, 300, "normal", "app")],
           [{"id": 50, "windowId": 5, "url": URL, "title": "Terminal", "active": True}, term_tab(101, 11, "alfa"),
            {"id": 70, "windowId": 7, "url": URL + "#home", "title": "Terminal", "active": True}], [NATIVE])
@@ -192,6 +239,21 @@ with T.PrivateTmux() as tm:
           [{"id": 50, "windowId": 5, "url": URL + "#home", "title": "Terminal", "active": True}, term_tab(51, 5, "beta"), term_tab(101, 11, "gamma")], [NATIVE])
     r = tile("merge", "gamma", CM_TILE_NO_GARCON="1")
     T.check("M2 no duplicable source (#home, attach tabs) → no duplicate from them", not any(c["cmd"] == "tab_action" and c["params"].get("action") == "duplicate" and c["params"].get("tab_id") in (50, 51) for c in calls()), str(calls()[-3:]))
+    # M3: due finestre app con una shell duplicabile: la 5 ha la #home, la 8 no → si raccoglie nella 8
+    world([win(5, 0, 0, 1536, 864, "normal", "app"), win(8, 100, 100, 900, 600, "normal", "app"), win(11, 10, 10)],
+          [{"id": 50, "windowId": 5, "url": URL + "#home", "title": "Terminal", "active": False},
+           {"id": 52, "windowId": 5, "url": URL, "title": "Terminal", "active": True},
+           {"id": 80, "windowId": 8, "url": URL, "title": "Terminal", "active": True}, term_tab(101, 11, "alfa")], [NATIVE])
+    r = tile("merge", "alfa")
+    dup = [c["params"].get("tab_id") for c in calls() if c["cmd"] == "tab_action" and c["params"].get("action") == "duplicate"]
+    T.check("M3 merge prefers the app window WITHOUT #home (duplicates tab 80 of window 8)", r.returncode == 0 and dup == [80] and "raccolgo nella finestra 8" in r.stdout, r.stdout + r.stderr + str(dup))
+    # M4: solo finestre con la #home → si usa quella e si dice di trascinare fuori una scheda
+    world([win(5, 0, 0, 1536, 864, "normal", "app"), win(11, 10, 10)],
+          [{"id": 50, "windowId": 5, "url": URL + "#home", "title": "Terminal", "active": False},
+           {"id": 52, "windowId": 5, "url": URL, "title": "Terminal", "active": True}, term_tab(101, 11, "alfa")], [NATIVE])
+    r = tile("merge", "alfa")
+    dup = [c["params"].get("tab_id") for c in calls() if c["cmd"] == "tab_action" and c["params"].get("action") == "duplicate"]
+    T.check("M4 only a window with #home: collects there, the #home evicted (move_tab to a popup, closed), none left next to sessions", r.returncode == 0 and dup == [52] and any(c["cmd"] == "move_tab" and c["params"].get("tab_id") == 50 and c["params"].get("window_type") == "popup" for c in calls()) and not homes_with_sessions() and not popups() and 5 in windows(), r.stdout + r.stderr + str(dup) + str(json.load(open(bridge_state))["tabs"]))
     # L1
     world([win(11, 10, 10), win(12, 620, 10)], [term_tab(101, 11, "alfa"), term_tab(102, 12, "beta")], [NATIVE])
     r = tile("layout", "save", "mattina")
