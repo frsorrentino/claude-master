@@ -99,6 +99,17 @@ clear 2>/dev/null || true
 echo " ▐▛███▛█   Claude Code v2.1.265 (fake)"
 case "$SCEN" in *,bridge-late,*) ;; *) [ -n "$RC" ] && echo "▎ Keep working from anywhere: https://claude.ai/code/session_01FAKE$$";; esac
 echo "──────────────────────────── ${NAME:-$(basename "$PWD")} ─"
+menu3() {  # come menu, ma SENZA le righe di descrizione sotto le opzioni
+  local q="$1"; shift; local opts=("$@") i
+  printf '\033[2J\033[H\n ☐ Via\n%s\n' "$q"
+  for i in "${!opts[@]}"; do
+    if [ "$i" = 0 ]; then printf '❯ %d. %s\n' $((i+1)) "${opts[$i]}"; else printf '  %d. %s\n' $((i+1)) "${opts[$i]}"; fi
+  done
+  printf 'Enter to select · ↑/↓ to navigate · Esc to cancel\n'
+  while IFS= read -rsn1 k; do :; done
+}
+
+
 menu() {  # $1 = domanda, poi le opzioni: come AskUserQuestion di Claude Code (catturata il 10/09/2026)
   local q="$1"; shift; local opts=("$@") sel=0 k k2 i n=${#opts[@]}
   draw() {
@@ -107,6 +118,7 @@ menu() {  # $1 = domanda, poi le opzioni: come AskUserQuestion di Claude Code (c
       if [ "$i" = "$sel" ]; then printf '❯ %d. %s\n' $((i+1)) "${opts[$i]}"; else printf '  %d. %s\n' $((i+1)) "${opts[$i]}"; fi
       printf '     descrizione %d\n' $((i+1))
     done
+    printf '  %d. Chat about this\n' $((n+1))
     printf 'Enter to select · ↑/↓ to navigate · Esc to cancel\n'
   }
   draw
@@ -122,6 +134,7 @@ menu() {  # $1 = domanda, poi le opzioni: come AskUserQuestion di Claude Code (c
 case "$SCEN" in
   *,question2,*) menu "colore preferito?" "rosso" "blu" "verde" "Type something."; menu "taglia?" "S" "M" "L" ;;
   *,question,*)  menu "colore preferito?" "rosso" "blu" "verde" "Type something." ;;
+  *,question3,*) menu3 "Procedo?" "Sì" "No" ;;
 esac
 printf '❯ '   # senza newline: il testo digitato resta sulla riga del prompt, come in Claude Code
 # resta vivo finche' non riceve /exit (o un segnale)

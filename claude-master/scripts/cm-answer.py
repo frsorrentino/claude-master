@@ -48,6 +48,8 @@ CFG = cm.load(warn=False)
 M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
 OPTION = re.compile(r"^\s*(❯)?\s*(\d+)\.\s+(.*\S)\s*$")
 FOOTER = "Enter to select"
+# le voci fisse in coda al dialogo di AskUserQuestion: non sono opzioni (via master 12/09, screenshot di Franz)
+FOOT_OPTIONS = ("type something.", "chat about this")
 
 
 def tmux(*args):
@@ -59,8 +61,9 @@ def screen(name):
 
 
 def parse(text):
-    """(header, domanda, [(n, label, corrente)], footer presente). Le opzioni sono le righe
-    «n. label»; la descrizione sotto (indentata, senza numero) non si conta."""
+    """(header, domanda, [(n, label, corrente, descrizione)], footer presente). Le opzioni sono le righe
+    «n. label»; la descrizione sotto (indentata, senza numero) si raccoglie (12/09: sul polso e' il testo che
+    i tasti non possono mostrare)."""
     lines = text.splitlines()
     if not any(FOOTER in l for l in lines):
         return None
@@ -68,7 +71,13 @@ def parse(text):
     for i, l in enumerate(lines):
         m = OPTION.match(l)
         if m:
-            options.append((int(m.group(2)), m.group(3).strip(), m.group(1) == "❯"))
+            if m.group(3).strip().lower().rstrip(".") in [f.rstrip(".") for f in FOOT_OPTIONS]:
+                break   # da qui in poi solo pie' di pagina
+            options.append((int(m.group(2)), m.group(3).strip(), m.group(1) == "❯", ""))
+            continue
+        if options and l.strip() and l.startswith("  ") and FOOTER not in l and not l.strip().startswith("─"):
+            n, lab, cur, desc = options[-1]
+            options[-1] = (n, lab, cur, (desc + " " + l.strip()).strip())
             continue
         if "☐" in l or "☑" in l:
             header = l.replace("☐", "").replace("☑", "").strip()
@@ -95,7 +104,7 @@ def show(name):
         return 1
     header, question, options, _ = d
     print(M("answer.question", name=name, header=header or "-", question=question or "-"))
-    for n, label, cur in options:
+    for n, label, cur, _d in options:
         print(f"  {'❯' if cur else ' '} {n}. {label}")
     return 0
 
@@ -196,23 +205,36 @@ def notify_lines(p, name, on_screen, ui):
     questions = ti.get("questions") if isinstance(ti, dict) else None
     q0 = (questions or [{}])[0] if isinstance(questions, list) and questions else {}
     header, question, options = "", "", []
+    descs = []
     if on_screen:
         header, question, options, _ = on_screen
-        options = [label for _, label, _ in options]
+        descs = [d for _, _, _, d in options]
+        options = [label for _, label, _, _ in options]
     # il payload ha la domanda intera e non spezzata a righe: vince sullo schermo (che da' i numeri delle opzioni)
     question = str(q0.get("question") or "") or question
-    if not options and isinstance(q0.get("options"), list):
-        options = [str(o.get("label") or "") for o in q0["options"] if isinstance(o, dict)]
+    if isinstance(q0.get("options"), list):
+        pl = [(str(o.get("label") or ""), str(o.get("description") or "")) for o in q0["options"] if isinstance(o, dict)]
+        if not options:
+            options, descs = [l for l, _ in pl], [d for _, d in pl]
+        elif not any(descs):
+            by_label = {clean_label(l): d for l, d in pl}
+            descs = [by_label.get(clean_label(o), "") for o in options]
     options = [clean_label(o) for o in options]
+    descs = (descs + [""] * len(options))[:len(options)]
     icon = icon_of(name)
-    lines = [ui.fit(f"❓ {icon} {ui.short_name(name)}".replace("  ", " "))]
+    header = header or str(q0.get("header") or "")
+    # larghezza piena (Franz 12/09 11:14): righe intere, la prima la piu' lunga («❓ 🔴 master · Trasporto»)
+    lines = [ui.join(f"❓ {icon} {ui.short_name(name)}".replace("  ", " "), header)]
     if question or options:
-        lines += ui.wrap(synth_question(question, ui) or "?", ui.WIDTH, 4)
-        lines += [ui.fit(f"{i + 1} {o}") for i, o in enumerate(options)]
+        lines.append(ui.line(synth_question(question, ui) or "?"))
+        # il testo dice solo quello che i tasti non dicono (Franz 12/09 11:12): le opzioni si elencano se hanno
+        # una descrizione, se sono piu' di tre (i tasti sono due + Apri) o se non ci saranno tasti (senza tmux)
+        if any(descs) or len(options) > 3 or not name or not on_screen:
+            lines += [ui.join(f"{i + 1} {o}", d) for i, (o, d) in enumerate(zip(options, descs))]
     else:
-        lines += ui.wrap(f"{tool} {_detail(ti)}", ui.WIDTH, 3)
+        lines.append(ui.line(f"{tool} {_detail(ti)}"))
     # oltre 8 righe se servono: la domanda intera vale piu' del tetto (il polso scorre)
-    return lines[:max(ui.MAX_LINES, 5 + len(options))], options
+    return lines[:max(ui.MAX_LINES, 5 + 3 * len(options))], options
 
 
 def notify_text(p, name, on_screen):
@@ -225,7 +247,7 @@ def notify_text(p, name, on_screen):
     header, question, options = "", "", []
     if on_screen:
         header, question, options, _ = on_screen
-        options = [(n, label) for n, label, _ in options]
+        options = [(n, label) for n, label, _, _ in options]
     header = header or str(q0.get("header") or "")
     question = question or str(q0.get("question") or "")
     if not options and isinstance(q0.get("options"), list):
@@ -260,15 +282,20 @@ def notify():
     shown = name or Path(p.get("cwd") or "").name or "?"
     ui = _load("cm-bot-ui")
     lines, labels = notify_lines(p, shown, on_screen, ui)
-    if name and len(lines) < ui.MAX_LINES:
-        lines.append(ui.fit(M("answer.notify_hint", n=2 if len(labels) >= 2 else 1, name=name)))
+    # la domanda integrale, se la sintesi ne ha tagliato un pezzo: il bottone «Domanda intera» la manda
+    q_full = " ".join(str((((p.get("tool_input") or {}).get("questions") or [{}])[0] or {}).get("question") or "").split())
+    if not q_full and on_screen:
+        q_full = " ".join(str(on_screen[1] or "").split())
+    q_cut = bool(q_full) and (len(lines) > 1 and lines[1] != q_full)
+    if name:
+        lines.append(ui.line(M("answer.notify_hint", n=2 if len(labels) >= 2 else 1, name=name)))
     text = "\n".join(lines)
-    markup = ui.keyboard_notice(name, labels, f"{icon_of(name)} {ui.short_name(name)}".strip()) if name else ui.keyboard_back()
+    markup = ui.keyboard_notice(name, labels, f"{icon_of(name)} {ui.short_name(name)}".strip(), full_question=q_cut) if name else ui.keyboard_back()
     mids = {}
     for c in chats:
         mids[c] = bot.reply(c, text, reply_markup=markup)   # notifica NORMALE: una domanda aspetta Franz
     if name:
-        bot.remember_question(name, mids, labels)
+        bot.remember_question(name, mids, labels, q_full if q_cut else "")
     hook = _load("cm-hook")
     hook.ledger("ask-notified", p, tool=p.get("tool_name", ""), tmux=name, chats=len(chats))
     bot.log(M("answer.notify_sent", n=len(chats), name=shown))

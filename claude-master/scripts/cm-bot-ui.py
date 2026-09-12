@@ -3,9 +3,11 @@
 
 Misure prese dal polso: ~22 caratteri utili per riga, 8-10 righe visibili, il client rende le tastiere
 inline e il tocco arriva (callback_query); la dettatura scrive minuscole senza accenti e concatena
-(«due si»). Quindi: ogni messaggio ≤ 8 righe da ≤ 22 caratteri con la prima riga decisiva; comandi a
-parola nuda dettabile oltre a /comando; numeri sempre accettati come alternativa ai bottoni; una riga
-contestuale di bottoni (Sessioni, «◀ nome», Avvisami, Continua, Ferma, Terminale…), così dal polso non si scrive mai.
+(«due si»). Dal 12/09 (screenshot di Franz): la bolla di Telegram è larga quanto la riga più lunga, quindi nel CORPO
+niente a capo né tagli a 22 (line/join: righe intere, le corte unite con « · », la prima la più lunga); i 22
+caratteri restano la misura delle ETICHETTE dei bottoni (fit). Comandi a parola nuda dettabile oltre a /comando;
+numeri sempre accettati come alternativa ai bottoni; una riga contestuale di bottoni (Sessioni, «◀ nome»,
+Avvisami, Continua, Ferma, Terminale…), così dal polso non si scrive mai.
 
 Niente I/O qui: cm-bot.py chiama, questo modulo rende e interpreta. Testato in tests/bot-ui-verify.py.
 """
@@ -116,6 +118,18 @@ def fit(text, width=WIDTH):
     return text if len(text) <= width else text[:width - 1].rstrip() + "…"
 
 
+def line(text):
+    """Una riga logica = una riga fisica (Franz 12/09 11:14, screenshot di telefono e watch): spazi normalizzati,
+    NESSUN taglio ne' a capo interno — la bolla di Telegram si allarga quanto la riga piu' lunga, e a 22
+    caratteri restava a meta' schermo col testo mozzato. Solo le etichette dei bottoni passano da fit()."""
+    return " ".join(str(text or "").split())
+
+
+def join(*parts):
+    """Righe corte adiacenti dello stesso tipo unite con « · », cosi' la prima riga e' la piu' lunga possibile."""
+    return " · ".join(line(p) for p in parts if line(p))
+
+
 def wrap(text, width=WIDTH, max_lines=2):
     """Spezza sulle parole; oltre max_lines tronca con «…»."""
     words = str(text or "").split()
@@ -205,13 +219,13 @@ def cut44(text, n=44):
 
 
 def card_lines(row, esito="", next_step="", question="", options=(), prefixes=(), now=None, width=WIDTH, max_lines=MAX_LINES, icon=""):
-    """La scheda a struttura fissa (Franz 18:24; stato per primo via master 12/09), ≤ 8 righe da ≤ 22:
-    1 «<stato> <icona> nome» · 2 «stato da quanto» · 3-4 ultimo esito (o «▶ in corso da Nm» se lavora da > 2 min)
-    · 5-6 «→ prossimo» del recap (o «→ nessun recap») · 7-8 domanda + opzioni numerate, solo se c'è."""
+    """La scheda (Franz 18:24; larghezza piena 12/09 11:14): righe INTERE, mai spezzate.
+    1 «<stato> <icona> nome · stato da quanto» · 2 l'ultimo esito (taciuto se lavora da > 2 min: la durata e'
+    gia' in testa) · 3 «→ prossimo» del recap (o «→ nessun recap») · poi la domanda (il suo succo) e, se sono piu'
+    di tre, le opzioni una per riga (fino a tre bastano i bottoni)."""
     now = now or 0
     st = state_of(row)
     nome = short_name(row.get("name") or row.get("tmux") or "?", prefixes)
-    head = fit(f"{STATI[st]} {icon} {nome}".replace("  ", " ").strip(), width)   # stato per primo (via master 12/09), l'icona dice l'account
     esito = esito_of(esito) if esito else ""
     since = None
     if st in ("busy", "idle") and row.get("last_ts") and now:
@@ -220,30 +234,14 @@ def card_lines(row, esito="", next_step="", question="", options=(), prefixes=()
         since = now - float(row["visto_ts"])
     eta = f" {age_compact(since)}" if since is not None else ""
     stato = {"waiting": "aspetta te", "busy": f"lavora{eta}", "idle": f"ferma{eta}", "dead": f"sparita{eta}"}[st]
-    lines = [head, fit(stato, width)]
-    tail = []
+    lines = [join(f"{STATI[st]} {icon} {nome}".replace("  ", " ").strip(), stato)]
+    if esito and not (st == "busy" and since is not None and since >= 120):
+        lines.append(line(strip_markdown(esito)))
+    lines.append(line(f"→ {strip_markdown(next_step)}") if next_step else "→ nessun recap")
     if question:
-        # la domanda COMPLETA (il suo succo) su ≤ 3 righe, poi le opzioni
-        tail = wrap(question_gist(question) or question, width, 3) + [fit(f"{i + 1} {o}", width) for i, o in enumerate(options)]
-    budget = max(0, max_lines - len(lines) - len(tail))
-    # con una scheda lunga (bot.card_lines, Franz 20:13: «il triplo») esito e prossimo respirano:
-    # fino a 6 e 4 righe invece di 2 e 2
-    esito_max, next_max = (6, 4) if max_lines > 8 else (2, 2)
-    mid = []
-    if st == "busy" and since is not None and since >= 120:
-        mid += [fit(f"▶ in corso da {age_compact(since)}", width)]
-    elif esito:
-        mid += wrap(cut44(strip_markdown(esito), esito_max * width), width, esito_max)
-    recap = f"→ {cut44(strip_markdown(next_step), next_max * width)}" if next_step else "→ nessun recap"
-    mid += wrap(recap, width, next_max)
-    # se non ci sta tutto: prima il recap a una riga, poi l'esito a una riga, poi si taglia in coda
-    if len(mid) > budget:
-        n_recap = len(wrap(recap, width, next_max))
-        parte_esito = mid[:-n_recap] if len(mid) > n_recap else []
-        mid = parte_esito + [wrap(recap, width, 1)[0]]
-    if len(mid) > budget and len(mid) > 1:
-        mid = [mid[0], mid[-1]]
-    lines += mid[:budget] + tail
+        lines.append(line(question_gist(question) or question))
+        if len(options) > 3:
+            lines += [line(f"{i + 1} {o}") for i, o in enumerate(options)]
     return lines[:max_lines]
 
 
@@ -297,10 +295,12 @@ def keyboard_list(labels, master_alive=True):
     return {"inline_keyboard": rows}
 
 
-def keyboard_card(options, following=False, state="idle", has_checkpoint=False):
+def keyboard_card(options, following=False, state="idle", has_checkpoint=False, full_question=False):
     """Scheda: le opzioni della domanda, Avvisami/Basta avvisi, Continua (solo su ✓ ferma e ✗ sparita: a una
     che lavora o che chiede non si dice «continua»), Annulla modifiche (solo se c'e' un checkpoint), Sessioni."""
     rows = [_row(f"{i + 1} {o}", f"opt:{i + 1}") for i, o in enumerate(options)]
+    if full_question:
+        rows.append(_row("Domanda intera", "q:"))
     rows.append(_row("Basta avvisi" if following else "Avvisami", "follow"))
     if state in ("idle", "dead"):
         rows.append(_row("Continua", "resume"))
@@ -324,11 +324,15 @@ def keyboard_retry(name, label=""):
     return {"inline_keyboard": [_row("Invia di nuovo", f"retry:{name}"), _row("Sessioni", "list")]}
 
 
-def keyboard_notice(name, options, label=""):
+def keyboard_notice(name, options, label="", full_question=False):
     """L'avviso di una domanda (dall'hook): al massimo TRE bottoni (via master 12/09: Wear OS ne mostra pochi):
-    le opzioni se sono ≤ 3, altrimenti le prime due; poi «Apri <icona> nome» (la scheda ha tutte le opzioni)."""
+    le opzioni se sono ≤ 3, altrimenti le prime due; «Domanda intera» (q:) solo se la sintesi ha tagliato
+    qualcosa (via master 12/09 11:38); poi «Apri <icona> nome» (la scheda ha tutte le opzioni)."""
     shown = list(options) if len(options) <= 3 else list(options)[:2]
-    return {"inline_keyboard": [_row(f"{i + 1} {o}", f"ans:{name}:{i + 1}") for i, o in enumerate(shown)] + [_row(f"Apri {label or name}", f"card:{name}")]}
+    rows = [_row(f"{i + 1} {o}", f"ans:{name}:{i + 1}") for i, o in enumerate(shown)]
+    if full_question:
+        rows.append(_row("Domanda intera", f"q:{name}"))
+    return {"inline_keyboard": rows + [_row(f"Apri {label or name}", f"card:{name}")]}
 
 
 def keyboard_outcome(name, label="", cut=False):
@@ -356,8 +360,9 @@ def keyboard_confirm():
 TOOL_INPUT_KEYS = ("command", "file_path", "pattern", "path", "query", "url", "prompt", "description")
 
 
-def tool_line(name, tool_input, width=WIDTH):
-    """«Bash git log --since»: il tool e i primi caratteri dell'input, come lo spinner del desktop."""
+def tool_line(name, tool_input, width=120):
+    """«Bash git log --since yesterday»: il tool e l'input (fino a `width` caratteri, senza segno di taglio), come
+    lo spinner del desktop."""
     detail = ""
     if isinstance(tool_input, dict):
         for k in TOOL_INPUT_KEYS:
@@ -366,7 +371,7 @@ def tool_line(name, tool_input, width=WIDTH):
                 break
     elif tool_input:
         detail = " ".join(str(tool_input).split())
-    return fit(f"{name} {detail}".strip(), width)
+    return line(f"{name} {detail[:width]}")
 
 
 def transcript_events(path, offset):
@@ -407,13 +412,11 @@ def transcript_events(path, offset):
 
 
 def live_lines(label, since, tool="", note="", width=WIDTH, max_lines=4):
-    """Il messaggio vivo: «▶ nome · 1m», il tool in corso, le ultime due righe di testo."""
-    head = fit(f"▶ {label} · {age_compact(since)}" if since >= 60 else f"▶ {label} al lavoro", width)
+    """Il messaggio vivo a larghezza piena: «▶ nome · 2m · Bash pytest -q tests» in UNA riga, poi l'ultimo testo intero."""
+    head = join(f"▶ {label}", age_compact(since) if since >= 60 else "al lavoro", tool)
     lines = [head]
-    if tool:
-        lines.append(fit(tool, width))
     if note:
-        lines += wrap(strip_markdown(note), width, max_lines - len(lines))
+        lines.append(line(strip_markdown(note)))
     return lines[:max_lines]
 
 

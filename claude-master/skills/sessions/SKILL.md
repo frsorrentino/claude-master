@@ -101,7 +101,9 @@ testo solo se l'utente lo ripete in questa conversazione.
 `claude-master bot serve` (daemon in long polling, risposta all'istante; il cron del minuto lo
 rialza con `bot ensure`, `bot status` lo mostra) è l'unico consumatore del bot Telegram dall'11/09 (il
 plugin ufficiale è disattivato: condivideva il token; se riparte, `serve` esce dicendo perché). È fatto per il polso
-(Wear OS, ~22 caratteri per riga): messaggi da ≤ 8 righe, parole nude dettabili oltre a `/comando`
+(Wear OS): poche righe INTERE per messaggio (12/09: la bolla è larga quanto la riga più lunga, quindi niente a capo
+né tagli a larghezza fissa nel corpo, righe corte unite con « · »; solo le etichette dei bottoni si accorciano), parole
+nude dettabili oltre a `/comando`
 (`sessioni`/`s`, `master`/`m`, `lancia X`/`l X`, `quota`/`q`, `aiuto`/`?`, `avvisami`/`f`,
 `continua`/`t`, `ferma`, `terminale`, `annulla`), tasti contestuali con la regola «imperativo = azione,
 sostantivo = destinazione» (Sessioni, «◀ nome», Avvisami/Basta avvisi, Continua solo su ✓/✗, Annulla modifiche
@@ -120,8 +122,11 @@ finito:» a fine di un turno > `bot.follow_min_turn_s`, «✗ nome» se sparisce
 Silenzioso tranne domande, esiti, risposte, errori e sparizioni; digest delle 8:00 («cosa aspetta te», un tasto
 Apri per ogni ❓). `terminale NOME`/`schermo NOME`/`v NOME`: le ultime 30 righe del riquadro in un blocco `<pre>`.
 L'avviso di una domanda: «❓ icona nome», poi la domanda COMPLETA e di senso compiuto (il testo se sta in 88
-caratteri, altrimenti l'ultima frase interrogativa, altrimenti una sintesi col modello `hooks.ask_notify.synth_model`),
-poi le opzioni una per riga; al massimo tre bottoni (oltre tre opzioni: le prime due + Apri). La riga «Esito:» di
+caratteri, altrimenti l'ultima frase interrogativa, altrimenti una sintesi col modello `hooks.ask_notify.synth_model`;
+se la sintesi ha tagliato qualcosa, il bottone «Domanda intera» manda il testo integrale),
+poi le opzioni SOLO se dicono qualcosa che i tasti non dicono (hanno una descrizione: «1 etichetta · descrizione», o sono
+più di tre, o non ci sono tasti); al massimo tre bottoni (oltre tre opzioni: le prime due + Apri). «Type something.» e
+«Chat about this» sono piè di pagina del dialogo, non opzioni. La riga «Esito:» di
 esiti e risposte è una frase sola ≤ 120 caratteri, per la lettura vocale. `/sessions full` dà la tabella intera. Dopo un riavvio della macchina serve il login a mano.
 
 ## Rispondere alla domanda di un'altra sessione

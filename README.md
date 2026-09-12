@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.3.9-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.3.10-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 ![One master session runs all the others: the root session launches, watches, answers and closes the parallel sessions of every project, from the terminal and from a watch — the bot's list shown on a round Wear OS watch and on a rectangular iOS watch.](assets/readme/card0-hero.png)
 
@@ -122,8 +122,9 @@ layout. The Terminal's start tab is evicted, never left beside a session.
 
 ![From your wrist: side by side, a round Wear OS watch and a rectangular iOS watch showing the same Telegram list — one line per session with its state and icon, buttons on Wear OS, plain text on iOS; an illustration, not a screenshot.](assets/readme/card7-wrist.png)
 
-The Telegram bot is written for a watch: every message is at most eight lines
-of 22 characters, every command is a bare, dictable word (`sessioni`,
+The Telegram bot is written for a watch: every message is a few whole lines
+(the bubble is as wide as its longest line, so nothing is wrapped or cut at a
+fixed width), every command is a bare, dictable word (`sessioni`,
 `lancia ledger`, `avvisami`, `continua`, `ferma`), and the buttons are
 contextual — verbs for actions (Avvisami, Continua, Ferma, Leggi tutto,
 Annulla modifiche), nouns for destinations (Sessioni, Terminale, «◀ name»).

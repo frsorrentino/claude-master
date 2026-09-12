@@ -155,6 +155,17 @@ def has_fixed(m):
     return kb(m) and kb(m)[-1][0]["text"] == "Sessioni" and all(len(row) == 1 for row in kb(m))
 
 
+def head0(m):
+    """la prima riga senza le parti unite con « · » (12/09: «▶ 🔴 master · lavora 2m»)"""
+    return m["text"].splitlines()[0].split(" · ")[0]
+
+
+def wide(m):
+    """larghezza piena (12/09 11:14): zero «…» nel corpo e, se il contenuto lo consente, una riga ≥ 22"""
+    t = m.get("text", "")
+    return "…" not in t and (max(len(l) for l in t.splitlines()) >= 22 or len(t) < 22)
+
+
 def edits():
     return CALLS.get("editMessageText") or []
 
@@ -198,12 +209,12 @@ T.check("W1 silent, one name button per row (4) with state + icon, ordered ❓�
 r, sent = say("2")
 m = sent[-1] if sent else {}
 lines = m.get("text", "").splitlines()
-T.check("W2 «2» → card of master (second row): ≤ 20 lines ≤ 22, «▶ 🔴 master» (state icon first), «lavora …», «→ nessun recap»", lines and lines[0].endswith(" master") and lines[0].startswith("▶ ") and icon_in(lines[0]) and "pers" not in lines[0] and lines[1].startswith("lavora") and "→ nessun recap" in lines and len(lines) <= 20 and all(len(l) <= 22 for l in lines), str(lines))
+T.check("W2 «2» → card of master (second row): «▶ 🔴 master · lavora» in one line (state icon first), «→ nessun recap», no «…»", lines and lines[0].startswith("▶ ") and lines[0].endswith(" master · lavora") and icon_in(lines[0]) and "pers" not in lines[0] and "…" not in m["text"] and "→ nessun recap" in lines and len(lines) <= 20 and all(len(l) <= 22 for l in lines), str(lines))
 T.check("W2 card keyboard of a ▶ session: Avvisami / Sessioni (no Continua while it works, no Annulla modifiche without a checkpoint), one per row; state = card master", [row[0]["text"] for row in kb(m)] == ["Avvisami", "Sessioni"] and all(len(row) == 1 for row in kb(m)) and st()["chats"]["1001"]["level"] == "card" and st()["chats"]["1001"]["session"] == "master", str(kb(m)) + str(st()))
 r, sent = say("1")
 m = sent[-1] if sent else {}
 lines = m.get("text", "").splitlines()
-T.check("W2 «1» from a card goes back through the list: card of api — «api · personale», «❓ aspetta te», clean esito, «→ prossimo», question, options 1-3", lines and lines[0].endswith(" api") and lines[0].startswith("❓ ") and icon_in(lines[0]) and lines[1] == "aspetta te" and any(l.startswith("1 A") for l in lines) and any(l.startswith("3 Type") for l in lines) and any(l.startswith("→ Attendere") for l in lines) and any("Deploy" in l for l in lines) and len(lines) <= 20, str(lines))
+T.check("W2 «1» from a card goes back through the list: card of api — «api · personale», «❓ aspetta te», clean esito, «→ prossimo», question, NO option lines (3 options: the buttons suffice)", lines and lines[0].startswith("❓ ") and lines[0].endswith(" api · aspetta te") and icon_in(lines[0]) and not any(l.startswith("1 A") for l in lines) and any(l.startswith("→ Attendere") for l in lines) and any("Deploy" in l for l in lines) and wide(m), str(lines))
 qmsg_before = st()["chats"]["1001"].get("qmsg")
 T.check("W2 option buttons with their text, one per row; the card's message id remembered for the reply", [row[0]["text"] for row in kb(m)[:3]] == ["1 A", "2 B", "3 Type something."] and kb(m)[1][0]["callback_data"] == "opt:2" and qmsg_before is not None, str(kb(m)) + str(st()))
 # W3
@@ -227,12 +238,12 @@ with open(ledger, "a") as f:
 CALLS["sendMessage"].clear(); QUEUE[:] = []
 r = bot("poll")
 al = [m for m in CALLS["sendMessage"] if m["text"].startswith("✓ ") and "api" in m["text"].splitlines()[0]]
-T.check("W4 next poll: the first Stop after the answer to the question (api was ❓, not busy) is the ANSWER: «✓ api risponde:» NORMAL, Apri/Basta avvisi, live message closed «✓ … api · Nm», no longer awaiting", r.returncode == 0 and al and al[0].get("disable_notification") != "true" and "Pubblicato" in al[0]["text"] and al[0]["text"].splitlines()[0].endswith("risponde:") and [row[0]["text"] for row in kb(al[0])][-1] == "Basta avvisi" and edits() and edits()[-1]["text"].startswith("✓ ") and "api" in edits()[-1]["text"] and "api" not in st()["chats"]["1001"]["awaiting"] and not live_of("api"), r.stdout + r.stderr + str(CALLS["sendMessage"]) + str(edits()[-1:]))
+T.check("W4 next poll: the first Stop after the answer to the question (api was ❓, not busy) is the ANSWER: «✓ api risponde:» NORMAL, Apri/Basta avvisi, live message closed «✓ … api · Nm», no longer awaiting", r.returncode == 0 and al and al[0].get("disable_notification") != "true" and "Pubblicato" in al[0]["text"] and head0(al[0]).endswith("risponde:") and [row[0]["text"] for row in kb(al[0])][-1] == "Basta avvisi" and edits() and edits()[-1]["text"].startswith("✓ ") and "api" in edits()[-1]["text"] and "api" not in st()["chats"]["1001"]["awaiting"] and not live_of("api"), r.stdout + r.stderr + str(CALLS["sendMessage"]) + str(edits()[-1:]))
 with open(ledger, "a") as f:
     f.write(json.dumps({"ts": ts(now + 300), "event": "stop", "session_id": "S-REP", "cwd": str(repo), "account": "personale", "pid": 1, "last": "Anche il secondo deploy fatto", "esito": "Esito: secondo deploy fatto in /srv/www. Restano i log da pulire", "tail": "- Anche il secondo deploy fatto\nEsito: secondo deploy fatto in /srv/www. Restano i log da pulire"}) + "\n")
 CALLS["sendMessage"].clear(); r = bot("poll")
 al = [m for m in CALLS["sendMessage"] if m["text"].startswith("✓ ") and "api" in m["text"].splitlines()[0]]
-T.check("W4 a later Stop of the followed session, turn > follow_min_turn_s → «✓ api ha finito:» NORMAL; the «Esito:» line is ONE sentence for voice reading (path shortened), the rest after it", al and al[0].get("disable_notification") != "true" and al[0]["text"].splitlines()[0].endswith("ha finito:") and al[0]["text"].splitlines()[1] == "Esito: secondo deploy fatto in www." and al[0]["text"].splitlines()[2] == "Restano i log da pulire", str(CALLS["sendMessage"]))
+T.check("W4 a later Stop of the followed session, turn > follow_min_turn_s → «✓ api ha finito:» NORMAL; the «Esito:» line is ONE sentence for voice reading (path shortened), the rest after it", al and al[0].get("disable_notification") != "true" and head0(al[0]).endswith("ha finito:") and al[0]["text"].splitlines()[1] == "Esito: secondo deploy fatto in www." and al[0]["text"].splitlines()[2] == "Restano i log da pulire", str(CALLS["sendMessage"]))
 CALLS["sendMessage"].clear(); r = bot("poll")
 T.check("W4 the same stop is not announced twice", not [m for m in CALLS["sendMessage"] if m["text"].startswith("✓ ") and "api" in m["text"]], str(CALLS["sendMessage"]))
 rows_alive("master", "alfa")
@@ -243,50 +254,50 @@ rows_alive("master", "api", "alfa")
 r, sent = say("lancia beta")
 T.check("W5 «lancia beta» → launch, back button on the reply", cm_calls()[-1].startswith("launch ") and "beta" in cm_calls()[-1] and has_fixed(sent[-1]), str(cm_calls()[-1:]) + str(sent))
 r, sent = say("q")
-T.check("W5 «q» → «📍 api» first (the card you are in), compact quota (5h and week), ≤ 22 per line, «◀ api» + Sessioni", sent and "personale 23% 61%" in sent[-1]["text"] and "profession - 80%" in sent[-1]["text"] and sent[-1]["text"].startswith("📍 ") and sent[-1]["text"].splitlines()[1].startswith("5h") and kb(sent[-1])[0][0]["callback_data"] == "card:api" and all(len(l) <= 22 for l in sent[-1]["text"].splitlines()) and has_fixed(sent[-1]), str(sent))
+T.check("W5 «q» → «📍 🔴 api · 5h · settimana» (the card you are in, joined with the header), quota whole, «◀ api» + Sessioni", sent and "personale 23% 61%" in sent[-1]["text"] and  sent[-1]["text"].startswith("📍 ") and sent[-1]["text"].splitlines()[0].endswith(" api · 5h · settimana") and "professionale - 80%" in sent[-1]["text"] and wide(sent[-1]) and kb(sent[-1])[0][0]["callback_data"] == "card:api" and has_fixed(sent[-1]), str(sent))
 r, sent = tap("recap")
 T.check("W5 tap «Recap» → an immediate silent «⏳» then the recap with a NORMAL notification and the fixed rows", len(sent) >= 2 and sent[-2]["text"].startswith("⏳") and sent[-2].get("disable_notification") == "true" and sent[-1]["text"].startswith("Recap") and sent[-1].get("disable_notification") != "true" and has_fixed(sent[-1]), str(sent)[:400])
 r, sent = say("recap")
 T.check("W5 dictated «recap» → the same two messages", len(sent) >= 2 and sent[-2]["text"].startswith("⏳") and sent[-1]["text"].startswith("Recap"), str(sent)[:300])
 r, sent = say("?")
-T.check("W5 «?» → «📍 api» + compact help with the bare words (avvisami, continua, ferma, terminale)", sent and "sessioni" in sent[-1]["text"] and sent[-1]["text"].startswith("📍 ") and "avvisami" in sent[-1]["text"] and "ferma" in sent[-1]["text"] and all(len(l) <= 22 for l in sent[-1]["text"].splitlines()) and has_fixed(sent[-1]), str(sent))
+T.check("W5 «?» → «📍 api» + compact help with the bare words (avvisami, continua, ferma, terminale)", sent and "sessioni" in sent[-1]["text"] and sent[-1]["text"].startswith("📍 ") and "avvisami" in sent[-1]["text"] and "ferma" in sent[-1]["text"] and wide(sent[-1]) and has_fixed(sent[-1]), str(sent))
 r, sent = tap("list")
 T.check("W5 tap «list» → the list again", sent and sent[-1]["text"].startswith("4 sessioni") and st()["chats"]["1001"]["level"] == "list", str(sent))
 r, sent = tap("n:2")
-T.check("W5 tap on the «▶ master» name button opens its card", sent and sent[-1]["text"].splitlines()[0].endswith(" master") and st()["chats"]["1001"]["session"] == "master", str(sent))
+T.check("W5 tap on the «▶ master» name button opens its card", sent and head0(sent[-1]).endswith(" master") and st()["chats"]["1001"]["session"] == "master", str(sent))
 r, sent = say("sessioni full")
 T.check("W5 «sessioni full» → the whole table", sent and "PID ACCOUNT" in sent[-1]["text"], str(sent))
 # W8 (18:28): il nome dettato apre la scheda; un prefisso ambiguo → i soli bottoni delle candidate
 rows_alive("master", "api", "alfa", "master-2")
 r, sent = say("api")
-T.check("W8 dictated «api» → its card", sent and sent[-1]["text"].splitlines()[0].endswith(" api") and st()["chats"]["1001"]["session"] == "api", str(sent))
+T.check("W8 dictated «api» → its card", sent and head0(sent[-1]).endswith(" api") and st()["chats"]["1001"]["session"] == "api", str(sent))
 r, sent = say("al")
-T.check("W8 unique prefix «al» → alfa's card", sent and sent[-1]["text"].splitlines()[0].endswith(" alfa"), str(sent))
+T.check("W8 unique prefix «al» → alfa's card", sent and head0(sent[-1]).endswith(" alfa"), str(sent))
 r, sent = say("mas")
 T.check("W8 ambiguous «mas» → «2 sessioni: quale?» with only the two candidate buttons + fixed rows", sent and sent[-1]["text"] == "2 sessioni: quale?" and [row[0]["text"].split()[-1] for row in kb(sent[-1])[:2]] == ["master", "master-2"] and len(kb(sent[-1])) == 4, str(sent) + str(kb(sent[-1])))
 r, sent = tap("n:2")
-T.check("W8 tap on the second candidate → master-2's card", sent and sent[-1]["text"].splitlines()[0].endswith(" master-2"), str(sent))
+T.check("W8 tap on the second candidate → master-2's card", sent and head0(sent[-1]).endswith(" master-2"), str(sent))
 rows_alive("master", "api", "alfa")
 # W9: prompt libero dalla scheda (Franz 21:05: niente anteprima, la tastiera Wear OS conferma gia')
 say("elenco"); say("mast")   # «master» e' un comando: il prefisso apre la scheda
 CALLS["sendMessage"].clear()
 r, sent = say("riassumi lo stato in due righe")
 m9 = sent[-1] if sent else {}
-T.check("W9 free text in a card → sent at once: talk master \"…\" --no-wait, master followed, live message «📤 … master» + «riassumi lo stato in…» silent, its message_id kept, busy_at_send (master ▶)", sent and any(c.startswith("talk master ") and c.endswith("riassumi lo stato in due righe --no-wait") for c in cm_calls()[-3:]) and "master" in st()["chats"]["1001"]["follow"] and m9.get("text", "").startswith("📤 ") and m9["text"].splitlines()[0].endswith(" master") and m9["text"].splitlines()[1] == "«riassumi lo stato in…" and m9.get("disable_notification") == "true" and live_of("master").get("mid") and live_of("master").get("busy_at_send") is True, "SENT=" + str(sent) + " CALLS=" + str(cm_calls()[-3:]) + " FOLLOW=" + str(st()["chats"]["1001"].get("follow")))
+T.check("W9 free text in a card → sent at once: talk master \"…\" --no-wait, master followed, live message «📤 🔴 master · «riassumi lo stato in due righe»» whole, silent, its message_id kept, busy_at_send (master ▶)", sent and any(c.startswith("talk master ") and c.endswith("riassumi lo stato in due righe --no-wait") for c in cm_calls()[-3:]) and "master" in st()["chats"]["1001"]["follow"] and m9.get("text", "") == "📤 🔴 master · «riassumi lo stato in due righe»" and wide(m9) and m9.get("disable_notification") == "true" and live_of("master").get("mid") and live_of("master").get("busy_at_send") is True, "SENT=" + str(sent) + " CALLS=" + str(cm_calls()[-3:]) + " FOLLOW=" + str(st()["chats"]["1001"].get("follow")))
 T.check("W9 live message buttons: Ferma / Terminale / Sessioni", [row[0]["text"] for row in kb(m9)] == ["Ferma", "Terminale", "Sessioni"] and kb(m9)[0][0]["callback_data"] == "stop:master", str(kb(m9)))
-T.check("W9 the live message was edited at once (no transcript → assumed received): «▶ … master al lavoro»", edits() and edits()[-1]["text"].startswith("▶ ") and edits()[-1]["text"].endswith(" master al lavoro"), str(edits()[-1:]))
+T.check("W9 the live message was edited at once (no transcript → assumed received): «▶ … master al lavoro»", edits() and edits()[-1]["text"].startswith("▶ ") and edits()[-1]["text"].endswith(" master · al lavoro"), str(edits()[-1:]))
 r, sent = tap("screen:master")
 T.check("W9 tap «Terminale» → `screen master --lines 30`, the screen in a <pre> block (HTML), «◀ master» + Sessioni", sent and "riga 2 dello schermo" in sent[-1]["text"] and sent[-1]["text"].startswith("<pre>") and sent[-1].get("parse_mode") == "HTML" and "screen master --lines 30" in cm_calls()[-3:] and kb(sent[-1])[0][0]["callback_data"] == "card:master" and has_fixed(sent[-1]), str(sent) + str(cm_calls()[-1:]))
 r, sent = say("v alfa")
 T.check("W9 dictated «v alfa» → alfa's screen (alias of schermo/terminale)", sent and sent[-1]["text"].startswith("<pre>") and "screen alfa --lines 30" in cm_calls()[-3:], str(sent) + str(cm_calls()[-1:]))
 T.check("W9 a git checkpoint of the session's folder was taken before sending (ws is not a repo → none; ledger-api's would be)", "checkpoints" in st()["chats"]["1001"], str(st()["chats"]["1001"].get("checkpoints")))
 r, sent = tap("card:master")
-T.check("W9 tap «◀ master» (card:) → master's card", sent and sent[-1]["text"].splitlines()[0].endswith(" master"), str(sent)[:200])
+T.check("W9 tap «◀ master» (card:) → master's card", sent and head0(sent[-1]).endswith(" master"), str(sent)[:200])
 r, sent = say("ok")
 T.check("W9 text under 3 characters: ignored, no reply", not sent, str(sent))
 r, sent = say("elenco")
 r, sent = say("riassumi lo stato in due righe")
-T.check("W9 free text at list level with ONE session awaiting → it goes to that session («📤 … master»)", sent and sent[-1]["text"].startswith("📤 ") and sent[-1]["text"].splitlines()[0].endswith(" master") and cm_calls()[-2].startswith("talk master "), str(sent) + str(cm_calls()[-2:]))
+T.check("W9 free text at list level with ONE session awaiting → it goes to that session («📤 … master»)", sent and sent[-1]["text"].startswith("📤 ") and head0(sent[-1]).endswith(" master") and cm_calls()[-2].startswith("talk master "), str(sent) + str(cm_calls()[-2:]))
 patch_chat(awaiting={}, follow=[], live={}, level="list")
 r, sent = say("riassumi lo stato in due righe")
 T.check("W9 free text at list level with nothing pending → «prima scegli la sessione» with the session buttons, nothing sent", sent and "prima scegli" in sent[-1]["text"] and any(row[0]["text"].endswith(" master") for row in kb(sent[-1])) and not [c for c in cm_calls()[-1:] if c.startswith("talk ")], str(sent) + str(cm_calls()[-1:]))
@@ -311,7 +322,7 @@ with open(ledger, "a") as f:
     f.write(json.dumps({"ts": ts(now + 330), "event": "stop", "session_id": "S-M", "cwd": str(ws), "account": "personale", "pid": 7, "last": long_text[:300], "tail": long_text[-600:], "esito": "Esito: stato riassunto, due file toccati e test verdi.", "watch": "Watch: due file toccati, test verdi"}) + "\n")
 CALLS["sendMessage"].clear(); r = bot("poll")
 ans = [m for m in CALLS["sendMessage"] if m["text"].startswith("✓ ") and "master" in m["text"].splitlines()[0]]
-T.check("W10 the Stop with «Watch:» is the answer: «✓ … master» + the bare Watch line only, NORMAL notification, Leggi tutto / Apri … master / Basta avvisi", ans and ans[0].get("disable_notification") != "true" and ans[0]["text"].splitlines()[0].endswith(" master") and ans[0]["text"].splitlines()[1] == "due file toccati, test verdi" and len(ans[0]["text"].splitlines()) == 2 and [row[0]["text"] for row in kb(ans[0])] == ["Leggi tutto", "Apri 🔴 master", "Basta avvisi"], str(CALLS["sendMessage"]))
+T.check("W10 the Stop with «Watch:» is the answer: «✓ … master» + the bare Watch line only, NORMAL notification, Leggi tutto / Apri … master / Basta avvisi", ans and ans[0].get("disable_notification") != "true" and head0(ans[0]).endswith(" master") and ans[0]["text"].splitlines()[1] == "due file toccati, test verdi" and len(ans[0]["text"].splitlines()) == 2 and [row[0]["text"] for row in kb(ans[0])] == ["Leggi tutto", "Apri 🔴 master", "Basta avvisi"], str(CALLS["sendMessage"]))
 T.check("W10 no longer awaiting; live message closed «✓ … master · Nm» (age since the send), chat in master's card", "master" not in (st()["chats"]["1001"].get("awaiting") or {}) and not live_of("master") and edits()[-1]["text"].startswith("✓ ") and " master · " in edits()[-1]["text"] and edits()[-1]["text"].endswith("m") and st()["chats"]["1001"]["session"] == "master", str(st()["chats"]["1001"].get("awaiting")) + str(edits()[-1:]))
 full_cb = next(b["callback_data"] for row in kb(ans[0]) for b in row if b["text"] == "Leggi tutto")
 r, sent = tap(full_cb)
@@ -347,7 +358,7 @@ with open(ledger, "a") as f:
     f.write(json.dumps({"ts": ts(now + 650), "event": "stop", "session_id": "S-M", "cwd": str(ws), "account": "personale", "pid": 7, "last": "x", "tail": "Tre file toccati, test verdi, changelog aggiornato, README rigenerato con le card nuove, privacy verde, commit locale fatto e cache nei due account " * 2, "esito": "Esito: tutto verde, tre file toccati, changelog e README aggiornati"}) + "\n")
 CALLS["sendMessage"].clear(); r = bot("poll")
 o = [m for m in CALLS["sendMessage"] if m["text"].startswith("✓ ") and "master" in m["text"].splitlines()[0]]
-T.check("W10b a long outcome: «ha finito:», «Esito:» first and whole, the tail readable, Apri / Basta avvisi", o and o[0]["text"].splitlines()[0].endswith("ha finito:") and o[0]["text"].splitlines()[1].startswith("Esito: tutto verde, tre file toccati") and "README rigenerato" in o[0]["text"] and kb(o[0])[0][0]["text"].startswith("Apri ") and kb(o[0])[1][0]["text"] == "Basta avvisi", str(o))
+T.check("W10b a long outcome: «ha finito:», «Esito:» first and whole, the tail readable, Apri / Basta avvisi", o and head0(o[0]).endswith("ha finito:") and o[0]["text"].splitlines()[1].startswith("Esito: tutto verde, tre file toccati") and "README rigenerato" in o[0]["text"] and kb(o[0])[0][0]["text"].startswith("Apri ") and kb(o[0])[1][0]["text"] == "Basta avvisi", str(o))
 # W11: il messaggio vivo dal transcript (parita' col desktop)
 slug = "".join(ch if ch.isalnum() else "-" for ch in os.path.realpath(str(ws)))
 tdir = home / ".claude" / "projects" / slug; tdir.mkdir(parents=True, exist_ok=True)
@@ -367,7 +378,7 @@ with open(transcript, "a") as f:
     f.write(json.dumps({"type": "user", "message": {"role": "user", "content": "Da Franz via Telegram (watch). … controlla i test della suite"}}) + "\n")
     f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "Lancio la suite dei test."}, {"type": "tool_use", "name": "Bash", "input": {"command": "pytest -q tests", "description": "run tests"}}]}}) + "\n")
 n_e = len(edits()); CALLS["sendMessage"].clear(); r = bot("poll")
-T.check("W11 the prompt shows up in the transcript → received; the live message edited: «▶ … master al lavoro» + «Bash pytest -q tests» (the tool in progress), Ferma/Terminale/Sessioni, no new message", live_of("master").get("received") is True and len(edits()) == n_e + 1 and edits()[-1]["text"].splitlines()[0].endswith(" master al lavoro") and edits()[-1]["text"].splitlines()[1] == "Bash pytest -q tests" and [row[0]["text"] for row in json.loads(edits()[-1]["reply_markup"])["inline_keyboard"]] == ["Ferma", "Terminale", "Sessioni"] and not CALLS["sendMessage"], str(edits()[n_e:]) + str(live_of("master")))
+T.check("W11 the prompt shows up in the transcript → received; the live message edited: «▶ … master · al lavoro · Bash pytest -q tests» in ONE line (the tool in progress), Ferma/Terminale/Sessioni, no new message", live_of("master").get("received") is True and len(edits()) == n_e + 1 and edits()[-1]["text"].splitlines()[0].endswith(" master · al lavoro · Bash pytest -q tests") and [row[0]["text"] for row in json.loads(edits()[-1]["reply_markup"])["inline_keyboard"]] == ["Ferma", "Terminale", "Sessioni"] and not CALLS["sendMessage"], str(edits()[n_e:]) + str(live_of("master")))
 with open(transcript, "a") as f:
     f.write(json.dumps({"type": "user", "message": {"content": [{"type": "tool_result", "content": "3 passed"}]}}) + "\n")
     f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "Tre test **verdi**, ora aggiorno il changelog e il README con le righe nuove."}]}}) + "\n")
@@ -375,7 +386,7 @@ n_e = len(edits()); r = bot("poll")
 T.check("W11 a new text before live_edit_s (100 s here): throttled, no edit", len(edits()) == n_e, str(edits()[n_e:]))
 patch_live("master", last_edit=time.time() - 200, sent_ts=time.time() - 130)
 r = bot("poll")
-T.check("W11 past the cadence: «▶ … master · 2m», the tool, the last text in ≤ 2 lines of ≤ 22 (markdown stripped), ≤ 4 lines", len(edits()) == n_e + 1 and edits()[-1]["text"].splitlines()[0].endswith(" master · 2m") and edits()[-1]["text"].splitlines()[1] == "Bash pytest -q tests" and edits()[-1]["text"].splitlines()[2].startswith("Tre test verdi") and len(edits()[-1]["text"].splitlines()) <= 4 and all(len(l) <= 22 for l in edits()[-1]["text"].splitlines()), str(edits()[-1:]))
+T.check("W11 past the cadence: «▶ … master · 2m · Bash pytest -q tests», then the last text WHOLE (markdown stripped), 2 lines, no «…»", len(edits()) == n_e + 1 and edits()[-1]["text"].splitlines()[0].endswith(" master · 2m · Bash pytest -q tests") and edits()[-1]["text"].splitlines()[1] == "Tre test verdi, ora aggiorno il changelog e il README con le righe nuove." and len(edits()[-1]["text"].splitlines()) == 2 and wide(edits()[-1]), str(edits()[-1:]))
 rows_alive("master", "api", "alfa", status={"master": "waiting"})
 patch_live("master", last_edit=time.time() - 200)
 r = bot("poll")
@@ -398,12 +409,12 @@ say("mast"); say("prova ancora")
 with open(ledger, "a") as f:
     f.write(json.dumps({"ts": ts(now + 800), "event": "stop-failure", "session_id": "S-M", "cwd": str(ws), "account": "personale", "pid": 7, "error": "rate limit reached\nretry later"}) + "\n")
 CALLS["sendMessage"].clear(); QUEUE[:] = []; r = bot("poll")
-T.check("W11 StopFailure while awaiting → «✗ … master errore» + the first error line, NORMAL notification, live closed, no longer awaiting", CALLS["sendMessage"] and CALLS["sendMessage"][-1]["text"].splitlines()[0].endswith(" master errore") and CALLS["sendMessage"][-1]["text"].splitlines()[1] == "rate limit reached" and CALLS["sendMessage"][-1].get("disable_notification") != "true" and "master" not in st()["chats"]["1001"]["awaiting"] and not live_of("master"), str(CALLS["sendMessage"]) + str(st()["chats"]["1001"]))
+T.check("W11 StopFailure while awaiting → «✗ … master errore» + the first error line, NORMAL notification, live closed, no longer awaiting", CALLS["sendMessage"] and CALLS["sendMessage"][-1]["text"].splitlines()[0].endswith(" master errore · rate limit reached") and CALLS["sendMessage"][-1].get("disable_notification") != "true" and "master" not in st()["chats"]["1001"]["awaiting"] and not live_of("master"), str(CALLS["sendMessage"]) + str(st()["chats"]["1001"]))
 # la scheda NON scade mentre si aspetta la risposta
 say("mast"); say("ultima cosa")
 patch_chat(until=time.time() - 1)
 r, sent = say("e poi questa")
-T.check("W11 an expired card whose session is awaiting is still the card: the text goes to master", sent and sent[-1]["text"].startswith("📤 ") and sent[-1]["text"].splitlines()[0].endswith(" master"), str(sent))
+T.check("W11 an expired card whose session is awaiting is still the card: the text goes to master", sent and sent[-1]["text"].startswith("📤 ") and head0(sent[-1]).endswith(" master"), str(sent))
 patch_chat(awaiting={}, live={})
 # Continua solo su ✓ ferma
 r, sent = say("alfa")
@@ -412,16 +423,28 @@ r, sent = say("continua")
 T.check("W11 «continua» → talk alfa with the resume prompt, «📤 … alfa» + «continua → …», live keyboard, alfa awaiting", any(c.startswith("talk alfa Da Franz via Telegram (watch)") and "--no-wait" in c for c in cm_calls()[-3:]) and sent and sent[-1]["text"].startswith("📤 ") and "continua" in sent[-1]["text"] and [row[0]["text"] for row in kb(sent[-1])] == ["Ferma", "Terminale", "Sessioni"] and "alfa" in st()["chats"]["1001"]["awaiting"], str(sent) + str(cm_calls()[-3:]))
 patch_chat(awaiting={}, live={}, follow=[])
 say("elenco")
+# W12 (via master 12/09 11:38): tap «Domanda intera» → il testo integrale della domanda salvato dall'avviso
+patch_chat(qfull={"api": "Il deploy sul server di prova è pronto da ieri e il cliente non ha ancora risposto. Vuoi A oppure B?"}, session="api", level="card", until=time.time() + 600)
+r, sent = tap("q:api")
+T.check("W12 tap «Domanda intera» → the whole question, «◀ api» + Sessioni", sent and sent[-1]["text"].startswith("Il deploy sul server di prova è pronto da ieri") and sent[-1]["text"].endswith("Vuoi A oppure B?") and kb(sent[-1])[0][0]["callback_data"] == "card:api" and has_fixed(sent[-1]), str(sent))
+r, sent = tap("card:api")
+T.check("W12 api's card offers «Domanda intera» (q:) while the whole question is on file", any(b["text"] == "Domanda intera" and b["callback_data"] == "q:" for row in kb(sent[-1]) for b in row), str(kb(sent[-1])))
+r, sent = tap("q:")
+T.check("W12 tap «Domanda intera» from the card (q: without a name → the card's session)", sent and sent[-1]["text"].endswith("Vuoi A oppure B?"), str(sent))
+patch_chat(qfull={})
+r, sent = tap("card:api")
+T.check("W12 without a whole question on file: no «Domanda intera»", not any(b["text"] == "Domanda intera" for row in kb(sent[-1]) for b in row), str(kb(sent[-1])))
+say("elenco")
 # W6
 say("1")
 s6 = st(); s6["chats"]["1001"]["until"] = time.time() - 1; (state / "bot-state.json").write_text(json.dumps(s6))
 n_ans = len([c for c in cm_calls() if c.startswith("answer ") and not c.endswith("--show")])
 r, sent = say("2")
-T.check("W6 expired card: «2» opens a card instead of answering", sent and sent[-1]["text"].splitlines()[0].endswith(" master") and len([c for c in cm_calls() if c.startswith("answer ") and not c.endswith("--show")]) == n_ans, str(sent) + str(cm_calls()[-3:]))
+T.check("W6 expired card: «2» opens a card instead of answering", sent and head0(sent[-1]).endswith(" master") and len([c for c in cm_calls() if c.startswith("answer ") and not c.endswith("--show")]) == n_ans, str(sent) + str(cm_calls()[-3:]))
 # W7
 r = bot("digest")
 T.check("W7 digest: an «Apri … api» button for the ❓, then Sessioni", kb(CALLS["sendMessage"][-1])[0][0]["text"].startswith("Apri ") and kb(CALLS["sendMessage"][-1])[0][0]["callback_data"] == "card:api" and has_fixed(CALLS["sendMessage"][-1]), str(kb(CALLS["sendMessage"][-1])))
-T.check("W7 digest: ❓ pending, ✓ idle since yesterday, ✗ from the snapshot; ≤ 22 per line", r.returncode == 0 and CALLS["sendMessage"] and "api" in CALLS["sendMessage"][-1]["text"] and "✓ " in CALLS["sendMessage"][-1]["text"] and "✗ " in CALLS["sendMessage"][-1]["text"] and all(icon_in(l) for l in CALLS["sendMessage"][-1]["text"].splitlines()) and all(len(l) <= 22 for l in CALLS["sendMessage"][-1]["text"].splitlines()), r.stdout + r.stderr + str(CALLS["sendMessage"][-1:]))
+T.check("W7 digest: «❓ 🔴 api · <question whole>», «✓ 🔴 alfa · ferma 2g», «✗ 🔴 beta»; whole lines, no «…»", r.returncode == 0 and CALLS["sendMessage"] and CALLS["sendMessage"][-1]["text"].splitlines()[0].endswith(" api · Vuoi A oppure B?") and any(l.endswith(" alfa · ferma 2g") for l in CALLS["sendMessage"][-1]["text"].splitlines()) and "✗ " in CALLS["sendMessage"][-1]["text"] and all(icon_in(l) for l in CALLS["sendMessage"][-1]["text"].splitlines()) and wide(CALLS["sendMessage"][-1]), r.stdout + r.stderr + str(CALLS["sendMessage"][-1:]))
 CALLS.pop("setMyCommands", None)
 r = bot("install")
 T.check("W7 install: poll cron + digest cron at 08:00, setMyCommands called", r.returncode == 0 and "bot ensure" in cron.read_text() and "0 8 * * *" in cron.read_text() and "bot digest" in cron.read_text() and CALLS.get("setMyCommands"), r.stdout + r.stderr + cron.read_text() + str(CALLS.get("setMyCommands")))

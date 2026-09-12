@@ -472,7 +472,8 @@ def render_card(cs, name):
                           icon=icon_of(row["tmux"]), max_lines=int(B.get("card_lines") or 20))
     cs.update(level="card", session=row["tmux"], until=now + STATE_TTL_S, options=list(opts))
     kb = ui.keyboard_card(opts, following=row["tmux"] in cs.get("follow", []), state=ui.state_of(row),
-                          has_checkpoint=row["tmux"] in (cs.get("checkpoints") or {}))
+                          has_checkpoint=row["tmux"] in (cs.get("checkpoints") or {}),
+                          full_question=bool(q) and bool((cs.get("qfull") or {}).get(row["tmux"])))
     return "\n".join(lines), kb, bool(q)
 
 
@@ -488,12 +489,12 @@ def quota_lines():
         h5 = q.get("cinque_ore_pct", q.get("five_hour_used_pct"))
         wk = q.get("settimana_pct", q.get("weekly_used_pct"))
         f = lambda v: f"{round(float(v))}%" if v is not None else "-"  # noqa: E731
-        lines.append(ui.fit(f"{acc[:10]} {f(h5)} {f(wk)}"))
+        lines.append(ui.line(f"{acc} {f(h5)} {f(wk)}"))
     return lines or [M("bot.no_output")]
 
 
 def help_lines():
-    return [ui.fit(x) for x in M("bot.help_wrist").split("|")]
+    return [ui.line(x) for x in M("bot.help_wrist").split("|")]
 
 
 # ------------------------------------------------------------------ azioni
@@ -573,11 +574,11 @@ def answer_now(cs, name, n):
         return {"text": M("bot.timeout"), "markup": ui.keyboard_back(name, label)}
     first = (out.splitlines() or [""])[0]
     if rc != 0:
-        return {"text": "\n".join(ui.wrap(out, ui.WIDTH, 4)), "markup": ui.keyboard_back(name, label)}
+        return {"text": ui.line(out), "markup": ui.keyboard_back(name, label)}
     opts = cs.get("options") or []
     echo = f"{n} {opts[n - 1]}" if 1 <= n <= len(opts) else str(n)
     start_live(cs, name, row, echo, kind="answer")
-    return {"text": M("bot.live_sent", name=label) + "\n" + "\n".join(ui.wrap(first, ui.WIDTH, 3)),
+    return {"text": ui.join(M("bot.live_sent", name=label), first),
             "markup": ui.keyboard_live(name, label), "live": name, "silent": True, "reply_to": cs.get("qmsg")}
 
 
@@ -599,10 +600,9 @@ def send_now(cs, name, text, force=False):
     except subprocess.TimeoutExpired:
         return {"text": M("bot.timeout")}
     if rc != 0:
-        return {"text": "\n".join(ui.wrap(out, ui.WIDTH, 4)), "markup": ui.keyboard_back(name, label)}
+        return {"text": ui.line(out), "markup": ui.keyboard_back(name, label)}
     start_live(cs, name, row, text)
-    echo = ui.cut44(text, 40)
-    return {"text": ui.fit(M("bot.live_sent", name=label)) + "\n" + ui.fit(f"«{echo}»"),
+    return {"text": ui.join(M("bot.live_sent", name=label), f"«{ui.line(text)}»"),
             "markup": ui.keyboard_live(name, label), "live": name, "silent": True, "reply_to": None}
 
 
@@ -628,7 +628,7 @@ def finish_live(chat, cs, name, text):
     """Chiude il messaggio vivo con `text` (senza tastiera) e lo dimentica."""
     lv = (cs.get("live") or {}).pop(name, None)
     if lv and lv.get("mid"):
-        edit(chat, lv["mid"], ui.fit(text))
+        edit(chat, lv["mid"], ui.line(text))
 
 
 def do_stop(cs, name):
@@ -641,9 +641,9 @@ def do_stop(cs, name):
     except (OSError, subprocess.SubprocessError):
         ok = False
     if not ok:
-        return {"text": "\n".join(ui.fit(x) for x in M("bot.stop_failed", name=label).split("|")), "markup": ui.keyboard_back(name, label)}
+        return {"text": ui.join(*M("bot.stop_failed", name=label).split("|")), "markup": ui.keyboard_back(name, label)}
     (cs.get("awaiting") or {}).pop(name, None)
-    return {"text": ui.fit(M("bot.live_stopped", name=label)), "markup": ui.keyboard_back(name, label), "stopped": name}
+    return {"text": ui.line(M("bot.live_stopped", name=label)), "markup": ui.keyboard_back(name, label), "stopped": name}
 
 
 def mark_awaiting(cs, name):
@@ -742,6 +742,10 @@ def handle(text, cs=None, cq_data=None):
             name = cq_data[5:]
             full = (cs.get("full") or {}).get(name) or ""
             return {"text": full[:MAX_TEXT] if full else M("bot.no_output"), "markup": ui.keyboard_back(name, label_of(name)), "silent": True, "reply_to": None}
+        if cq_data.startswith("q:"):
+            name = cq_data[2:] or cs.get("session") or ""
+            full = (cs.get("qfull") or {}).get(name) or ""
+            return {"text": full[:MAX_TEXT] if full else M("bot.no_output"), "markup": ui.keyboard_back(name, label_of(name)) if name else ui.keyboard_back(), "silent": True, "reply_to": cs.get("qmsg")}
         if cq_data.startswith("stop:"):
             out = do_stop(cs, cq_data[5:]); out.update(silent=True, reply_to=None); return out
         if cq_data.startswith("screen:"):
@@ -847,7 +851,7 @@ def handle(text, cs=None, cq_data=None):
                 out["markup"] = ui.keyboard_live(name, label_of(name))
                 out["live"] = name
                 cs.update(level="card", session=name, until=now + STATE_TTL_S)
-            out["text"] = ui.fit(M("bot.live_sent", name=label_of(name))) + "\n" + ui.fit(M("bot.resumed", name=label_of(name))) if rc == 0 else ui.fit(o)
+            out["text"] = ui.join(M("bot.live_sent", name=label_of(name)), M("bot.resumed", name=label_of(name))) if rc == 0 else ui.line(o)
     elif cmd == "stop":
         name = rest.split()[0] if rest.strip() else cs.get("session")
         if name:
@@ -890,18 +894,25 @@ def handle(text, cs=None, cq_data=None):
         out["text"] = "\n".join(help_lines())
     # «📍 nome» in testa alle risposte che non nominano la sessione: si sa sempre in che scheda si e' (12/09)
     if ctx and out.get("text") and cmd in ("quota", "help") or (ctx and cmd == "text" and not rest):
-        out["text"] = ui.fit(f"📍 {label_of(ctx)}") + "\n" + out["text"]
+        first, _, rest = out["text"].partition("\n")
+        out["text"] = ui.join(f"📍 {label_of(ctx)}", first) + ("\n" + rest if rest else "")
     return out
 
 
-def remember_question(name, message_ids, options=()):
+def remember_question(name, message_ids, options=(), full_question=""):
     """Dall'avviso dell'hook (cm-answer --notify): ogni chat entra nella scheda di quella sessione, cosi'
-    un «2» dal polso risponde a LEI, come reply al messaggio dell'avviso. `message_ids`: {chat: id} o un id."""
+    un «2» dal polso risponde a LEI, come reply al messaggio dell'avviso. `message_ids`: {chat: id} o un id.
+    `full_question`: il testo integrale se l'avviso l'ha sintetizzato (bottone «Domanda intera»)."""
     st = state_load()
     for chat in allowed_chats():
         cs = chat_state(st, chat)
         mid = message_ids.get(chat) if isinstance(message_ids, dict) else message_ids
         cs.update(level="card", session=name, until=time.time() + STATE_TTL_S, options=list(options), qmsg=mid)
+        cs.setdefault("qfull", {})
+        if full_question:
+            cs["qfull"][name] = full_question
+        else:
+            cs["qfull"].pop(name, None)
     state_save(st)
 
 
@@ -924,7 +935,7 @@ def check_follows(st):
             row = live.get(name)
             label = label_of(name)
             if not row:
-                reply(chat, ui.fit(f"✗ {label}"), silent=False)
+                reply(chat, ui.line(f"✗ {label}"), silent=False)
                 if name in (cs.get("follow") or []):
                     cs["follow"].remove(name)
                 aw.pop(name, None)
@@ -938,7 +949,7 @@ def check_follows(st):
                 if t <= seen or not (name in aw or name in (cs.get("follow") or [])):
                     continue
                 first = (err.splitlines() or [""])[0]
-                reply(chat, ui.fit(M("bot.failure_head", name=label)) + ("\n" + ui.fit(first) if first else ""),
+                reply(chat, ui.join(M("bot.failure_head", name=label), first),
                       reply_markup=ui.keyboard_outcome(name, label), silent=False)
                 aw.pop(name, None)
                 finish_live(chat, cs, name, M("bot.failure_head", name=label))
@@ -968,7 +979,7 @@ def check_follows(st):
                         body, cut = answer_text(full or esito)
                     if cut:
                         cs.setdefault("full", {})[name] = whole
-                    reply(chat, ui.fit(head) + "\n" + body, reply_markup=ui.keyboard_outcome(name, label, cut=cut), silent=False)
+                    reply(chat, ui.line(head) + "\n" + body, reply_markup=ui.keyboard_outcome(name, label, cut=cut), silent=False)
                     aw.pop(name, None)
                     age = ui.age_compact(max(0, t - float(lv.get("sent_ts") or t))) if lv else ""
                     finish_live(chat, cs, name, M("bot.live_done", name=label, age=age or "0m"))
@@ -1013,11 +1024,11 @@ def live_update(chat, cs, name, row, now):
     if not lv.get("received"):
         if since >= RECEIVE_TIMEOUT_S and not lv.get("warned"):
             lv["warned"] = True
-            text = "\n".join(ui.fit(x) for x in M("bot.not_received", name=label).split("|"))
+            text = ui.join(*M("bot.not_received", name=label).split("|"))
             edit(chat, lv["mid"], text, ui.keyboard_retry(name, label)); lv["text"] = text
         return
     if st == "waiting":
-        text = ui.fit(M("bot.live_waiting", name=label))
+        text = ui.line(M("bot.live_waiting", name=label))
     else:
         text = "\n".join(ui.live_lines(label, since, lv.get("tool") or "", lv.get("note") or ""))
     if text != lv.get("text") and (not lv.get("text") or now - float(lv.get("last_edit") or 0) >= LIVE_EDIT_S):
@@ -1025,7 +1036,7 @@ def live_update(chat, cs, name, row, now):
             lv["text"] = text; lv["last_edit"] = now
     if since >= ANSWER_TIMEOUT_S and not lv.get("long_warned"):
         lv["long_warned"] = True
-        reply(chat, ui.fit(M("bot.still_working", name=label)), reply_markup=ui.keyboard_live(name, label), silent=True)
+        reply(chat, ui.line(M("bot.still_working", name=label)), reply_markup=ui.keyboard_live(name, label), silent=True)
 
 
 def digest():
@@ -1039,13 +1050,13 @@ def digest():
     for r in rows:
         st = ui.state_of(r)
         if st == "waiting":
-            lines.append(ui.fit(f"❓ {label_of(r['tmux'])} " + " ".join(str(r.get('question') or '').split()[:2])))
+            lines.append(ui.join(f"❓ {label_of(r['tmux'])}", ui.question_gist(str(r.get('question') or '')) or str(r.get('question') or '')))
     for r in rows:
         if ui.state_of(r) == "idle" and r.get("last_ts") and r["last_ts"] < midnight:
-            lines.append(ui.fit(f"✓ {label_of(r['tmux'])} {ui.age_compact(time.time() - r['last_ts'])}"))
+            lines.append(ui.join(f"✓ {label_of(r['tmux'])}", f"ferma {ui.age_compact(time.time() - r['last_ts'])}"))
     for r in rows:
         if ui.state_of(r) == "dead":
-            lines.append(ui.fit(f"✗ {label_of(r['tmux'])}"))
+            lines.append(ui.line(f"✗ {label_of(r['tmux'])}"))
     if not lines:
         lines = [M("bot.digest_empty")]
     lines = lines[:ui.MAX_LINES]
