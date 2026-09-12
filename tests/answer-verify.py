@@ -84,8 +84,16 @@ with T.PrivateTmux() as tm:
                TMUX_PANE=pane)
     t = texts()
     T.check("A4 --notify: one message per allowed chat, exit 0", r.returncode == 0 and len(t) == 2 and {c.get("chat_id") for c in CALLS["sendMessage"]} == {"1001", "1002"}, r.stdout + r.stderr + str(CALLS["sendMessage"]))
-    T.check("A4 message: name, question, numbered options from the screen (incl. Type something.)", t and "beta" in t[0] and "colore preferito?" in t[0] and "1. rosso" in t[0] and "4. Type something." in t[0], t[0] if t else "-")
-    T.check("A4 message: how to answer («N a beta»)", t and "a beta" in t[0] and "answer beta" in t[0], t[0] if t else "-")
+    T.check("A4 message: name, question, numbered options from the screen (incl. Type something.), compact «n label»", t and "beta" in t[0] and "colore preferito?" in t[0] and "1 rosso" in t[0] and "4 Type something." in t[0], t[0] if t else "-")
+    T.check("A4 message: how to answer («2 a beta»), cut to the wrist width", t and "2 a beta" in t[0], t[0] if t else "-")
+    # A4b (polso, 11/09 16:36): resa compatta, bottoni con le opzioni (ans:beta:N) + riga fissa, stato del bot in scheda
+    m4 = CALLS["sendMessage"][0]
+    kb4 = json.loads(m4.get("reply_markup") or "{}").get("inline_keyboard") or []
+    T.check("A4b notice: first line «❓ beta», every line ≤ 22, NOT silent", t[0].splitlines()[0].startswith("❓ ") and t[0].splitlines()[0].endswith(" beta") and all(len(l) <= 22 for l in t[0].splitlines()) and m4.get("disable_notification") != "true", t[0])
+    T.check("A4b option buttons ans:beta:N then «Apri … beta»; 4 options → only the first two as buttons (3 in all)", kb4 and any(b.get("callback_data") == "ans:beta:2" for row in kb4 for b in row) and not any(b.get("callback_data") == "ans:beta:3" for row in kb4 for b in row) and len(kb4) == 3 and kb4[-1][0]["text"].startswith("Apri ") and kb4[-1][0]["text"].endswith(" beta") and kb4[-1][0]["callback_data"] == "card:beta", str(kb4))
+    T.check("A4c the first three lines suffice (Wear OS shows only those large): ❓ name / the question cut / the options in short «1 rosso · 2 …»", len(t[0].splitlines()) >= 3 and "colore" in t[0].splitlines()[1] and t[0].splitlines()[2].startswith("1 rosso · 2 ") and len(t[0].splitlines()[2]) <= 22, t[0])
+    bs = json.loads((tmp / "state" / "bot-state.json").read_text()) if (tmp / "state" / "bot-state.json").is_file() else {}
+    T.check("A4b bot state: both chats in the card of beta with the notice's message id", bs.get("chats", {}).get("1001", {}).get("session") == "beta" and bs["chats"]["1001"].get("level") == "card" and bs["chats"]["1001"].get("qmsg") == 1 and bs.get("chats", {}).get("1002", {}).get("session") == "beta", str(bs))
     led = (tmp / "state" / "ledger.jsonl")
     T.check("A4 ledger row ask-notified", led.is_file() and '"ask-notified"' in led.read_text() and '"beta"' in led.read_text(), led.read_text() if led.is_file() else "-")
     scr = subprocess.run(["tmux", "-L", tm.socket, "capture-pane", "-p", "-t", "beta"], capture_output=True, text=True).stdout
@@ -96,7 +104,7 @@ r = notify(None, {"session_id": "sid-x", "cwd": str(home / "ws" / "gamma"), "too
                   "tool_input": {"questions": [{"question": "quale taglia?", "header": "Taglia",
                                                 "options": [{"label": "S", "description": "piccola"}, {"label": "M"}]}]}})
 t = texts()
-T.check("A5 no tmux: question and options from the payload, folder name, no «rispondi»", r.returncode == 0 and len(t) == 2 and "gamma" in t[0] and "quale taglia?" in t[0] and "1. S" in t[0] and "2. M" in t[0] and "rispondi" not in t[0], r.stdout + r.stderr + (t[0] if t else "-"))
+T.check("A5 no tmux: question and options from the payload, folder name, no «rispondi»", r.returncode == 0 and len(t) == 2 and "gamma" in t[0] and "quale taglia?" in t[0] and "1 S" in t[0] and "2 M" in t[0] and "rispondi" not in t[0], r.stdout + r.stderr + (t[0] if t else "-"))
 CALLS["sendMessage"].clear()
 r = notify(None, {"session_id": "sid-y", "cwd": str(home / "ws" / "gamma"), "tool_name": "Bash",
                   "tool_input": {"command": "rm -rf build", "description": "Remove build dir"}})

@@ -7,7 +7,7 @@ B2  primo giro senza offset: l'arretrato si scarta (niente lanci), offset scritt
 B3  /master da chat autorizzata: launch <radice> --no-window, risposta col link, offset avanzato
 B4  /master da chat NON autorizzata (o gruppo): ignorato, niente lancio, niente risposta
 B5  /launch: un candidato → lancia quello; più candidati → elenca e non lancia; nessuno → dice e non crea
-B6  /sessions: output di sessions nella risposta; testo qualsiasi da chat autorizzata → aiuto
+B6  /sessions: elenco compatto (resa da polso); /sessions full: la tabella; testo qualsiasi → aiuto
 B7  guardia: bot.pid del plugin VIVO → poll non chiama l'API
 B8  install (rifiuta se spento; riga nel crontab), status, uninstall
 B9  lock: due poll insieme, uno solo lavora
@@ -15,6 +15,8 @@ B10 /start (Franz l'ha scritto due volte credendo di lanciare la master, 11/09):
     con un bottone inline; il tap (callback_query, che a sessioni chiuse arriva a QUESTO poller) lancia
     la master, risponde al callback e alla chat; un tap da chat non autorizzata si ignora; getUpdates
     chiede anche i callback_query
+B11 sessione GIÀ VIVA (Franz dal polso, 16:30): /master con la tmux «master» viva → nessun launch, risposta «già
+    viva» con link e stato; lo stesso per /launch di un progetto già aperto
 """
 import json
 import os
@@ -79,7 +81,10 @@ fake_cm.write_text(f"""#!/bin/sh
 printf '%s\\n' "$*" >> "{argslog}"
 case "$1" in
   launch) echo "sessione avviata"; echo "  cartella:  $2"; echo "  link:      https://claude.ai/code/session_01BOT" ;;
-  sessions) echo "PID ACCOUNT NOME"; echo "1 personale master" ;;
+  sessions)
+    if [ "$2" = "--json" ]; then
+      if [ -f "{tmp}/alive.json" ]; then cat "{tmp}/alive.json"; else echo "[]"; fi
+    else echo "PID ACCOUNT NOME"; echo "1 personale master"; fi ;;
 esac
 """)
 fake_cm.chmod(0o755)
@@ -177,7 +182,11 @@ T.check("B5 /launch without fragment → usage", len(launches()) == n_l and "/la
 # B6
 QUEUE[:] = [msg(10, 1001, "/sessions"), msg(11, 1001, "ciao, come va?")]
 bot("poll")
-T.check("B6 /sessions → sessions output; free text → help", "personale master" in sent()[-2]["text"] and "/master" in sent()[-1]["text"] and len(launches()) == n_l, str([s["text"][:60] for s in sent()[-2:]]))
+T.check("B6 /sessions → the compact list (here empty: no live row); free text at list level → «prima scegli la sessione»", "nessuna sessione" in sent()[-2]["text"] and "prima scegli" in sent()[-1]["text"] and len(launches()) == n_l, str([s["text"][:60] for s in sent()[-2:]]))
+QUEUE[:] = [msg(12, 1001, "/sessions full")]
+bot("poll")
+T.check("B6 /sessions full → the whole table", "personale master" in sent()[-1]["text"], sent()[-1]["text"][:80])
+offset_file.write_text("12")   # B7 riusa l'update 12: si torna indietro di uno
 
 # B7
 (tg / "bot.pid").write_text(str(os.getpid()))
@@ -195,13 +204,13 @@ r = bot("install")
 T.check("B8 install refuses when disabled", r.returncode != 0 and "bot.enabled" in r.stdout, r.stdout + r.stderr)
 write_cfg(enabled=True)
 r = bot("install")
-T.check("B8 install writes the cron line once", r.returncode == 0 and cron.read_text().count("bot poll") == 1 and "* * * * *" in cron.read_text(), r.stdout + cron.read_text())
+T.check("B8 install writes the cron line once", r.returncode == 0 and cron.read_text().count("bot ensure") == 1 and "* * * * *" in cron.read_text(), r.stdout + cron.read_text())
 r = bot("install")
-T.check("B8 second install: already present", r.returncode == 0 and cron.read_text().count("bot poll") == 1, r.stdout)
+T.check("B8 second install: already present", r.returncode == 0 and cron.read_text().count("bot ensure") == 1, r.stdout)
 r = bot("status")
 T.check("B8 status: enabled, cron yes, token ok, 1 chat, offset", "true" in r.stdout and "token" in r.stdout and "ok" in r.stdout and "1" in r.stdout, r.stdout + r.stderr)
 r = bot("uninstall")
-T.check("B8 uninstall removes the line", r.returncode == 0 and "bot poll" not in cron.read_text(), r.stdout + cron.read_text())
+T.check("B8 uninstall removes the line", r.returncode == 0 and "bot ensure" not in cron.read_text(), r.stdout + cron.read_text())
 
 # B9: due poll insieme sullo stesso offset → uno solo lavora (lock)
 QUEUE[:] = [msg(13, 1001, "/master")]
@@ -230,6 +239,25 @@ QUEUE[:] = [{"update_id": 16, "callback_query": {"id": "cb16", "data": "master",
                                                  "message": {"message_id": 14, "chat": {"id": 4242, "type": "private"}}}}]
 r = bot("poll")
 T.check("B10 tap from a stranger: ignored, no launch, no reply", r.returncode == 0 and len(launches()) == n_l + 1 and not sent() and offset_file.read_text().strip() == "17", r.stdout + r.stderr + str(sent()))
+
+# B11: sessione già viva → niente launch
+alive = tmp / "alive.json"
+alive.write_text(json.dumps([{"pid": 7, "name": "master", "tmux": "master", "cwd": str(ws), "status": "idle", "link": "https://claude.ai/code/session_01LIVE", "account": "personale"},
+                             {"pid": 8, "name": "alfa", "tmux": "alfa", "cwd": str(ws / "personali" / "alfa"), "status": "busy", "link": "https://claude.ai/code/session_01ALFA", "account": "personale"}]))
+CALLS["sendMessage"].clear(); n_l = len(launches())
+QUEUE[:] = [msg(17, 1001, "/master")]
+r = bot("poll")
+T.check("B11 /master with the master alive: no launch, reply says already alive with link and status", r.returncode == 0 and len(launches()) == n_l and sent() and "viva" in sent()[-1]["text"] and "session_01LIVE" in sent()[-1]["text"] and "idle" in sent()[-1]["text"], r.stdout + r.stderr + str(sent()) + str(launches()[-1:]))
+QUEUE[:] = [{"update_id": 18, "callback_query": {"id": "cb18", "data": "master", "from": {"id": 1001}, "message": {"message_id": 14, "chat": {"id": 1001, "type": "private"}}}}]
+r = bot("poll")
+T.check("B11 the button tap with the master alive: no launch either", r.returncode == 0 and len(launches()) == n_l and "viva" in sent()[-1]["text"], str(sent()[-1:]) + str(launches()[-1:]))
+QUEUE[:] = [msg(19, 1001, "/launch alfa")]
+r = bot("poll")
+T.check("B11 /launch of an open project: no launch, already alive with its link", r.returncode == 0 and len(launches()) == n_l and "viva" in sent()[-1]["text"] and "session_01ALFA" in sent()[-1]["text"], str(sent()[-1:]) + str(launches()[-1:]))
+alive.unlink()
+QUEUE[:] = [msg(20, 1001, "/launch alfa")]
+r = bot("poll")
+T.check("B11 once closed, /launch launches again", len(launches()) == n_l + 1, str(launches()[-1:]))
 
 srv.shutdown()
 T.rm(tmp)

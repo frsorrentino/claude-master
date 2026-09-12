@@ -7,6 +7,7 @@ H2b PermissionRequest con hooks.ask_notify abilitato: l'hook esce subito e un pr
     Telegram (domanda e opzioni dal payload); H2c con ask_notify.enabled false: nessun messaggio
 H3  SessionStart stampa il kernel (<= 1900 caratteri, <= 13 righe) a startup/resume/compact; non per source ignoto; non se disabilitato
 H4  Stop scrive nel ledger `last` troncato; con coda → {"decision":"block","reason":...} e la voce esce dalla coda; con stop_hook_active non consuma; voci scadute scartate
+H4c Stop salva anche `tail` (la coda del messaggio, 600 caratteri) ed `esito` (riga «Esito:») per il polso
 H5  StopFailure scrive nel ledger
 R1  restart arm fuori tmux → exit 3; dentro tmux scrive il flag con tmux/pid/cartella/gen
 R2  restart hook da un'altra sessione → non tocca il flag; dalla stessa → lo consuma e stacca l'esecutore
@@ -84,7 +85,7 @@ r = hook("PermissionRequest", {"session_id": "sid2b", "cwd": str(home / "ws" / "
                                "tool_input": {"questions": [{"question": "procedo?", "header": "Via", "options": [{"label": "sì"}, {"label": "no"}]}]}})
 T.check("H2b hook returns at once (< 1.5 s), exit 0", r.returncode == 0 and time.time() - t0 < 1.5, f"{time.time() - t0:.1f}s " + r.stderr)
 found = lambda: [c["text"] for c in TG_CALLS["sendMessage"] if "procedo?" in c["text"]]  # noqa: E731  (anche H2 manda un avviso: si cerca questo)
-T.check("H2b Telegram message from a detached process: name, question, options", T.wait_until(found, 8) and "alfa" in found()[0] and "2. no" in found()[0], str(TG_CALLS["sendMessage"]))
+T.check("H2b Telegram message from a detached process: name, question, options", T.wait_until(found, 8) and "alfa" in found()[0] and "2 no" in found()[0], str(TG_CALLS["sendMessage"]))
 # H2c
 TG_CALLS["sendMessage"].clear()
 c = json.loads(cfg.read_text()); c["hooks"]["ask_notify"]["enabled"] = False; cfg.write_text(json.dumps(c))
@@ -127,6 +128,10 @@ T.check("H4 stop_hook_active → no block, queue untouched", not r.stdout.strip(
 rows = [json.loads(l) for l in ledger.read_text().splitlines()]
 T.check("H4 ledger has stop rows with truncated last", any(x["event"] == "stop" and len(x.get("last", "")) == 300 for x in rows), str(rows[-1]))
 # H5
+# H4c: la riga stop porta anche `tail` (ultima riga di testo) ed `esito` (riga «Esito:»), per il polso
+r = hook("Stop", {"session_id": "sid-esito", "cwd": str(home), "last_assistant_message": "Ho fatto **tante** cose.\n\n```\ncodice\n```\n\nEsito: tre file toccati, test verdi.\n"})
+rows = [json.loads(l) for l in ledger.read_text().splitlines()]
+T.check("H4c stop row carries tail and esito (the «Esito:» line), last still ≤ 300", rows[-1]["event"] == "stop" and rows[-1]["esito"].startswith("Esito: tre file") and rows[-1]["tail"].endswith("Esito: tre file toccati, test verdi.") and "Ho fatto" in rows[-1]["tail"] and len(rows[-1]["last"]) <= 300, str(rows[-1]))
 r = hook("StopFailure", {"session_id": "sid3", "error": "boom"})
 rows = [json.loads(l) for l in ledger.read_text().splitlines()]
 T.check("H5 StopFailure in the ledger", rows[-1]["event"] == "stop-failure" and rows[-1]["error"] == "boom", str(rows[-1]))

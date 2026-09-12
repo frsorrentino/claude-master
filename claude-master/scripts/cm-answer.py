@@ -136,6 +136,41 @@ def _detail(tool_input):
     return ""
 
 
+def icon_of(name):
+    try:
+        r = subprocess.run([str(HERE / "cm-color.sh"), name], capture_output=True, text=True, timeout=10)
+        return (r.stdout.split() or [""])[0] if r.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def notify_lines(p, name, on_screen, ui):
+    """La resa da polso (≤ 8 righe da ≤ 22): «❓ nome», la domanda su ≤ 2 righe, le opzioni «n etichetta»
+    una per riga. Torna (righe, etichette)."""
+    tool = p.get("tool_name") or "?"
+    ti = p.get("tool_input") or {}
+    questions = ti.get("questions") if isinstance(ti, dict) else None
+    q0 = (questions or [{}])[0] if isinstance(questions, list) and questions else {}
+    header, question, options = "", "", []
+    if on_screen:
+        header, question, options, _ = on_screen
+        options = [label for _, label, _ in options]
+    question = question or str(q0.get("question") or "")
+    if not options and isinstance(q0.get("options"), list):
+        options = [str(o.get("label") or "") for o in q0["options"] if isinstance(o, dict)]
+    icon = icon_of(name)
+    lines = [ui.fit(f"❓ {icon} {ui.short_name(name)}".replace("  ", " "))]
+    if question or options:
+        # le prime TRE righe bastano (via master 12/09: Wear OS mostra grandi solo quelle): la domanda troncata,
+        # le opzioni in breve; poi le opzioni una per riga per il telefono
+        lines.append(ui.fit(question or "?"))
+        lines.append(ui.fit(" · ".join(f"{i + 1} {o}" for i, o in enumerate(options))))
+        lines += [ui.fit(f"{i + 1} {o}") for i, o in enumerate(options)]
+    else:
+        lines += ui.wrap(f"{tool} {_detail(ti)}", ui.WIDTH, 3)
+    return lines[:ui.MAX_LINES], options
+
+
 def notify_text(p, name, on_screen):
     """Il messaggio: domanda e opzioni dallo schermo (fedeli ai numeri che `answer` userà); senza
     schermo, dal tool_input; per un permesso, il tool e il suo dettaglio."""
@@ -179,12 +214,17 @@ def notify():
         time.sleep(float((CFG["hooks"].get("ask_notify") or {}).get("delay_s") or 0))
         on_screen = parse(screen(name))
     shown = name or Path(p.get("cwd") or "").name or "?"
-    text = notify_text(p, shown, on_screen)
-    if name:
-        n_opts = len(on_screen[2]) if on_screen else 0
-        text += "\n" + M("answer.notify_hint", n=2 if n_opts >= 2 else 1, name=name)
+    ui = _load("cm-bot-ui")
+    lines, labels = notify_lines(p, shown, on_screen, ui)
+    if name and len(lines) < ui.MAX_LINES:
+        lines.append(ui.fit(M("answer.notify_hint", n=2 if len(labels) >= 2 else 1, name=name)))
+    text = "\n".join(lines)
+    markup = ui.keyboard_notice(name, labels, f"{icon_of(name)} {ui.short_name(name)}".strip()) if name else ui.keyboard_back()
+    mids = {}
     for c in chats:
-        bot.reply(c, text)
+        mids[c] = bot.reply(c, text, reply_markup=markup)   # notifica NORMALE: una domanda aspetta Franz
+    if name:
+        bot.remember_question(name, mids, labels)
     hook = _load("cm-hook")
     hook.ledger("ask-notified", p, tool=p.get("tool_name", ""), tmux=name, chats=len(chats))
     bot.log(M("answer.notify_sent", n=len(chats), name=shown))

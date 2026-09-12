@@ -12,6 +12,9 @@ L8  finestra: backend fake attacca → «attaccata»; --no-window → nessuna ap
 L9  --bg: `--bg -n NOME`, niente --remote-control, niente tmux (T47)
 L10 profilo: argomenti, modello, env nel processo (N8); profilo ignoto → exit 2
 L11 registro aggiornato al lancio (T52) e link dal registro peer (1.2)
+L12 PATH del cron (T81, 16:30 dell'11/09: «claude non trovato nel PATH» dal bot): con PATH=/usr/bin:/bin e senza
+    CM_CLAUDE_BIN, launch trova ~/.local/bin/claude (cm-lib antepone ~/.local/bin); senza nessun claude, exit 3
+    con il messaggio che dice i percorsi provati
 """
 import json
 import os
@@ -53,12 +56,16 @@ FAKE = T.ROOT / "tests" / "lib" / "fake-claude.sh"
 scenfile = tmp / "scenario"
 
 
-def run(*args, scenario="plain", extra=None, timeout=90):
+def env_base(scenario="plain"):
     scenfile.write_text(scenario)
-    env = {"FAKE_CLAUDE_SCENARIO_FILE": str(scenfile),"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg),
+    return {"FAKE_CLAUDE_SCENARIO_FILE": str(scenfile),"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg),
            "CM_TMUX_ARGS": tm.env["CM_TMUX_ARGS"], "CM_CLAUDE_BIN": str(FAKE), "FAKE_CLAUDE_SCENARIO": scenario,
            "FAKE_CLAUDE_ARGS_LOG": str(argslog), "CM_TERMINAL_FAKE_LOG": str(fakelog), "CM_TERMINAL_FAKE_ATTACH": "1",
            "WAYLAND_DISPLAY": "fake-0", "FAKE_CLAUDE_ECHO_ENV": "CLAUDE_CODE_TOOL_MEMORY_LIMIT", "FAKE_CLAUDE_DELAY": "3"}
+
+
+def run(*args, scenario="plain", extra=None, timeout=90):
+    env = env_base(scenario)
     env.pop("TMUX", None)
     if extra:
         env.update(extra)
@@ -154,6 +161,18 @@ with T.PrivateTmux() as tm:
     T.check("L10 profile env reaches the process", "ENV CLAUDE_CODE_TOOL_MEMORY_LIMIT=2g" in last_args(), last_args())
     r = run(str(home / "ws" / "personali" / "alfa"), "--profile", "nope")
     T.check("L10 unknown profile → exit 2", r.returncode == 2 and "scan" in r.stderr, r.stderr)
+
+    # L12: PATH minimale come nel cron, claude solo in ~/.local/bin (link al claude finto)
+    (home / ".local" / "bin").mkdir(parents=True, exist_ok=True)
+    (home / ".local" / "bin" / "claude").symlink_to(FAKE)
+    scenfile.write_text("plain")
+    e12 = {k: v for k, v in env_base("plain").items() if k != "CM_CLAUDE_BIN"}
+    e12["PATH"] = "/usr/bin:/bin"
+    r = subprocess.run([str(T.SCRIPTS / "cm-launch.sh"), str(home / "ws" / "personali" / "alfa"), "--no-window"], capture_output=True, text=True, env=e12, timeout=90)
+    T.check("L12 cron PATH: claude found in ~/.local/bin, session launched", r.returncode == 0 and "nome tmux" in r.stdout, r.stdout + r.stderr)
+    (home / ".local" / "bin" / "claude").unlink()
+    r = subprocess.run([str(T.SCRIPTS / "cm-launch.sh"), str(home / "ws" / "personali" / "alfa"), "--no-window"], capture_output=True, text=True, env=e12, timeout=90)
+    T.check("L12 no claude anywhere → exit 3, the message names ~/.local/bin/claude", r.returncode == 3 and ".local/bin/claude" in r.stderr, r.stdout + r.stderr)
 
 T.rm(str(tmp))
 T.finish()

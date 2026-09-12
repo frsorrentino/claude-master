@@ -190,17 +190,37 @@ def fake_telegram(token="123:ABC"):
             method = self.path.rsplit("/", 1)[-1]
             if not self.path.startswith(f"/bot{token}/"):
                 self.send_response(401); self.end_headers(); return
+            # rete «caduta» a comando (test del long polling): con il file FAKE_TG_FAIL risponde 503
+            fail = os.environ.get("FAKE_TG_FAIL", "")
+            if fail and os.path.exists(fail):
+                calls.setdefault("failed", []).append(method)
+                self.send_response(503); self.end_headers(); return
             calls.setdefault(method, []).append(params)
             if method == "getUpdates":
                 off = int(params.get("offset") or 0)
-                body = {"ok": True, "result": [u for u in queue if u["update_id"] >= off]}
+                res = [u for u in queue if u["update_id"] >= off]
+                # long polling emulato: senza update tiene la connessione fino a `timeout` (max 2 s)
+                hold = min(float(params.get("timeout") or 0), 2.0)
+                if not res and hold > 0:
+                    import time as _t
+                    end = _t.time() + hold
+                    while _t.time() < end and not res:
+                        _t.sleep(0.1)
+                        res = [u for u in queue if u["update_id"] >= off]
+                body = {"ok": True, "result": res}
             elif method == "sendMessage":
-                body = {"ok": True, "result": {"message_id": 1}}
+                # message_id progressivo: il bot edita il messaggio vivo per id
+                body = {"ok": True, "result": {"message_id": len(calls["sendMessage"])}}
+            elif method in ("editMessageText", "answerCallbackQuery", "setMyCommands"):
+                body = {"ok": True, "result": True}
             else:
                 body = {"ok": False}
             out = json.dumps(body).encode()
-            self.send_response(200); self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(out))); self.end_headers(); self.wfile.write(out)
+            try:
+                self.send_response(200); self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(out))); self.end_headers(); self.wfile.write(out)
+            except (BrokenPipeError, ConnectionResetError):
+                pass   # il client (un daemon ucciso a meta' richiesta) se n'e' andato
 
     srv = HTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()

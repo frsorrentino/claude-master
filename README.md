@@ -1,6 +1,8 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.3.7-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.3.8-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+
+![One master session runs all the others: the root session launches, watches, answers and closes the parallel sessions of every project, from the terminal and from a watch — the bot's list shown on a round Wear OS watch and on a rectangular iOS watch.](assets/readme/card0-hero.png)
 
 **Run several Claude Code sessions on one computer without losing track of
 them.** Each project gets its own terminal tab with a name and a colour; one
@@ -47,52 +49,121 @@ turned those on.
 
 ## What you get
 
-![One tab per session: the icon's shape says which account, its colour which session, the name is the project folder; below, the list every account's sessions with busy, idle, waiting.](assets/readme/card1-tabs.png)
+Every function has a card; every card has a function behind it. The sessions
+in the pictures (`master`, `atlas-shop`, `ledger-api`, `field-notes`, `orbit-docs`) are a demo set.
 
-- **You know which window is which.** Every session lives in its own terminal
-  tab: the icon's shape says which account, the colour which session, the name
-  is the folder. Closing the tab closes the session, so nothing keeps running
-  unseen. Sessions started without a tab (`--no-window`) are the deliberate
-  exception: they live on until you close them by name.
-- **The right account by default.** Personal folders open on your personal
-  account, client folders on the work one, by a map you set once. Typing the
-  other account on purpose gets a note, not a refusal.
-- **One list for everything running.** `claude-master sessions` shows every
-  session of every account: busy, idle, or stopped on a question waiting for
-  you, and whether a tab is attached to it. `claude-master next` picks the one
-  that needs you most.
+### Sessions at a glance
 
-![Talk to any session: from another session or from your phone, on either account. The root session is the phone's door; the answer comes back from the other session's transcript.](assets/readme/card2-talk.png)
+![Sessions at a glance: one table with every session of every account, its state (busy, idle, waiting for an answer), whether a tab is attached and how to reach it; the one waiting with nobody watching goes first.](assets/readme/card1-sessions.png)
 
-- **Sessions talk to each other.** From any session, or from your phone through
-  the *root session* (the one open on your workspace folder), you send a prompt
-  to another session, on either account, and read its answer.
-- **Restart without losing the conversation.** `restart arm` restarts the
-  current session when its turn ends and resumes where it was; `--clean` starts
-  fresh, `--switch-account` continues the same conversation on the other
-  account.
-- **A screenshot from the phone lands in the right project.** `report` files
-  the image in the project's folder and hands it to that project's session,
-  starting one if needed.
+`claude-master sessions` lists every session of every account: busy, idle, or
+stopped on a question waiting for you, whether a tab is attached, which
+channel reaches it. A detached session stuck on a question is work standing
+still, not work in progress: it goes first. `claude-master next` picks the one
+that needs you most.
 
-![After a reboot, everything comes back: the first shell asks whether to restore the sessions registered before the reboot; each one restarts with its conversation.](assets/readme/card3-reboot.png)
+### Launch by a piece of a name
 
-- **After a reboot, everything comes back.** The first shell you open notices
-  the machine just restarted and offers to relaunch the sessions that were
-  alive; say yes and they are back, each with its conversation.
-- **Windows arranged from the keyboard** (ChromeOS): side by side, all as tabs
-  of one window, or moved to another monitor, with one key or by name.
+![Launch by a piece of a name: launch resolves a folder fragment under the workspace root, deduces the account from the folder, opens the session as a tab of the Terminal window already open and prints its Remote Control link.](assets/readme/card2-launch.png)
 
-![Evening diary and night shift: the day's summary on Telegram at 20:00; queued jobs run while you sleep, one at a time, only while memory and quota allow.](assets/readme/card4-night.png)
+`claude-master launch atlas` resolves the folder under your workspace root,
+deduces the account (personal or work, by a map you set once: a warning, never
+a refusal), answers the trust and bypass dialogs, and opens the session as a
+tab of the Terminal window you already have, with no start tab beside it. A
+typo never becomes a folder: `--create` only when you ask, with the full path
+shown first. Typing `claude` inside a project folder does the same.
 
-- **The phone works even when nothing is running.** A small Telegram bot answers
-  `/master` and `/launch <project>` when every session is closed. Each evening
-  it sends the day's recap: one sentence per project on what was done, the
-  ones waiting on a question first, with a link to open each live one; the same
-  line lands in the project's `docs/recap.md`, so every folder keeps its own
-  history for free. And a queue of overnight jobs runs while you sleep, one at
-  a time, only while free memory and your quota allow, leaving a report in the
-  project.
+### Talk. Answer its question.
+
+![Talk and answer: a prompt sent to another session and its reply read from that session's transcript; the question a session is stuck on, shown with numbered options and answered by number — and the same question on a round Wear OS watch with option buttons and on a rectangular iOS watch as plain lines.](assets/readme/card3-talk.png)
+
+`claude-master talk ledger-api "deploy done?"` delivers a prompt to another
+session, on either account, and reads the answer back from its transcript.
+`claude-master answer ledger-api --show` reads the question a session is stuck on,
+options numbered; `answer ledger-api 1` answers it: a message in the inbox never
+unblocks a dialog, this does. The phone gets the same question with its
+options as buttons the moment the session stops.
+
+### Survive a reboot with everything
+
+![Survive a reboot: the sessions alive before the reboot, the reconciled registry and the last good set side by side; the first shell after the reboot proposes all of them with a source and a date and relaunches each with its conversation.](assets/readme/card4-reboot.png)
+
+The first shell after a reboot offers to bring every session back, each with
+its own conversation. Two lists feed it: the registry, reconciled every five
+minutes, and the «last good set», which grows with the sessions and never
+shrinks on its own — two windows closed by hand before the reboot cannot make
+a session disappear from the proposal. `claude-master restore --dry-run` shows
+what would come back, with the source and the date of each.
+
+### Restart in place, keep talking
+
+![Restart in place: restart arm sets one flag per session; at the end of the turn the Stop hook exits the session cleanly, frees the tmux name and launches it again with --continue, so the conversation continues.](assets/readme/card5-restart.png)
+
+`claude-master restart arm` restarts the current session when its turn ends
+and resumes where it was, because hooks, settings and plugins are read at
+startup only. One flag per session, so eight sessions can arm in the same
+minute; `restart list` shows them. `--clean` starts fresh with the memory
+intact, `--switch-account` continues the same conversation on the other
+account. A kill from inside a tool would land mid-turn: the hook is the only
+safe instant.
+
+### Your screen, arranged
+
+![Your screen, arranged: the master session as the big window on the left and the other four stacked on the right, each an app window of the ChromeOS Terminal with no start tab; the tile, merge, move and layout commands beside it.](assets/readme/card6-screen.png)
+
+On ChromeOS, `claude-master tile` gives every session an app window of its
+own and arranges them: equal columns, a grid when they get narrow, and with an
+odd count that includes the master, the master big on the left and the others
+stacked on the right. `merge` brings them back as tabs of one window, `move
+destra` sends them to another monitor, `layout save mattina` remembers a
+layout. The Terminal's start tab is evicted, never left beside a session.
+
+### From your wrist
+
+![From your wrist: side by side, a round Wear OS watch and a rectangular iOS watch showing the same Telegram list — one line per session with its state and icon, buttons on Wear OS, plain text on iOS; an illustration, not a screenshot.](assets/readme/card7-wrist.png)
+
+The Telegram bot is written for a watch: every message is at most eight lines
+of 22 characters, every command is a bare, dictable word (`sessioni`,
+`lancia ledger`, `avvisami`, `continua`, `ferma`), and the buttons are
+contextual — verbs for actions (Avvisami, Continua, Ferma, Leggi tutto,
+Annulla modifiche), nouns for destinations (Sessioni, Terminale, «◀ name»).
+The list is one button per session; a tap opens the card (state, last
+outcome, «→ next» from the recap, the open question with its options as
+buttons); a number, «due si» or a tap answers it through `answer`, after a
+git checkpoint of the workspace that «Annulla modifiche» restores. Free text
+in a card is a prompt for that session, and the feedback matches the desktop:
+one live message («📤 name» + your words) that edits itself from the
+session's transcript while it works — «▶ name working», the tool in use, the
+last lines it wrote, «❓ name waits for you» — with Ferma (Esc) and Terminale
+under it, «⚠ name did not receive» + Invia di nuovo when the prompt never
+shows up; then a new message «✓ name» with the one line the session wrote
+for the watch (the prompt asks it to end with `Watch: <outcome ≤ 60 chars>`;
+Leggi tutto for the rest). Silent, except questions, outcomes, answers, errors
+and vanished sessions.
+
+Wear OS tested; watchOS via Telegram notifications and dictation, not yet
+verified.
+
+### Guard, diary, digest, night
+
+![Guard, diary, digest and night shift: on a phone, the Telegram chat with the 20:00 recap — one sentence per project with its icon, the ones waiting on a question first, the next step under each; beside it the quota warning at 95 percent and the resume at the reset, the 08:00 digest of what waits for you, and the overnight queue.](assets/readme/card8-guard.png)
+
+`claude-master guard` warns once per window when an account passes 95 % of
+its quota and, at the reset, sends «resume where you were» to the sessions
+that hit the wall. At 20:00 the recap: one sentence per project on what was
+done and the next step, the ones waiting on a question first, the same line
+appended to the project's `docs/recap.md`. At 08:00 the digest: what waits for
+you. At 02:00 the night queue runs one job at a time, only while free memory
+and quota allow, leaving a report in the project.
+
+### Doctor, for both accounts
+
+![Doctor: one PASS, WARN or FAIL line per thing checked — the plugin's cache and version in each account, the hooks, the bot's daemon, the cron lines — each with the command that fixes it.](assets/readme/card9-doctor.png)
+
+`claude-master doctor` checks both accounts: the plugin in the cache at the
+right version, the hooks wired in, the bot's daemon alive, the cron lines
+present; each line says what to do. Run it after every update: hooks run
+from the cache, and a live session keeps its old version until it restarts.
 
 **Why not plain tmux?** tmux keeps sessions alive; it does not know which
 Claude account a folder belongs to, which session is waiting on a question,
@@ -140,12 +211,14 @@ Three things are worth knowing before you turn them on.
   needed only for `talk` across accounts, and it means: whoever can run
   commands on this machine can talk to those sessions.
 - **The Telegram bot** answers only chats already in the `telegram` plugin's
-  allow list, only three commands, and discards its backlog on the first run
-  so an old message cannot start anything.
+  allow list, discards its backlog on the first run so an old message cannot
+  start anything, and takes a git checkpoint of a session's workspace before
+  a «yes» from the watch reaches it (`annulla` restores it).
 
-The plugin adds no background process of its own: each session is a Claude
-Code process (a few hundred MB each), the bot, the diary and the night queue
-are scheduled tasks that run for seconds.
+Each session is a Claude Code process (a few hundred MB each); the only
+process the plugin adds is the bot's daemon, a few MB waiting on a socket;
+the diary, the digest and the night queue are scheduled tasks that run for
+seconds.
 
 ## How it works
 
@@ -195,23 +268,20 @@ longer adds up. A minimal example for two accounts:
 
 The full list with defaults: [`claude-master/config.example.json`](claude-master/config.example.json).
 
-## From the phone when nothing is running
+## From the phone and from the wrist
 
-Claude Code's `telegram` plugin lets you talk to a live session from your
-phone. When every session is closed there is nobody to talk to. `claude-master
-bot` fills that gap: a scheduled task, once a minute, polls the same Telegram
-bot (same token, same allowed chats) and answers four commands only —
-`/master` starts the root session and replies with its link, `/launch <name>`
-starts a project (one match starts it; several or none are listed, never
-created), `/sessions` lists what is running, `/recap` sends today's diary. It stays quiet while a session's
-plugin is listening.
-
-Turning it on, and the two companions:
+`claude-master bot serve` is a small long-polling daemon on the same Telegram
+bot as Claude Code's `telegram` plugin (same token, same allowed chats); the
+once-a-minute task only restarts it if it died. It is the only consumer of
+the bot: keep the plugin's own poller off, or `serve` steps aside and says so.
+`/sessions full` keeps the desktop table; everything else is sized for a
+watch, as the card above shows. `bot digest` at 08:00, `recap` at 20:00 and
+`night` at 02:00 use the same chats.
 
 ```bash
 # config.json: "bot": {"enabled": true}
-claude-master bot install      # the once-a-minute task; `bot status` says who is listening
-claude-master recap install    # the day's diary to the same chats at 20:00 (diary.cron_time)
+claude-master bot install      # the daemon, its once-a-minute keeper and the 08:00 digest; `bot status` shows who is listening
+claude-master recap install    # the day's diary to the same chats at 20:00 (recap.cron_time)
 claude-master night install    # the overnight queue at 02:00 (night.cron_time); fill it with `night add`
 ```
 
@@ -277,7 +347,7 @@ The complete reference. Italian aliases (`lancia`, `chiudi`, `sessioni`,
 | `claude-master tile [names] [--rows\|--grid] [--on PLACE] [--dry-run] [--where]` · `claude-master merge` · `claude-master move PLACE` · `claude-master layout save\|restore\|list NAME` | windows side by side, as tabs, on another monitor, or by saved layout (ChromeOS) |
 | `claude-master attach <name>` · `claude-master color <name>` · `claude-master quota` | attach a terminal; the tab's shape and colour; how full each account's quota is |
 | `claude-master guard run` · `install\|uninstall\|status` | quota guard: one Telegram warning per window above `guard.warn_pct` with the reset time; at the reset, the sessions that hit the wall get «resume where you were» and a pending night queue runs | |
-| `claude-master bot poll\|install\|uninstall\|status` | the Telegram bot for when nothing is running (`/master`, `/launch`, `/sessions`, `/recap`) |
+| `claude-master bot serve\|ensure\|poll\|digest\|install\|uninstall\|status` | the Telegram bot for the phone and the watch: the long-polling daemon, its keeper, a manual round, the 08:00 digest |
 | `claude-master recap [--date D\|--since H] [--send] [--full]` · `recap install\|uninstall\|status` | the day's diary, per project: waiting on a question first (with a link), then alive, then closed |
 | `claude-master night add <dir> "prompt" [--model M] [--effort E] [--max-turns N]` · `list` · `remove <id>` · `run [--dry-run\|--one] [--send]` · `install\|uninstall\|status` | the overnight queue |
 
@@ -287,12 +357,13 @@ The complete reference. Italian aliases (`lancia`, `chiudi`, `sessioni`,
 for t in tests/*-verify.py; do python3 "$t"; done
 ```
 
-Twenty suites, about 350 cases, none of which touch your real tmux, your real
+Twenty-eight suites, about 550 cases, none of which touch your real tmux, your real
 Claude or your browser: a private tmux server, a fake `claude` that draws the
 real dialogs and writes the real registry files, a fake browser that follows
 Chrome's rules, a fake Telegram. Every defect found on the real machine became
 a test before it was fixed. The README cards are generated by
-`tools-readme-cards.py`, no model involved.
+`tools-readme-cards.py` from a neutral demo set, no model involved;
+`tools-privacy-check.py` runs before every release.
 
 ## License
 

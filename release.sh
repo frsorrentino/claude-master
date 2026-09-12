@@ -34,7 +34,9 @@ sed -n 3p README.md | grep -q "version-$VER-blue" \
   || { echo "FAIL: README version badge is not at $VER (line 3: shields.io version-<v>-blue)"; exit 1; }
 git rev-parse "v$VER" >/dev/null 2>&1 \
   && { echo "FAIL: tag v$VER already exists"; exit 1; }
-echo "preflight ok: $VER in plugin.json, CHANGELOG, README; tag v$VER free"
+python3 tools-privacy-check.py --quiet \
+  || { echo "FAIL: privacy check (docs/privacy-blocklist.txt) — neutralize before publishing"; exit 1; }
+echo "preflight ok: $VER in plugin.json, CHANGELOG, README; tag v$VER free; privacy ok"
 
 echo "== 2/6 test suites (must be green BEFORE the commit) =="
 for t in tests/*-verify.py; do

@@ -96,12 +96,32 @@ bocca all'utente una decisione che non ha preso, e nel caso peggiore fa premere 
 un'azione che nessuno ha autorizzato. Chiamalo «un suggerimento di Claude Code»; inviare quel
 testo solo se l'utente lo ripete in questa conversazione.
 
-## Dal telefono a sessioni chiuse
+## Dal telefono e dall'orologio: il bot
 
-Quando nessuna sessione è viva il plugin telegram non ascolta: `claude-master bot` (cron ogni
-minuto, stesso bot, `bot.enabled` in config) risponde a `/master`, `/launch <frammento>`,
-`/sessions`, `/recap`, e a `/start` con un bottone «/master». Resta muto finché una sessione ascolta Telegram. Dopo un riavvio della macchina
-serve il login a mano: copre «sessioni chiuse, macchina sveglia».
+`claude-master bot serve` (daemon in long polling, risposta all'istante; il cron del minuto lo
+rialza con `bot ensure`, `bot status` lo mostra) è l'unico consumatore del bot Telegram dall'11/09 (il
+plugin ufficiale è disattivato: condivideva il token; se riparte, `serve` esce dicendo perché). È fatto per il polso
+(Wear OS, ~22 caratteri per riga): messaggi da ≤ 8 righe, parole nude dettabili oltre a `/comando`
+(`sessioni`/`s`, `master`/`m`, `lancia X`/`l X`, `quota`/`q`, `aiuto`/`?`, `avvisami`/`f`,
+`continua`/`t`, `ferma`, `terminale`, `annulla`), tasti contestuali con la regola «imperativo = azione,
+sostantivo = destinazione» (Sessioni, «◀ nome», Avvisami/Basta avvisi, Continua solo su ✓/✗, Annulla modifiche
+solo con un checkpoint, Ferma, Terminale, Leggi tutto, Invia di nuovo). L'elenco è un bottone per sessione
+(❓ ▶ ✓ ✗, poi alfabetico); un numero o il nome dettato apre la scheda; in scheda un numero (o «due si») risponde
+alla domanda via `answer NOME N`, dopo un checkpoint git del workspace che «Annulla modifiche» ripristina;
+in scheda un testo libero è un prompt per quella sessione (`talk` dopo il checkpoint git) col prefisso
+«Da Franz via Telegram (watch)…» che chiede di chiudere con una riga `Watch: <esito ≤ 60 caratteri>`: chi lo riceve
+risponde nella propria finestra, MAI con SendMessage alla master. Il feedback è quello del desktop (12/09/2026): UN
+messaggio vivo «📤 nome» + eco, editato dal transcript della sessione («▶ nome al lavoro», il tool in corso, le
+ultime righe di testo, «❓ nome aspetta te»), con Ferma (Esc in tmux) e Terminale; «⚠ nome non ha ricevuto» +
+Invia di nuovo se il prompt non compare entro `bot.receive_timeout_s`; a fine turno un messaggio nuovo «✓ nome» +
+la riga Watch: (Leggi tutto per il resto). La risposta è lo Stop con la riga Watch:, o il primo se la sessione era
+ferma all'invio, o il secondo se era occupata (il primo è il turno precedente). «Avvisami» segue (avviso «✓ nome ha
+finito:» a fine di un turno > `bot.follow_min_turn_s`, «✗ nome» se sparisce, «✗ nome errore» su StopFailure).
+Silenzioso tranne domande, esiti, risposte, errori e sparizioni; digest delle 8:00 («cosa aspetta te», un tasto
+Apri per ogni ❓). `terminale NOME`/`schermo NOME`/`v NOME`: le ultime 30 righe del riquadro in un blocco `<pre>`.
+L'avviso di una domanda si decide nelle prime tre righe (Wear OS mostra grandi solo quelle): «❓ icona nome», la
+domanda, le opzioni in breve; al massimo tre bottoni (oltre tre opzioni: le prime due + Apri). La riga «Esito:» di
+esiti e risposte è una frase sola ≤ 120 caratteri, per la lettura vocale. `/sessions full` dà la tabella intera. Dopo un riavvio della macchina serve il login a mano.
 
 ## Rispondere alla domanda di un'altra sessione
 

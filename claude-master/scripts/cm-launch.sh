@@ -87,8 +87,11 @@ PREFIX="$(cm_get "$ACCOUNT" TMUX_PREFIX)"
 # 2.3: quota settimanale dell'account oltre soglia → avviso (consiglio, non blocco)
 python3 "$CM_SCRIPTS/cm-sessions.py" --quota-warn "$ACCOUNT" >&2 2>/dev/null || true
 command -v tmux >/dev/null || { cm_msg launch.no_tmux >&2; exit 3; }
-CLAUDE="${CM_CLAUDE_BIN:-$(command -v claude)}"
-[ -n "$CLAUDE" ] && [ -x "$CLAUDE" ] || { cm_msg launch.no_claude >&2; exit 3; }
+# il binario: CM_CLAUDE_BIN (prove), poi il PATH, poi il link ~/.local/bin/claude (T81: dal cron il PATH
+# e' minimo; da shell `claude` e' una funzione wrapper, il binario e' quel link)
+CLAUDE="${CM_CLAUDE_BIN:-$(command -v claude 2>/dev/null || true)}"
+[ -n "$CLAUDE" ] && [ -x "$CLAUDE" ] || CLAUDE="$HOME/.local/bin/claude"
+[ -x "$CLAUDE" ] || { cm_msg launch.no_claude "tried=PATH ($PATH), $HOME/.local/bin/claude" >&2; exit 3; }
 
 if [ ! -e "$CARTELLA" ]; then
   if [ "$CREA" = si ]; then mkdir -p "$CARTELLA" || { cm_msg launch.mkdir_failed "path=$CARTELLA" >&2; exit 4; }

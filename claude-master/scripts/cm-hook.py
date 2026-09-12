@@ -203,8 +203,16 @@ def main(argv):
         ledger("waiting", p, tool=p.get("tool_name", ""))
         ask_notify(p)
     elif ev == "Stop":
-        last = (p.get("last_assistant_message") or "")[:300]
-        ledger("stop", p, last=last)
+        msg = p.get("last_assistant_message") or ""
+        last = msg[:300]
+        # per il polso (regola 9): l'ultima riga di testo e, se c'e', la riga «Esito:» — i primi 300
+        # caratteri non la contengono mai, sta in coda al messaggio
+        righe = [l.strip() for l in msg.splitlines() if l.strip() and not l.strip().startswith("```")]
+        tail = "\n".join(righe)[-600:]   # la CODA del messaggio (piu' righe): l'ultima riga sola non basta al polso
+        esito = next((l[:200] for l in reversed(righe) if l.lower().lstrip("*_#> ").startswith("esito")), "")
+        # la riga «Watch:» (12/09/2026): l'esito nudo per lo smartwatch, chiesto dal prefisso del bot
+        watch = next((l[:200] for l in reversed(righe) if l.lower().lstrip("*_#> ").startswith("watch")), "")
+        ledger("stop", p, last=last, tail=tail, esito=esito, watch=watch)
         if CFG["hooks"]["restart_stop"]["enabled"]:
             r = subprocess.run([str(HERE / "cm-restart.sh"), "hook"], input=json.dumps(p), capture_output=True, text=True,
                                env={**os.environ, "CM_HOOK_SESSION_ID": sid})

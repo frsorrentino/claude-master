@@ -26,7 +26,7 @@ import cm_test as T  # noqa: E402
 
 tmp = Path(T.tmpdir())
 home = tmp / "home"
-for d in (".claude/sessions", "ws/personali/joyconcept", "ws/personali/joyful", "ws/personali/medsys"):
+for d in (".claude/sessions", "ws/personali/shopacme", "ws/personali/shopfront", "ws/personali/blog"):
     (home / d).mkdir(parents=True)
 cfg = tmp / "config.json"
 cfg.write_text(json.dumps({
@@ -71,7 +71,7 @@ class FakePeer:
         self.sid = f"sid-{name}"
         reg = home / ".claude" / "sessions"
         self.reg_json = reg / f"{self.pid}.json"
-        self.reg_json.write_text(json.dumps({"pid": self.pid, "name": name, "cwd": cwd, "status": "idle", "tmux": "medsys:@0.%0",
+        self.reg_json.write_text(json.dumps({"pid": self.pid, "name": name, "cwd": cwd, "status": "idle", "tmux": "blog:@0.%0",
                                              "startedAt": int(time.time() * 1000), "procStart": proc_start(self.pid),
                                              "sessionId": self.sid, "messagingSocketPath": self.sock_path}))
         (reg / f"{self.pid}.abc.key").write_text(json.dumps({"peerToken": "tok-" + name, "procStart": proc_start(self.pid)}))
@@ -117,23 +117,23 @@ class FakePeer:
 with T.PrivateTmux() as tm:
     # T66: il server tmux eredita l'ambiente del PRIMO comando: va avviato con la HOME finta,
     # altrimenti il claude finto lanciato dentro registra nel registro VERO di questa macchina
-    subprocess.run(["tmux", "-L", tm.socket, "new-session", "-d", "-s", "medsys", "bash", "--norc"], env=env(), check=True)
-    peer = FakePeer("medsys", str(home / "ws" / "personali" / "medsys"))
+    subprocess.run(["tmux", "-L", tm.socket, "new-session", "-d", "-s", "blog", "bash", "--norc"], env=env(), check=True)
+    peer = FakePeer("blog", str(home / "ws" / "personali" / "blog"))
     # T1/T2
-    r = talk("medsys", "ping E6", CLAUDE_CODE_MESSAGING_SOCKET="/tmp/me.sock")
+    r = talk("blog", "ping E6", CLAUDE_CODE_MESSAGING_SOCKET="/tmp/me.sock")
     T.check("T1 talk exit 0 via socket", r.returncode == 0 and "via socket" in r.stderr, r.stderr)
     lines = peer.received[-1].split("\n") if peer.received else []
     auth = json.loads(lines[0]) if lines else {}
     msg = json.loads(lines[1]) if len(lines) > 1 else {}
-    T.check("T1 auth line carries the recipient's peerToken", auth == {"type": "auth", "token": "tok-medsys"}, str(auth))
+    T.check("T1 auth line carries the recipient's peerToken", auth == {"type": "auth", "token": "tok-blog"}, str(auth))
     T.check("T1 message line in the captured format", msg.get("msgV") == 1 and msg.get("type") == "user" and msg.get("priority") == "next"
             and msg.get("from") == "uds:/tmp/me.sock" and 'from-mode="bypass"' in msg["message"]["content"] and "ping E6" in msg["message"]["content"], str(msg)[:300])
     T.check("T2 reply read from the transcript (text blocks only)", "pong dal peer finto" in r.stdout and "hmm" not in r.stdout and "vecchia" not in r.stdout, r.stdout)
     # T3
-    r = talk("medsys", "fire and forget", "--no-wait")
+    r = talk("blog", "fire and forget", "--no-wait")
     T.check("T3 --no-wait returns at once", r.returncode == 0 and "pong" not in r.stdout, r.stdout + r.stderr)
     r = talk("nessuna", "x")
-    T.check("T3 missing session → exit 3 with the list", r.returncode == 3 and "medsys" in r.stderr, r.stderr)
+    T.check("T3 missing session → exit 3 with the list", r.returncode == 3 and "blog" in r.stderr, r.stderr)
 
     # T5: filtro dei suggerimenti
     mod_src = f'''
@@ -154,47 +154,47 @@ print(repr(filt("❯ \\x1b[2msolo suggerimento fino a fine riga")))        # non
     T.check("T5 unterminated suggestion → empty", out[2] == "''", r.stdout)
 
     # T4/T6: sessione tmux con il claude finto (nessun socket nel registro → via tmux)
-    tm("new-session", "-d", "-s", "joyconcept", "-x", "120", "-y", "30", "-c", str(home / "ws" / "personali" / "joyconcept"),
-       f"env CLAUDE_CONFIG_DIR='{home}/.claude' FAKE_CLAUDE_REGISTER=0 '{FAKE}' -n joyconcept")
+    tm("new-session", "-d", "-s", "shopacme", "-x", "120", "-y", "30", "-c", str(home / "ws" / "personali" / "shopacme"),
+       f"env CLAUDE_CONFIG_DIR='{home}/.claude' FAKE_CLAUDE_REGISTER=0 '{FAKE}' -n shopacme")
     time.sleep(2)
     # il registro peer del finto e' spento: cm-sessions lo vede da /proc (cmdline con 'claude'?) — no: nome del fake e' fake-claude.sh.
     # Si registra a mano SENZA socket, con il nome tmux giusto.
-    pane_pid = int(tm("list-panes", "-t", "joyconcept", "-F", "#{pane_pid}").stdout.strip())
-    (home / ".claude" / "sessions" / f"{pane_pid}.json").write_text(json.dumps({"pid": pane_pid, "name": "joyconcept", "cwd": str(home / "ws" / "personali" / "joyconcept"),
-        "status": "idle", "tmux": "joyconcept:@0.%0", "startedAt": int(time.time() * 1000), "procStart": proc_start(pane_pid), "sessionId": "sid-joy"}))
-    tm("send-keys", "-t", "joyconcept", "-l", "testo lasciato a meta")
+    pane_pid = int(tm("list-panes", "-t", "shopacme", "-F", "#{pane_pid}").stdout.strip())
+    (home / ".claude" / "sessions" / f"{pane_pid}.json").write_text(json.dumps({"pid": pane_pid, "name": "shopacme", "cwd": str(home / "ws" / "personali" / "shopacme"),
+        "status": "idle", "tmux": "shopacme:@0.%0", "startedAt": int(time.time() * 1000), "procStart": proc_start(pane_pid), "sessionId": "sid-joy"}))
+    tm("send-keys", "-t", "shopacme", "-l", "testo lasciato a meta")
     time.sleep(0.5)
-    r = talk("joyconcept", "ciao")
+    r = talk("shopacme", "ciao")
     T.check("T4 typed text in the box → refused (exit 4)", r.returncode == 4 and "testo lasciato a meta" in r.stderr, r.stderr + r.stdout)
-    r = talk("joyconcept", "ciao via tmux", "--force", "--quiet", "3", "--wait", "15")
+    r = talk("shopacme", "ciao via tmux", "--force", "--quiet", "3", "--wait", "15")
     # il claude finto non svuota la casella con Esc (lo fa Claude Code, T17): il residuo resta attaccato all'eco
     T.check("T6 forced: delivered via tmux and the echo comes back from the screen", r.returncode == 0 and "via tmux" in r.stderr and "ciao via tmux" in r.stdout, r.stdout + r.stderr)
 
     # T7 wait
     peer.set_status("busy")
     threading.Timer(2, lambda: peer.set_status("idle")).start()
-    r = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-talk.py"), "wait", "medsys", "--timeout", "20"], capture_output=True, text=True, env=env(), timeout=60)
+    r = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-talk.py"), "wait", "blog", "--timeout", "20"], capture_output=True, text=True, env=env(), timeout=60)
     T.check("T7 wait returns on idle and prints the last reply", r.returncode == 0 and "idle" in r.stdout and "pong dal peer finto" in r.stdout, r.stdout + r.stderr)
 
     # R1/R2 report
     img = tmp / "shot.PNG"
     img.write_bytes(b"\x89PNG fake")
-    r = subprocess.run([str(T.SCRIPTS / "cm-report.sh"), "medsys", str(img), "Il bottone compra non funziona!"], capture_output=True, text=True, env=env(), timeout=120)
-    dest = home / "ws" / "personali" / "medsys" / "docs" / "segnalazioni"
+    r = subprocess.run([str(T.SCRIPTS / "cm-report.sh"), "blog", str(img), "Il bottone compra non funziona!"], capture_output=True, text=True, env=env(), timeout=120)
+    dest = home / "ws" / "personali" / "blog" / "docs" / "segnalazioni"
     files = list(dest.glob("*")) if dest.exists() else []
     T.check("R1 image archived as <date>-<slug>.png with 644", r.returncode == 0 and len(files) == 1 and files[0].name.endswith("-il-bottone-compra-non-funziona.png")
             and oct(files[0].stat().st_mode)[-3:] == "644", r.stdout + r.stderr + str(files))
     T.check("R2 delivered to the project session via socket with the image path", "consegnata" in r.stdout and any(str(files[0]) in x for x in peer.received[-1:]) if files else False, r.stdout + (peer.received[-1] if peer.received else ""))
-    r = subprocess.run([str(T.SCRIPTS / "cm-report.sh"), "joyf", "-", "solo testo", "--no-launch"], capture_output=True, text=True, env=env(), timeout=60)
-    T.check("R1 prefix match joyf → joyful; --no-launch with no session → archived only", r.returncode == 0 and "joyful" in r.stdout and "non" in r.stdout.lower(), r.stdout + r.stderr)
+    r = subprocess.run([str(T.SCRIPTS / "cm-report.sh"), "shopf", "-", "solo testo", "--no-launch"], capture_output=True, text=True, env=env(), timeout=60)
+    T.check("R1 prefix match shopf → shopfront; --no-launch with no session → archived only", r.returncode == 0 and "shopfront" in r.stdout and "non" in r.stdout.lower(), r.stdout + r.stderr)
     r = subprocess.run([str(T.SCRIPTS / "cm-report.sh"), "nessuno", "-", "x"], capture_output=True, text=True, env=env(), timeout=60)
     T.check("R1 unknown project → exit 3", r.returncode == 3, r.stdout + r.stderr)
     # R3: sessione assente → lancia (claude finto, --no-window) e consegna via tmux
     scen = tmp / "scen"; scen.write_text("plain")
-    r = subprocess.run([str(T.SCRIPTS / "cm-report.sh"), "joyful", "-", "lancia e consegna"], capture_output=True, text=True,
+    r = subprocess.run([str(T.SCRIPTS / "cm-report.sh"), "shopfront", "-", "lancia e consegna"], capture_output=True, text=True,
                        env=env(FAKE_CLAUDE_SCENARIO_FILE=str(scen), WAYLAND_DISPLAY=""), timeout=180)
-    T.check("R3 missing session launched and text delivered", r.returncode == 0 and tm("has-session", "-t", "=joyful").returncode == 0 and "consegnata" in r.stdout, r.stdout + r.stderr)
-    screen = tm("capture-pane", "-p", "-t", "joyful").stdout
+    T.check("R3 missing session launched and text delivered", r.returncode == 0 and tm("has-session", "-t", "=shopfront").returncode == 0 and "consegnata" in r.stdout, r.stdout + r.stderr)
+    screen = tm("capture-pane", "-p", "-t", "shopfront").stdout
     T.check("R3 the fake session shows the delivered text", "lancia e consegna" in screen, screen[-400:])
 
 peer.proc.kill()

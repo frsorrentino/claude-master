@@ -125,9 +125,10 @@ DEFAULTS = {
     "bot": {"enabled": False, "token_file": "~/.claude/channels/telegram/.env",
             "access_file": "~/.claude/channels/telegram/access.json",
             "pid_file": "~/.claude/channels/telegram/bot.pid",
-            "api_base": "https://api.telegram.org", "offset_file": "", "log": "",
+            "api_base": "https://api.telegram.org", "offset_file": "", "state_file": "", "log": "",
             "cron_minutes": 1, "http_timeout_s": 20, "command_timeout_s": 120, "max_candidates": 8,
-            "first_run_max_age_s": 180},
+            "first_run_max_age_s": 180, "serve_timeout_s": 50, "follow_min_turn_s": 30, "card_lines": 20,
+            "live_edit_s": 3, "receive_timeout_s": 15, "answer_timeout_s": 1800},
     # recap serale dal ledger (N7): ora del cron, citazioni, riassunto col modello, riga del giorno nei progetti
     # last: none | short (solo le ferme su domanda, 60 caratteri) | full; hide_zero_turns: le chiuse
     # senza turni non compaiono
@@ -188,6 +189,7 @@ STATE_FILES = {
     "restart.flag_file": "restart.json",
     "restart.log": "restart.log",
     "bot.offset_file": "bot-offset",
+    "bot.state_file": "bot-state.json",
     "bot.log": "bot.log",
     "night.queue_file": "night-queue.jsonl",
     "night.done_file": "night-done.jsonl",
