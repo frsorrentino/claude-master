@@ -72,7 +72,19 @@ def parse(text):
             continue
         if "☐" in l or "☑" in l:
             header = l.replace("☐", "").replace("☑", "").strip()
-            question = next((x.strip() for x in lines[i + 1:i + 3] if x.strip() and not OPTION.match(x)), "")
+            # la domanda puo' stare su piu' righe (con «│» davanti): si uniscono fino alla riga vuota o alla
+            # prima opzione (12/09: la seconda riga della domanda della master andava persa)
+            qlines = []
+            for x in lines[i + 1:]:
+                xs = x.strip().lstrip("│").strip()
+                if OPTION.match(x):
+                    break
+                if not xs:
+                    if qlines:
+                        break
+                    continue
+                qlines.append(xs)
+            question = " ".join(qlines)
     return header, question, options, True
 
 
@@ -144,9 +156,41 @@ def icon_of(name):
         return ""
 
 
+def clean_label(label):
+    """«Firebase RTDB + FCM (Recommended)» → «Firebase RTDB + FCM»: sul polso lo spazio serve al nome."""
+    return re.sub(r"\s*\((?:recommended|consigliat[oa])\)\s*$", "", str(label or ""), flags=re.I).strip()
+
+
+def synth_question(question, ui):
+    """La domanda COMPLETA e di senso compiuto per il polso (Franz 12/09 10:54): il succo deterministico
+    (ui.question_gist) se sta in hooks.ask_notify.synth_max_chars; altrimenti una sintesi col modello
+    (`claude -p`, hooks.ask_notify.synth_model, come il recap); altrimenti il testo com'e' (chi lo mostra lo
+    manda a capo e lo tronca)."""
+    a = CFG["hooks"].get("ask_notify") or {}
+    mx = int(a.get("synth_max_chars") or 88)
+    q = " ".join(str(question or "").split())
+    g = ui.question_gist(q, mx)
+    if g or not q:
+        return g
+    model = str(a.get("synth_model") or "")
+    if model:
+        claude = os.environ.get("CM_CLAUDE_BIN") or "claude"
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CONFIG_DIR"}   # account di default (T68)
+        try:
+            p = subprocess.run([claude, "-p", M("answer.synth_prompt", n=mx - 8, question=q), "--model", model, "--max-turns", "1"],
+                               capture_output=True, text=True, timeout=int(a.get("synth_timeout_s") or 20), env=env,
+                               cwd=str(Path(cm.expand(CFG["state_dir"]))))
+            s = " ".join(p.stdout.split()).strip("«»\"' ")
+            if p.returncode == 0 and 0 < len(s) <= mx + 20:
+                return s[:mx]
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return q
+
+
 def notify_lines(p, name, on_screen, ui):
-    """La resa da polso (≤ 8 righe da ≤ 22): «❓ nome», la domanda su ≤ 2 righe, le opzioni «n etichetta»
-    una per riga. Torna (righe, etichette)."""
+    """La resa da polso (≤ 8 righe da ≤ 22): «❓ nome», la domanda COMPLETA (il suo succo, o una sintesi) su
+    ≤ 4 righe, le opzioni «n etichetta» una per riga. Torna (righe, etichette)."""
     tool = p.get("tool_name") or "?"
     ti = p.get("tool_input") or {}
     questions = ti.get("questions") if isinstance(ti, dict) else None
@@ -155,20 +199,20 @@ def notify_lines(p, name, on_screen, ui):
     if on_screen:
         header, question, options, _ = on_screen
         options = [label for _, label, _ in options]
-    question = question or str(q0.get("question") or "")
+    # il payload ha la domanda intera e non spezzata a righe: vince sullo schermo (che da' i numeri delle opzioni)
+    question = str(q0.get("question") or "") or question
     if not options and isinstance(q0.get("options"), list):
         options = [str(o.get("label") or "") for o in q0["options"] if isinstance(o, dict)]
+    options = [clean_label(o) for o in options]
     icon = icon_of(name)
     lines = [ui.fit(f"❓ {icon} {ui.short_name(name)}".replace("  ", " "))]
     if question or options:
-        # le prime TRE righe bastano (via master 12/09: Wear OS mostra grandi solo quelle): la domanda troncata,
-        # le opzioni in breve; poi le opzioni una per riga per il telefono
-        lines.append(ui.fit(question or "?"))
-        lines.append(ui.fit(" · ".join(f"{i + 1} {o}" for i, o in enumerate(options))))
+        lines += ui.wrap(synth_question(question, ui) or "?", ui.WIDTH, 4)
         lines += [ui.fit(f"{i + 1} {o}") for i, o in enumerate(options)]
     else:
         lines += ui.wrap(f"{tool} {_detail(ti)}", ui.WIDTH, 3)
-    return lines[:ui.MAX_LINES], options
+    # oltre 8 righe se servono: la domanda intera vale piu' del tetto (il polso scorre)
+    return lines[:max(ui.MAX_LINES, 5 + len(options))], options
 
 
 def notify_text(p, name, on_screen):

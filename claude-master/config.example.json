@@ -214,7 +214,10 @@
     },
     "ask_notify": {
       "enabled": true,
-      "delay_s": 1.5
+      "delay_s": 1.5,
+      "synth_model": "haiku",
+      "synth_max_chars": 88,
+      "synth_timeout_s": 20
     }
   },
   "shell": {

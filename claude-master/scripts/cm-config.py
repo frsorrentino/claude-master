@@ -147,7 +147,7 @@ DEFAULTS = {
         "local_time": {"enabled": True, "format": "%A %Y-%m-%d %H:%M", "prefix": "[local time]"},
         "restart_stop": {"enabled": True},
         "session_kernel": {"enabled": True},
-        "ask_notify": {"enabled": True, "delay_s": 1.5},
+        "ask_notify": {"enabled": True, "delay_s": 1.5, "synth_model": "haiku", "synth_max_chars": 88, "synth_timeout_s": 20},
     },
     "shell": {
         "wrappers": {"claude": "default"},

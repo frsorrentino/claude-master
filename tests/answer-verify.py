@@ -91,13 +91,45 @@ with T.PrivateTmux() as tm:
     kb4 = json.loads(m4.get("reply_markup") or "{}").get("inline_keyboard") or []
     T.check("A4b notice: first line «❓ beta», every line ≤ 22, NOT silent", t[0].splitlines()[0].startswith("❓ ") and t[0].splitlines()[0].endswith(" beta") and all(len(l) <= 22 for l in t[0].splitlines()) and m4.get("disable_notification") != "true", t[0])
     T.check("A4b option buttons ans:beta:N then «Apri … beta»; 4 options → only the first two as buttons (3 in all)", kb4 and any(b.get("callback_data") == "ans:beta:2" for row in kb4 for b in row) and not any(b.get("callback_data") == "ans:beta:3" for row in kb4 for b in row) and len(kb4) == 3 and kb4[-1][0]["text"].startswith("Apri ") and kb4[-1][0]["text"].endswith(" beta") and kb4[-1][0]["callback_data"] == "card:beta", str(kb4))
-    T.check("A4c the first three lines suffice (Wear OS shows only those large): ❓ name / the question cut / the options in short «1 rosso · 2 …»", len(t[0].splitlines()) >= 3 and "colore" in t[0].splitlines()[1] and t[0].splitlines()[2].startswith("1 rosso · 2 ") and len(t[0].splitlines()[2]) <= 22, t[0])
+    T.check("A4c ❓ name / the question WHOLE / the options one per line", len(t[0].splitlines()) >= 3 and t[0].splitlines()[1] == "colore preferito?" and t[0].splitlines()[2] == "1 rosso", t[0])
     bs = json.loads((tmp / "state" / "bot-state.json").read_text()) if (tmp / "state" / "bot-state.json").is_file() else {}
     T.check("A4b bot state: both chats in the card of beta with the notice's message id", bs.get("chats", {}).get("1001", {}).get("session") == "beta" and bs["chats"]["1001"].get("level") == "card" and bs["chats"]["1001"].get("qmsg") == 1 and bs.get("chats", {}).get("1002", {}).get("session") == "beta", str(bs))
     led = (tmp / "state" / "ledger.jsonl")
     T.check("A4 ledger row ask-notified", led.is_file() and '"ask-notified"' in led.read_text() and '"beta"' in led.read_text(), led.read_text() if led.is_file() else "-")
     scr = subprocess.run(["tmux", "-L", tm.socket, "capture-pane", "-p", "-t", "beta"], capture_output=True, text=True).stdout
     T.check("A4 no key sent: the question is still open", "Enter to select" in scr and "❯ 1. rosso" in scr, scr)
+# A7 (Franz 12/09 10:54: la domanda della master arrivava tagliata, non si poteva rispondere): la domanda va mostrata
+# COMPLETA e di senso compiuto — l'ultima frase interrogativa se sta in synth_max_chars, altrimenti sintesi col
+# modello (synth_model, `claude -p`), altrimenti il testo a capo. Il parser dello schermo unisce le righe della domanda.
+import importlib.util as _ilu
+os.environ.update({"CLAUDE_MASTER_CONFIG": str(cfg), "HOME": str(home)})
+_spec = _ilu.spec_from_file_location("cm_answer", T.SCRIPTS / "cm-answer.py"); ans = _ilu.module_from_spec(_spec); _spec.loader.exec_module(ans)
+scr7 = " ☐ Trasporto\n\n│ Il PC (Crostini) non accetta connessioni in entrata. Da dove possono passare\n│ stato e comandi fra PC e orologio?\n\n❯ 1. Firebase RTDB + FCM (Recommended)\n     Zero infrastruttura, sveglia push vera.\n  2. Relay sul tuo hosting + FCM\n  3. Type something.\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n"
+d7 = ans.parse(scr7)
+T.check("A7 parse joins the question lines (box chars stripped), header and options intact", d7 and d7[0] == "Trasporto" and d7[1] == "Il PC (Crostini) non accetta connessioni in entrata. Da dove possono passare stato e comandi fra PC e orologio?" and [o[1] for o in d7[2]] == ["Firebase RTDB + FCM (Recommended)", "Relay sul tuo hosting + FCM", "Type something."], str(d7))
+long_q = "Il PC (Crostini) non accetta connessioni in entrata. Da dove possono passare stato e comandi fra PC e orologio?"
+CALLS["sendMessage"].clear()
+r = notify(None, {"session_id": "sid-g", "cwd": str(home / "gamma"), "tool_name": "AskUserQuestion",
+                  "tool_input": {"questions": [{"question": long_q, "header": "Trasporto",
+                                                "options": [{"label": "Firebase RTDB + FCM (Recommended)"}, {"label": "Relay sul tuo hosting + FCM"}, {"label": "Telefono come ponte"}, {"label": "Tailscale diretto"}]}]}})
+t7 = texts()[0].splitlines() if texts() else []
+T.check("A7 the notice shows the interrogative sentence WHOLE over several lines (no «…»), the context sentence dropped", r.returncode == 0 and t7 and " ".join(t7[1:5]) == "Da dove possono passare stato e comandi fra PC e orologio?" and not any("…" in l for l in t7[1:5]) and "Crostini" not in texts()[0], texts()[0] if texts() else r.stderr)
+T.check("A7 options after it, one per line, «(Recommended)» dropped from the labels (no tmux here → no option buttons, as A5)", any(l == "1 Firebase RTDB + FCM" for l in t7) and t7[-1] == "4 Tailscale diretto", texts()[0])
+fake_syn = tmp / "fake-synth.sh"; syn_log = tmp / "synth-args.log"
+fake_syn.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "' + str(syn_log) + '"\necho "Dove passano stato e comandi fra PC e orologio?"\n'); fake_syn.chmod(0o755)
+very_long = "Considerando che il PC in Crostini non accetta connessioni in entrata e che l'orologio Wear OS non ha un client Tailscale, quale canale preferisci per far passare stato e comandi fra il PC e l'orologio tenendo conto dei costi e della manutenzione"
+CALLS["sendMessage"].clear()
+r = notify(None, {"session_id": "sid-g", "cwd": str(home / "gamma"), "tool_name": "AskUserQuestion",
+                  "tool_input": {"questions": [{"question": very_long, "header": "Trasporto", "options": [{"label": "A"}, {"label": "B"}]}]}}, CM_CLAUDE_BIN=str(fake_syn))
+t7b = texts()[0].splitlines() if texts() else []
+T.check("A7 a question too long for 88 chars and without a short interrogative sentence → synthesized by the model (claude -p, haiku, once), shown whole", r.returncode == 0 and syn_log.is_file() and syn_log.read_text().count("-p") == 1 and "--model haiku" in syn_log.read_text() and " ".join(t7b[1:4]) == "Dove passano stato e comandi fra PC e orologio?", texts()[0] + (syn_log.read_text() if syn_log.is_file() else "no call"))
+cfg7 = json.loads(cfg.read_text()); cfg7["hooks"]["ask_notify"]["synth_model"] = ""; cfg.write_text(json.dumps(cfg7))
+CALLS["sendMessage"].clear()
+r = notify(None, {"session_id": "sid-g", "cwd": str(home / "gamma"), "tool_name": "AskUserQuestion",
+                  "tool_input": {"questions": [{"question": very_long, "header": "Trasporto", "options": [{"label": "A"}, {"label": "B"}]}]}}, CM_CLAUDE_BIN=str(fake_syn))
+t7c = texts()[0].splitlines() if texts() else []
+T.check("A7 without a model (synth_model empty): the question wrapped over 4 lines, cut with «…», no model call", r.returncode == 0 and syn_log.read_text().count("-p") == 1 and t7c[1].startswith("Considerando che il") and t7c[4].endswith("…") and t7c[5] == "1 A", texts()[0])
+cfg7["hooks"]["ask_notify"].pop("synth_model", None); cfg.write_text(json.dumps(cfg7))
 # A5: senza tmux → dal payload
 CALLS["sendMessage"].clear()
 r = notify(None, {"session_id": "sid-x", "cwd": str(home / "ws" / "gamma"), "tool_name": "AskUserQuestion",

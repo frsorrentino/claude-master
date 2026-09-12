@@ -404,6 +404,7 @@
   "answer.notify_question": "❓ “{name}” asks — {hq}",
   "answer.notify_tool": "⏸ “{name}” waits for a permission: {tool} {detail}",
   "answer.notify_more": "(+{n} more questions after this one)",
+  "answer.synth_prompt": "Rewrite this question as ONE complete, self-contained interrogative sentence of at most {n} characters, keeping what it is about; answer with the sentence only: {question}",
   "answer.notify_hint": "reply “{n} to {name}” to the master  ·  claude-master answer {name} N",
   "answer.notify_sent": "notice sent to {n} chat(s) for “{name}”",
   "doctor.plugin_ok": "account “{account}”: plugin claude-master {version} in the cache{note}",

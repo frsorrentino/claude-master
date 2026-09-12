@@ -404,6 +404,7 @@
   "answer.notify_question": "❓ «{name}» chiede — {hq}",
   "answer.notify_tool": "⏸ «{name}» aspetta un permesso: {tool} {detail}",
   "answer.notify_more": "(+{n} altre domande dopo questa)",
+  "answer.synth_prompt": "Riscrivi questa domanda in italiano come UNA frase interrogativa completa e di senso compiuto, al massimo {n} caratteri, senza perdere di cosa si tratta; rispondi solo con la frase: {question}",
   "answer.notify_hint": "rispondi «{n} a {name}» alla master  ·  claude-master answer {name} N",
   "answer.notify_sent": "avviso mandato a {n} chat per «{name}»",
   "doctor.plugin_ok": "account «{account}»: plugin claude-master {version} nella cache{note}",

@@ -223,7 +223,8 @@ def card_lines(row, esito="", next_step="", question="", options=(), prefixes=()
     lines = [head, fit(stato, width)]
     tail = []
     if question:
-        tail = [fit(question.splitlines()[0], width)] + [fit(f"{i + 1} {o}", width) for i, o in enumerate(options)]
+        # la domanda COMPLETA (il suo succo) su ≤ 3 righe, poi le opzioni
+        tail = wrap(question_gist(question) or question, width, 3) + [fit(f"{i + 1} {o}", width) for i, o in enumerate(options)]
     budget = max(0, max_lines - len(lines) - len(tail))
     # con una scheda lunga (bot.card_lines, Franz 20:13: «il triplo») esito e prossimo respirano:
     # fino a 6 e 4 righe invece di 2 e 2
@@ -414,6 +415,20 @@ def live_lines(label, since, tool="", note="", width=WIDTH, max_lines=4):
     if note:
         lines += wrap(strip_markdown(note), width, max_lines - len(lines))
     return lines[:max_lines]
+
+
+def question_gist(text, max_chars=88):
+    """La domanda in breve, deterministica (Franz 12/09 10:54: tagliata non si puo' rispondere): tutta se sta in
+    max_chars; altrimenti l'ULTIMA frase interrogativa che ci sta (il contesto prima si lascia); altrimenti ""
+    (serve una sintesi: la fa cm-answer col modello)."""
+    t = " ".join(str(text or "").split())
+    if len(t) <= max_chars:
+        return t
+    for s in reversed(re.findall(r"[^.!?]*\?", t)):
+        s = s.strip()
+        if s and len(s) <= max_chars:
+            return s
+    return ""
 
 
 def voice_split(text, n=120):

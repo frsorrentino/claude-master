@@ -119,8 +119,9 @@ ferma all'invio, o il secondo se era occupata (il primo è il turno precedente).
 finito:» a fine di un turno > `bot.follow_min_turn_s`, «✗ nome» se sparisce, «✗ nome errore» su StopFailure).
 Silenzioso tranne domande, esiti, risposte, errori e sparizioni; digest delle 8:00 («cosa aspetta te», un tasto
 Apri per ogni ❓). `terminale NOME`/`schermo NOME`/`v NOME`: le ultime 30 righe del riquadro in un blocco `<pre>`.
-L'avviso di una domanda si decide nelle prime tre righe (Wear OS mostra grandi solo quelle): «❓ icona nome», la
-domanda, le opzioni in breve; al massimo tre bottoni (oltre tre opzioni: le prime due + Apri). La riga «Esito:» di
+L'avviso di una domanda: «❓ icona nome», poi la domanda COMPLETA e di senso compiuto (il testo se sta in 88
+caratteri, altrimenti l'ultima frase interrogativa, altrimenti una sintesi col modello `hooks.ask_notify.synth_model`),
+poi le opzioni una per riga; al massimo tre bottoni (oltre tre opzioni: le prime due + Apri). La riga «Esito:» di
 esiti e risposte è una frase sola ≤ 120 caratteri, per la lettura vocale. `/sessions full` dà la tabella intera. Dopo un riavvio della macchina serve il login a mano.
 
 ## Rispondere alla domanda di un'altra sessione
