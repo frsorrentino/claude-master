@@ -290,7 +290,15 @@ def notify():
     if name:
         lines.append(ui.line(M("answer.notify_hint", n=2 if len(labels) >= 2 else 1, name=name)))
     text = "\n".join(lines)
-    markup = ui.keyboard_notice(name, labels, f"{icon_of(name)} {ui.short_name(name)}".strip(), full_question=q_cut) if name else ui.keyboard_back()
+    link, mode = "", "app"
+    if name:
+        try:
+            row = next((r for r in sessions.collect(read_screen=False) if r.get("tmux") == name or r.get("name") == name), None)
+            if row:
+                link, mode = row.get("link") or "", bot.link_mode_of(row.get("account"))
+        except Exception:   # il link e' un extra: mai bloccare l'avviso
+            pass
+    markup = ui.keyboard_notice(name, labels, f"{icon_of(name)} {ui.short_name(name)}".strip(), full_question=q_cut, link=link, link_mode=mode) if name else ui.keyboard_back()
     mids = {}
     for c in chats:
         mids[c] = bot.reply(c, text, reply_markup=markup)   # notifica NORMALE: una domanda aspetta Franz

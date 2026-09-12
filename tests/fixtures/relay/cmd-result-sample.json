@@ -1,0 +1,20 @@
+{
+  "cmd": [
+    {"id": "6f1c2d3e-0001-4000-8000-000000000001", "op": "answer", "session": "ledger-api", "arg": "1", "issued": 1789210880, "by": "watch-pixel5"},
+    {"id": "6f1c2d3e-0002-4000-8000-000000000002", "op": "prompt", "session": "atlas-shop", "arg": "rivedi i seed di prova", "issued": 1789210890, "by": "watch-pixel5"},
+    {"id": "6f1c2d3e-0003-4000-8000-000000000003", "op": "launch", "session": null, "arg": "/home/franz/Desktop/workspaces/pixelfarm/nostri/orbit-docs", "issued": 1789210900, "by": "watch-pixel5"},
+    {"id": "6f1c2d3e-0004-4000-8000-000000000004", "op": "screen", "session": "atlas-shop", "arg": null, "issued": 1789210910, "by": "watch-pixel5"},
+    {"id": "6f1c2d3e-0005-4000-8000-000000000005", "op": "follow", "session": "atlas-shop", "arg": null, "issued": 1789210920, "by": "watch-pixel5"},
+    {"id": "6f1c2d3e-0006-4000-8000-000000000006", "op": "resume", "session": "orbit-docs", "arg": null, "issued": 1789210930, "by": "watch-pixel5"},
+    {"id": "6f1c2d3e-0007-4000-8000-000000000007", "op": "allow_all", "session": "ledger-api", "arg": null, "issued": 1789210940, "by": "watch-pixel5"}
+  ],
+  "result": [
+    {"id": "6f1c2d3e-0001-4000-8000-000000000001", "ok": true, "text": "answered 1. yes", "at": 1789210882},
+    {"id": "6f1c2d3e-0002-4000-8000-000000000002", "ok": true, "text": "delivered", "at": 1789210891},
+    {"id": "6f1c2d3e-0003-4000-8000-000000000003", "ok": true, "text": "launched orbit-docs (agenzia)", "at": 1789210915},
+    {"id": "6f1c2d3e-0004-4000-8000-000000000004", "ok": true, "text": "$ pytest -q tests\n42 passed in 3.1s\nEdit app/admin.py\nRead app/seed.py\n… (30 righe)", "at": 1789210911},
+    {"id": "6f1c2d3e-0005-4000-8000-000000000005", "ok": true, "text": "following atlas-shop", "at": 1789210921},
+    {"id": "6f1c2d3e-0006-4000-8000-000000000006", "ok": false, "text": "orbit-docs is gone: use launch", "at": 1789210931},
+    {"id": "6f1c2d3e-0007-4000-8000-000000000007", "ok": false, "text": "no «don't ask again» option on this question", "at": 1789210941}
+  ]
+}

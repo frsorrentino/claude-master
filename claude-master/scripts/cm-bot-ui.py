@@ -295,7 +295,7 @@ def keyboard_list(labels, master_alive=True):
     return {"inline_keyboard": rows}
 
 
-def keyboard_card(options, following=False, state="idle", has_checkpoint=False, full_question=False):
+def keyboard_card(options, following=False, state="idle", has_checkpoint=False, full_question=False, link="", link_mode="app"):
     """Scheda: le opzioni della domanda, Avvisami/Basta avvisi, Continua (solo su ✓ ferma e ✗ sparita: a una
     che lavora o che chiede non si dice «continua»), Annulla modifiche (solo se c'e' un checkpoint), Sessioni."""
     rows = [_row(f"{i + 1} {o}", f"opt:{i + 1}") for i, o in enumerate(options)]
@@ -306,6 +306,9 @@ def keyboard_card(options, following=False, state="idle", has_checkpoint=False, 
         rows.append(_row("Continua", "resume"))
     if has_checkpoint:
         rows.append(_row("Annulla modifiche", "rollback"))
+    lb = link_button(link, link_mode)
+    if lb and state != "dead":
+        rows.append(lb)
     rows.append(_row("Sessioni", "list"))
     return {"inline_keyboard": rows}
 
@@ -324,7 +327,26 @@ def keyboard_retry(name, label=""):
     return {"inline_keyboard": [_row("Invia di nuovo", f"retry:{name}"), _row("Sessioni", "list")]}
 
 
-def keyboard_notice(name, options, label="", full_question=False):
+def intent_url(link):
+    """Il link come intent Android per Chrome (Franz via master 12/09: l'app Claude tiene un solo login,
+    l'altro account vive in Chrome): intent://host/path#Intent;scheme=https;package=com.android.chrome;end"""
+    l = str(link or "")
+    m = re.match(r"^https?://(.+)$", l)
+    return f"intent://{m.group(1)}#Intent;scheme=https;package=com.android.chrome;end" if m else l
+
+
+def link_button(link, mode="app"):
+    """La riga-bottone che apre la sessione nel posto giusto per il suo account: «Apri sessione» (URL https,
+    l'app Claude lo prende) o «Apri in Chrome» (intent Chrome; se Telegram lo rifiuta, reply() ripiega sul
+    link nel testo). None senza link."""
+    if not link:
+        return None
+    if mode == "browser":
+        return [{"text": "Apri in Chrome", "url": intent_url(link)}]
+    return [{"text": "Apri sessione", "url": str(link)}]
+
+
+def keyboard_notice(name, options, label="", full_question=False, link="", link_mode="app"):
     """L'avviso di una domanda (dall'hook): al massimo TRE bottoni (via master 12/09: Wear OS ne mostra pochi):
     le opzioni se sono ≤ 3, altrimenti le prime due; «Domanda intera» (q:) solo se la sintesi ha tagliato
     qualcosa (via master 12/09 11:38); poi «Apri <icona> nome» (la scheda ha tutte le opzioni)."""
@@ -332,7 +354,11 @@ def keyboard_notice(name, options, label="", full_question=False):
     rows = [_row(f"{i + 1} {o}", f"ans:{name}:{i + 1}") for i, o in enumerate(shown)]
     if full_question:
         rows.append(_row("Domanda intera", f"q:{name}"))
-    return {"inline_keyboard": rows + [_row(f"Apri {label or name}", f"card:{name}")]}
+    rows.append(_row(f"Apri {label or name}", f"card:{name}"))
+    lb = link_button(link, link_mode)
+    if lb:
+        rows.append(lb)
+    return {"inline_keyboard": rows}
 
 
 def keyboard_outcome(name, label="", cut=False):

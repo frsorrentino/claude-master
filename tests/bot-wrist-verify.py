@@ -102,11 +102,13 @@ cfg.write_text(json.dumps({
     "workspace": {"root": str(ws), "excluded_dirs": [".git"], "project_dirs": ["personali"]},
     "accounts": {"personale": {"config_dir": str(home / ".claude")}, "professionale": {"config_dir": str(home / ".claude-pixel"), "tmux_prefix": "pix-"}},
     "bot": {"enabled": True, "api_base": API, "token_file": str(tg / ".env"), "access_file": str(tg / "access.json"), "pid_file": str(tg / "bot.pid"), "cron_minutes": 1,
-            "live_edit_s": 100, "receive_timeout_s": 15, "answer_timeout_s": 1000},
+            "live_edit_s": 100, "receive_timeout_s": 15, "answer_timeout_s": 1000, "links": {"personale": "app", "agenzia": "browser"}},
+    "relay": {"dir": str(tmp / "relay")},
 }))
+(tmp / "relay").mkdir()
 
 
-def rows_alive(*names, status=None):
+def rows_alive(*names, status=None, account=None):
     base = {"master": {"pid": 7, "name": "master", "tmux": "master", "cwd": str(ws), "status": "busy", "waiting": False, "link": "https://claude.ai/code/session_01M", "account": "personale", "session_id": "S-M"},
             "api": {"pid": 8, "name": "api", "tmux": "api", "cwd": str(repo), "status": "waiting", "waiting": True, "link": "https://claude.ai/code/session_01R", "account": "personale", "session_id": "S-REP"},
             "alfa": {"pid": 9, "name": "alfa", "tmux": "alfa", "cwd": str(ws / "personali" / "alfa"), "status": "idle", "waiting": False, "link": "https://claude.ai/code/session_01A", "account": "personale", "session_id": "S-ALFA"},
@@ -115,6 +117,8 @@ def rows_alive(*names, status=None):
     for r in rows:
         if status and r["tmux"] in status:
             r["status"] = status[r["tmux"]]; r["waiting"] = status[r["tmux"]] == "waiting"
+        if account and r["tmux"] in account:
+            r["account"] = account[r["tmux"]]
     alive.write_text(json.dumps(rows))
 
 
@@ -210,7 +214,7 @@ r, sent = say("2")
 m = sent[-1] if sent else {}
 lines = m.get("text", "").splitlines()
 T.check("W2 «2» → card of master (second row): «▶ 🔴 master · lavora» in one line (state icon first), «→ nessun recap», no «…»", lines and lines[0].startswith("▶ ") and lines[0].endswith(" master · lavora") and icon_in(lines[0]) and "pers" not in lines[0] and "…" not in m["text"] and "→ nessun recap" in lines and len(lines) <= 20 and all(len(l) <= 22 for l in lines), str(lines))
-T.check("W2 card keyboard of a ▶ session: Avvisami / Sessioni (no Continua while it works, no Annulla modifiche without a checkpoint), one per row; state = card master", [row[0]["text"] for row in kb(m)] == ["Avvisami", "Sessioni"] and all(len(row) == 1 for row in kb(m)) and st()["chats"]["1001"]["level"] == "card" and st()["chats"]["1001"]["session"] == "master", str(kb(m)) + str(st()))
+T.check("W2 card keyboard of a ▶ session: Avvisami / Apri sessione (link) / Sessioni (no Continua while it works, no Annulla modifiche without a checkpoint), one per row; state = card master", [row[0]["text"] for row in kb(m)] == ["Avvisami", "Apri sessione", "Sessioni"] and all(len(row) == 1 for row in kb(m)) and st()["chats"]["1001"]["level"] == "card" and st()["chats"]["1001"]["session"] == "master", str(kb(m)) + str(st()))
 r, sent = say("1")
 m = sent[-1] if sent else {}
 lines = m.get("text", "").splitlines()
@@ -227,7 +231,7 @@ T.check("W3 a git checkpoint of the workspace taken before answering (stash crea
 r, sent = say("annulla")
 T.check("W3 «annulla» restores the tracked files to the checkpoint: «modifiche annullate», «◀ api» + Sessioni under it", r.returncode == 0 and (repo / "file.txt").read_text() == "v2 lavoro in corso\n" and "annullate" in sent[-1]["text"] and kb(sent[-1])[0][0]["text"].endswith(" api") and kb(sent[-1])[0][0]["callback_data"] == "card:api" and has_fixed(sent[-1]), r.stdout + r.stderr + str(sent) + (repo / "file.txt").read_text())
 r, sent = tap("card:api")
-T.check("W3 api's card now offers «Annulla modifiche» (a checkpoint exists) and «Basta avvisi» (followed since the answer), no Continua (❓)", [row[0]["text"] for row in kb(sent[-1])[-3:]] == ["Basta avvisi", "Annulla modifiche", "Sessioni"] and "Continua" not in [row[0]["text"] for row in kb(sent[-1])], str(kb(sent[-1])))
+T.check("W3 api's card now offers «Annulla modifiche» (a checkpoint exists) and «Basta avvisi» (followed since the answer), no Continua (❓)", [row[0]["text"] for row in kb(sent[-1])[-4:]] == ["Basta avvisi", "Annulla modifiche", "Apri sessione", "Sessioni"] and "Continua" not in [row[0]["text"] for row in kb(sent[-1])], str(kb(sent[-1])))
 # W4
 r, sent = say("f")
 T.check("W4 «f» on a session already followed (since the answer) → «basta avvisi», silent, «◀ api» under it", "api" not in st()["chats"]["1001"]["follow"] and sent and "basta avvisi" in sent[-1]["text"] and sent[-1].get("disable_notification") == "true" and kb(sent[-1])[0][0]["callback_data"] == "card:api", str(st()) + str(sent))
@@ -418,7 +422,7 @@ T.check("W11 an expired card whose session is awaiting is still the card: the te
 patch_chat(awaiting={}, live={})
 # Continua solo su ✓ ferma
 r, sent = say("alfa")
-T.check("W11 card of a ✓ session: Avvisami / Continua / Sessioni", [row[0]["text"] for row in kb(sent[-1])] == ["Avvisami", "Continua", "Sessioni"], str(kb(sent[-1])))
+T.check("W11 card of a ✓ session: Avvisami / Continua / Apri sessione (link) / Sessioni", [row[0]["text"] for row in kb(sent[-1])] == ["Avvisami", "Continua", "Apri sessione", "Sessioni"], str(kb(sent[-1])))
 r, sent = say("continua")
 T.check("W11 «continua» → talk alfa with the resume prompt, «📤 … alfa» + «continua → …», live keyboard, alfa awaiting", any(c.startswith("talk alfa Da Franz via Telegram (watch)") and "--no-wait" in c for c in cm_calls()[-3:]) and sent and sent[-1]["text"].startswith("📤 ") and "continua" in sent[-1]["text"] and [row[0]["text"] for row in kb(sent[-1])] == ["Ferma", "Terminale", "Sessioni"] and "alfa" in st()["chats"]["1001"]["awaiting"], str(sent) + str(cm_calls()[-3:]))
 patch_chat(awaiting={}, live={}, follow=[])
@@ -434,6 +438,45 @@ T.check("W12 tap «Domanda intera» from the card (q: without a name → the car
 patch_chat(qfull={})
 r, sent = tap("card:api")
 T.check("W12 without a whole question on file: no «Domanda intera»", not any(b["text"] == "Domanda intera" for row in kb(sent[-1]) for b in row), str(kb(sent[-1])))
+# W15 (Franz via master 12/09 15:26): con l'orologio accoppiato e il relay fresco, gli avvisi Telegram non suonano
+(tmp / "relay" / "devices.json").write_text(json.dumps({"u1": {"name": "watch-pixel5"}}))
+(tmp / "relay" / "last-state.json").write_text(json.dumps({"pushed_at": time.time(), "state": {}}))
+patch_chat(follow=["master"], awaiting={}, live={}, seen={"master": now + 900})
+with open(ledger, "a") as f:
+    f.write(json.dumps({"ts": ts(now + 1000), "event": "start", "session_id": "S-M", "cwd": str(ws), "account": "personale", "pid": 7}) + "\n")
+    f.write(json.dumps({"ts": ts(now + 1050), "event": "stop", "session_id": "S-M", "cwd": str(ws), "account": "personale", "pid": 7, "last": "x", "tail": "Esito: esito con orologio accoppiato", "esito": "Esito: esito con orologio accoppiato"}) + "\n")
+CALLS["sendMessage"].clear(); QUEUE[:] = []; r = bot("poll")
+o15 = [m for m in CALLS["sendMessage"] if m["text"].startswith("✓ ") and "master" in m["text"].splitlines()[0]]
+T.check("W15 watch paired + push < 3 min → the followed outcome is SILENT on Telegram (the app notifies)", o15 and o15[0].get("disable_notification") == "true", str(o15))
+(tmp / "relay" / "last-state.json").write_text(json.dumps({"pushed_at": time.time() - 600, "state": {}}))
+with open(ledger, "a") as f:
+    f.write(json.dumps({"ts": ts(now + 1100), "event": "start", "session_id": "S-M", "cwd": str(ws), "account": "personale", "pid": 7}) + "\n")
+    f.write(json.dumps({"ts": ts(now + 1150), "event": "stop", "session_id": "S-M", "cwd": str(ws), "account": "personale", "pid": 7, "last": "x", "tail": "Esito: relay fermo da dieci minuti", "esito": "Esito: relay fermo da dieci minuti"}) + "\n")
+CALLS["sendMessage"].clear(); r = bot("poll")
+o15b = [m for m in CALLS["sendMessage"] if m["text"].startswith("✓ ") and "master" in m["text"].splitlines()[0]]
+T.check("W15 last push older than 3 min → loud again", o15b and o15b[0].get("disable_notification") != "true", str(o15b))
+(tmp / "relay" / "last-state.json").write_text(json.dumps({"pushed_at": time.time(), "state": {}})); (tmp / "relay" / "devices.json").write_text("{}")
+with open(ledger, "a") as f:
+    f.write(json.dumps({"ts": ts(now + 1200), "event": "start", "session_id": "S-M", "cwd": str(ws), "account": "personale", "pid": 7}) + "\n")
+    f.write(json.dumps({"ts": ts(now + 1250), "event": "stop", "session_id": "S-M", "cwd": str(ws), "account": "personale", "pid": 7, "last": "x", "tail": "Esito: nessun orologio", "esito": "Esito: nessun orologio"}) + "\n")
+CALLS["sendMessage"].clear(); r = bot("poll")
+o15c = [m for m in CALLS["sendMessage"] if m["text"].startswith("✓ ") and "master" in m["text"].splitlines()[0]]
+T.check("W15 no paired device → loud", o15c and o15c[0].get("disable_notification") != "true", str(o15c))
+(tmp / "relay" / "devices.json").write_text(json.dumps({"u1": {"name": "watch-pixel5"}}))
+r, sent = say("recap")
+T.check("W15 the recap, asked on purpose, stays LOUD even with the watch paired", sent and sent[-1]["text"].startswith("Recap") and sent[-1].get("disable_notification") != "true", str(sent)[-300:])
+(tmp / "relay" / "devices.json").write_text("{}")
+patch_chat(follow=[], awaiting={}, live={})
+# W14 (Franz via master 12/09 12:23): il link della sessione si apre nel posto giusto per il suo account
+r, sent = tap("card:master")
+T.check("W14 card of a session of the «app» account: a URL button «Apri sessione» with the claude.ai link, before Sessioni", any(b.get("text") == "Apri sessione" and b.get("url") == "https://claude.ai/code/session_01M" for row in kb(sent[-1]) for b in row) and kb(sent[-1])[-1][0]["text"] == "Sessioni", str(kb(sent[-1])))
+rows_alive("master", "api", "alfa", account={"api": "agenzia"})
+CALLS["sendMessage"].clear(); CALLS.pop("rejected", None)
+r, sent = tap("card:api")
+T.check("W14 card of a session of a «browser» account: the intent:// Chrome button is tried, Telegram rejects it, the card is resent with the link as «Apri in Chrome» in the text (HTML) and the other buttons kept", CALLS.get("rejected") and "intent://claude.ai/code/session_01R#Intent;scheme=https;package=com.android.chrome;end" in CALLS["rejected"][0]["reply_markup"] and sent and sent[-1].get("parse_mode") == "HTML" and '<a href="https://claude.ai/code/session_01R">Apri in Chrome</a>' in sent[-1]["text"] and "intent://" not in (sent[-1].get("reply_markup") or "") and kb(sent[-1])[-1][0]["text"] == "Sessioni" and sent[-1]["text"].startswith("❓ "), str(CALLS.get("rejected"))[:200] + str(sent))
+rows_alive("master", "api", "alfa")
+r, sent = tap("demo:1")
+T.check("W12 a «demo:» tap (visual trials) is answered to Telegram but gets no message", r.returncode == 0 and not sent, str(sent))
 say("elenco")
 # W6
 say("1")

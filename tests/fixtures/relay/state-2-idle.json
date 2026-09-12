@@ -1,0 +1,32 @@
+{
+  "v": 1,
+  "ts": 1789214400,
+  "host": "crostini-franz",
+  "sessions": [
+    {
+      "id": "f61903c0-ea6a-409c-a961-d01126a0f3ad",
+      "name": "atlas-shop",
+      "account": "personale",
+      "project": "personali/atlas-shop",
+      "state": "idle",
+      "since": 1789214000,
+      "turn_started": null,
+      "tool": null,
+      "link": "https://claude.ai/code/session_018CKZ1Pum1Qs7DX5hbRLQ6X",
+      "attached": false,
+      "followed": false,
+      "question": null,
+      "outcome": {"short": "Seed e pagina admin rivisti", "full": "Esito: seed e pagina admin rivisti, 42 test verdi.", "at": 1789213900},
+      "next": "Deploy di prova su staging"
+    }
+  ],
+  "quota": {
+    "personale": {"h5": 24, "w7": 38, "reset_w7": 1789610400, "stale": false},
+    "agenzia": {"h5": 3, "w7": 75, "reset_w7": 1789444800, "stale": false}
+  },
+  "projects": [
+    {"path": "/home/franz/Desktop/workspaces/personali/atlas-shop", "name": "atlas-shop", "account": "personale"}
+  ],
+  "night": {"queued": 0, "running": null},
+  "recap": {"date": "2026-09-12", "items": []}
+}

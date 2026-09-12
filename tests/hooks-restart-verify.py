@@ -78,7 +78,7 @@ T.check("H1 local time line with Italian weekday", r.stdout.startswith("[ora loc
 T.check("H1 waiting flag cleared", not (state / "waiting" / "sid1").exists(), "")
 # H2
 r = hook("PermissionRequest", {"session_id": "sid2", "cwd": str(home), "tool_name": "AskUserQuestion"})
-T.check("H2 PermissionRequest writes waiting/<sid> with the tool", (state / "waiting" / "sid2").read_text() == "AskUserQuestion", r.stderr)
+T.check("H2 PermissionRequest writes waiting/<sid> as JSON with the tool (0.4.0: + a reduced input for the watch)", json.loads((state / "waiting" / "sid2").read_text())["tool"] == "AskUserQuestion", r.stderr + (state / "waiting" / "sid2").read_text())
 # H2b
 t0 = time.time()
 r = hook("PermissionRequest", {"session_id": "sid2b", "cwd": str(home / "ws" / "personali" / "alfa"), "tool_name": "AskUserQuestion",
@@ -86,11 +86,12 @@ r = hook("PermissionRequest", {"session_id": "sid2b", "cwd": str(home / "ws" / "
 T.check("H2b hook returns at once (< 1.5 s), exit 0", r.returncode == 0 and time.time() - t0 < 1.5, f"{time.time() - t0:.1f}s " + r.stderr)
 found = lambda: [c["text"] for c in TG_CALLS["sendMessage"] if "procedo?" in c["text"]]  # noqa: E731  (anche H2 manda un avviso: si cerca questo)
 T.check("H2b Telegram message from a detached process: name, question, options", T.wait_until(found, 8) and "alfa" in found()[0] and "2 no" in found()[0], str(TG_CALLS["sendMessage"]))
-# H2c
+# H2c — prima si aspetta che anche l'avviso staccato di H2 (senza opzioni) sia arrivato: sotto carico tarda
+T.wait_until(lambda: any("AskUserQuestion" in c["text"] for c in TG_CALLS["sendMessage"]), 8)
 TG_CALLS["sendMessage"].clear()
 c = json.loads(cfg.read_text()); c["hooks"]["ask_notify"]["enabled"] = False; cfg.write_text(json.dumps(c))
 r = hook("PermissionRequest", {"session_id": "sid2c", "cwd": str(home), "tool_name": "AskUserQuestion", "tool_input": {"questions": [{"question": "x?", "options": [{"label": "a"}]}]}})
-time.sleep(1.5)
+time.sleep(3)
 T.check("H2c ask_notify disabled: no message", r.returncode == 0 and not TG_CALLS["sendMessage"], str(TG_CALLS["sendMessage"]))
 c["hooks"]["ask_notify"]["enabled"] = True; cfg.write_text(json.dumps(c))
 r = hook("SessionStart", {"session_id": "sid2", "cwd": str(home), "source": "startup"})

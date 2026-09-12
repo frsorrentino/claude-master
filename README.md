@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.3.10-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.4.0-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 ![One master session runs all the others: the root session launches, watches, answers and closes the parallel sessions of every project, from the terminal and from a watch — the bot's list shown on a round Wear OS watch and on a rectangular iOS watch.](assets/readme/card0-hero.png)
 
@@ -144,6 +144,24 @@ and vanished sessions.
 
 Wear OS tested; watchOS via Telegram notifications and dictation, not yet
 verified.
+
+### Relay for the Wear OS app
+
+`claude-master relay` puts the PC on the bus of the native watch app
+(`personali/claude-master-watch`, design in `docs/plans/2026-09-12-app-polso-design.md`):
+`relay push` publishes an encrypted `/state` (the v1 contract in
+`tests/fixtures/relay/`) to Firebase RTDB, appends `/events` and wakes the watch
+with FCM; `relay serve` listens on `/cmd` and runs the allow-listed commands
+(answer, prompt, launch, follow, resume, screen, allow_all) through the CLI,
+writing `/result`; `relay pair` shows a six-digit code and agrees the AES key
+with the watch over X25519. Setup: a Firebase project with RTDB and FCM, its
+service account JSON in `~/.claude-master/relay/service-account.json` (0600,
+never in the repo), `relay.enabled`, `relay.firebase_url` and `relay.fcm_topic`
+in the config, then `relay pair`, `relay install`. RTDB rules: `/state`,
+`/events` and `/result` readable only by a uid present in `/allowed`, `/cmd`
+writable only by those, `/pair/<code>/watch` writable by an anonymous user; the
+PC writes with the service account. `relay push --dry-run` prints the clear
+state without touching the network.
 
 ### Guard, diary, digest, night
 

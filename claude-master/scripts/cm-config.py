@@ -127,7 +127,8 @@ DEFAULTS = {
             "pid_file": "~/.claude/channels/telegram/bot.pid",
             "api_base": "https://api.telegram.org", "offset_file": "", "state_file": "", "log": "",
             "cron_minutes": 1, "http_timeout_s": 20, "command_timeout_s": 120, "max_candidates": 8,
-            "first_run_max_age_s": 180, "serve_timeout_s": 50, "follow_min_turn_s": 30, "card_lines": 20,
+            "first_run_max_age_s": 180, "serve_timeout_s": 50, "follow_min_turn_s": 30, "card_lines": 20, "links": {},
+            "quiet_when_watch": True, "watch_fresh_s": 180,
             "live_edit_s": 3, "receive_timeout_s": 15, "answer_timeout_s": 1800},
     # recap serale dal ledger (N7): ora del cron, citazioni, riassunto col modello, riga del giorno nei progetti
     # last: none | short (solo le ferme su domanda, 60 caratteri) | full; hide_zero_turns: le chiuse
@@ -143,6 +144,12 @@ DEFAULTS = {
     "night": {"cron_time": "02:00", "min_free_mb": 1500, "max_quota_pct": 80, "item_timeout_s": 3600,
               "max_turns": 40, "permission_mode": "acceptEdits", "tool_memory_limit": "2g",
               "out_subdir": "docs/notte", "max_items_per_run": 3, "queue_file": "", "done_file": "", "log": ""},
+    # relay per l'app Wear OS (0.4.0): Firebase RTDB + FCM dietro cm-relay.py; service account e chiave in relay.dir
+    "relay": {"enabled": False, "firebase_url": "", "service_account": "~/.claude-master/relay/service-account.json",
+              "fcm_topic": "watch", "tier_high": ["rm -rf", "git push", "deploy", "DROP", "ssh", "sudo", "--force", "git reset --hard"],
+              "state_max_kb": 8, "events_days": 7, "dir": "~/.claude-master/relay", "heartbeat_s": 60, "debounce_s": 2,
+              "token_url": "https://oauth2.googleapis.com/token", "fcm_url": "https://fcm.googleapis.com", "host": "",
+              "log": "", "command_timeout_s": 120, "pair_ttl_s": 300, "pair_attempts": 5, "serve_timeout_s": 50},
     "hooks": {
         "local_time": {"enabled": True, "format": "%A %Y-%m-%d %H:%M", "prefix": "[local time]"},
         "restart_stop": {"enabled": True},
@@ -252,7 +259,7 @@ def deep_merge(base, over, path="", unknown=None):
         here = f"{path}.{k}" if path else k
         if k not in out:
             if unknown is not None and path not in ("accounts", "shell.wrappers", "shell.aliases", "tile.monitor_names",
-                                                    "profiles", "session.env") and not path.startswith("profiles."):
+                                                    "profiles", "session.env", "bot.links") and not path.startswith("profiles."):
                 unknown.append(here)   # ignota: avvisata e scartata, mai propagata
                 continue
             out[k] = v

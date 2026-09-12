@@ -173,6 +173,34 @@ def pop_queue(p):
     return item
 
 
+def relay_push():
+    """L'orologio (0.4.0): `cm-relay.py push --async` staccato, solo con relay.enabled; torna subito (debounce nel relay)."""
+    if not (CFG.get("relay") or {}).get("enabled"):
+        return
+    try:
+        subprocess.Popen([sys.executable, str(HERE / "cm-relay.py"), "push", "--async"], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        pass
+
+
+def waiting_summary(p):
+    """Cosa si aspetta: il tool e un input ridotto (comando, file, domanda), per il tier e la scheda del polso."""
+    ti = p.get("tool_input") if isinstance(p.get("tool_input"), dict) else {}
+    keep = {}
+    for k in ("command", "file_path", "pattern", "url", "description"):
+        if ti.get(k):
+            keep[k] = str(ti[k])[:300]
+    qs = ti.get("questions")
+    if isinstance(qs, list) and qs and isinstance(qs[0], dict):
+        keep["question"] = str(qs[0].get("question") or "")[:600]
+        keep["header"] = str(qs[0].get("header") or "")[:60]
+        # le etichette delle opzioni: il relay le usa quando lo schermo non e' ancora disegnato (16:15 del 12/09:
+        # la push partiva 3 s dopo l'hook, `answer --show` non trovava il dialogo e il polso riceveva il JSON grezzo)
+        keep["options"] = [str(o.get("label") or "")[:80] for o in (qs[0].get("options") or []) if isinstance(o, dict)][:8]
+    return {"tool": p.get("tool_name", "?"), "input": keep}
+
+
 def main(argv):
     ev = argv[0] if argv else ""
     p = payload()
@@ -187,21 +215,26 @@ def main(argv):
         r = recent_recap(p)
         if r:
             sys.stdout.write(r + "\n")
+        relay_push()
     elif ev == "SessionEnd":
         explicit = p.get("reason", "") in ("prompt_input_exit", "logout")
         registry_update(closed=my_tmux_name() if explicit else "")
         ledger("end", p, reason=p.get("reason", ""))
+        relay_push()
     elif ev == "UserPromptSubmit":
         if sid:
             (STATE / "waiting" / sid).unlink(missing_ok=True)
+        ledger("prompt", p)   # l'inizio del turno (turn_started per il polso)
         if CFG["hooks"]["local_time"]["enabled"]:
             sys.stdout.write(local_time() + "\n")
     elif ev == "PermissionRequest":
         if sid:
             (STATE / "waiting").mkdir(parents=True, exist_ok=True)
-            (STATE / "waiting" / sid).write_text(p.get("tool_name", "?"))
+            # JSON {tool, input} dal 0.4.0 (il relay ne ricava il tier); chi legge solo l'esistenza non cambia
+            (STATE / "waiting" / sid).write_text(json.dumps(waiting_summary(p), ensure_ascii=False))
         ledger("waiting", p, tool=p.get("tool_name", ""))
         ask_notify(p)
+        relay_push()
     elif ev == "Stop":
         msg = p.get("last_assistant_message") or ""
         last = msg[:300]
@@ -213,6 +246,7 @@ def main(argv):
         # la riga «Watch:» (12/09/2026): l'esito nudo per lo smartwatch, chiesto dal prefisso del bot
         watch = next((l[:200] for l in reversed(righe) if l.lower().lstrip("*_#> ").startswith("watch")), "")
         ledger("stop", p, last=last, tail=tail, esito=esito, watch=watch)
+        relay_push()
         if CFG["hooks"]["restart_stop"]["enabled"]:
             r = subprocess.run([str(HERE / "cm-restart.sh"), "hook"], input=json.dumps(p), capture_output=True, text=True,
                                env={**os.environ, "CM_HOOK_SESSION_ID": sid})

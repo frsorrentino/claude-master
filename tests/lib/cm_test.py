@@ -195,6 +195,11 @@ def fake_telegram(token="123:ABC"):
             if fail and os.path.exists(fail):
                 calls.setdefault("failed", []).append(method)
                 self.send_response(503); self.end_headers(); return
+            if method == "sendMessage" and "intent://" in (params.get("reply_markup") or ""):
+                calls.setdefault("rejected", []).append(params)
+                out = json.dumps({"ok": False, "error_code": 400, "description": "Bad Request: BUTTON_URL_INVALID"}).encode()
+                self.send_response(400); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(out))); self.end_headers(); self.wfile.write(out)
+                return
             calls.setdefault(method, []).append(params)
             if method == "getUpdates":
                 off = int(params.get("offset") or 0)
@@ -225,6 +230,195 @@ def fake_telegram(token="123:ABC"):
     srv = HTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return f"http://127.0.0.1:{srv.server_port}", calls, queue
+
+
+def fake_rtdb(project="fake-project"):
+    """Un Firebase finto su HTTP locale per cm-relay: RTDB REST (GET/PUT/PATCH/DELETE su /<path>.json,
+    ?print=silent, ?shallow=true, stream SSE con Accept: text/event-stream: `put` iniziale poi un `put`/`patch`
+    per ogni scrittura sotto il nodo, keep-alive ogni 2 s), il token endpoint (POST /token) e FCM HTTP v1
+    (POST /v1/projects/<p>/messages:send). Ritorna (base_url, calls, store): `store` e' il dict vivo del DB,
+    `calls["token"]` i JWT ricevuti, `calls["fcm"]` i messaggi, `calls["failed"]` le richieste rifiutate con 503
+    quando esiste il file FAKE_RTDB_FAIL."""
+    import queue
+    import threading
+    import time as _t
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from urllib.parse import parse_qs, urlparse
+    store = {}
+    calls = {"token": [], "fcm": [], "failed": [], "requests": []}
+    streams = []   # (prefix, queue)
+    lock = threading.Lock()
+
+    def parts(path):
+        return [x for x in path.strip("/").split("/") if x]
+
+    def get_node(path):
+        node = store
+        for k in parts(path):
+            if not isinstance(node, dict) or k not in node:
+                return None
+            node = node[k]
+        return node
+
+    def set_node(path, value):
+        ps = parts(path)
+        if not ps:
+            store.clear()
+            if isinstance(value, dict):
+                store.update(value)
+            return
+        node = store
+        for k in ps[:-1]:
+            if not isinstance(node.get(k), dict):
+                node[k] = {}
+            node = node[k]
+        if value is None:
+            node.pop(ps[-1], None)
+        else:
+            node[ps[-1]] = value
+
+    def notify(path, kind, data):
+        pp = parts(path)
+        for prefix, q in list(streams):
+            pf = parts(prefix)
+            if pp[:len(pf)] == pf:
+                rel = "/" + "/".join(pp[len(pf):])
+                q.put((kind, rel, data))
+
+    class H(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, *a):
+            pass
+
+        def _json(self, code, body):
+            out = json.dumps(body).encode()
+            self.send_response(code); self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(out))); self.end_headers(); self.wfile.write(out)
+
+        def _fail(self):
+            f = os.environ.get("FAKE_RTDB_FAIL", "")
+            if f and os.path.exists(f):
+                calls["failed"].append(self.command + " " + self.path)
+                self.send_response(503); self.send_header("Content-Length", "0"); self.end_headers()
+                return True
+            return False
+
+        def _body(self):
+            n = int(self.headers.get("Content-Length") or 0)
+            return self.rfile.read(n).decode() if n else ""
+
+        def do_POST(self):
+            if self._fail():
+                return
+            u = urlparse(self.path)
+            body = self._body()
+            calls["requests"].append(("POST", u.path))
+            if u.path == "/token":
+                q = parse_qs(body)
+                calls["token"].append(q.get("assertion", [""])[0])
+                return self._json(200, {"access_token": "fake-token", "expires_in": 3600, "token_type": "Bearer"})
+            if u.path.startswith("/v1/projects/") and u.path.endswith("/messages:send"):
+                try:
+                    calls["fcm"].append(json.loads(body))
+                except ValueError:
+                    return self._json(400, {"error": "bad json"})
+                return self._json(200, {"name": f"projects/{project}/messages/{len(calls['fcm'])}"})
+            if u.path.endswith(".json"):   # push con nome generato
+                key = f"-K{len(calls['requests']):06d}"
+                with lock:
+                    set_node(u.path[:-5] + "/" + key, json.loads(body))
+                    notify(u.path[:-5] + "/" + key, "put", json.loads(body))
+                return self._json(200, {"name": key})
+            self._json(404, {"error": "not found"})
+
+        def do_GET(self):
+            if self._fail():
+                return
+            u = urlparse(self.path)
+            calls["requests"].append(("GET", u.path))
+            if not u.path.endswith(".json"):
+                return self._json(404, {"error": "not found"})
+            path = u.path[:-5]
+            if "text/event-stream" in (self.headers.get("Accept") or ""):
+                q = queue.Queue()
+                with lock:
+                    streams.append((path.strip("/"), q))
+                    data = get_node(path)
+                self.send_response(200); self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache"); self.end_headers()
+                try:
+                    self.wfile.write(("event: put\ndata: " + json.dumps({"path": "/", "data": data}) + "\n\n").encode()); self.wfile.flush()
+                    last = _t.time()
+                    while True:
+                        try:
+                            kind, rel, d = q.get(timeout=0.1)
+                            self.wfile.write((f"event: {kind}\ndata: " + json.dumps({"path": rel, "data": d}) + "\n\n").encode()); self.wfile.flush()
+                        except queue.Empty:
+                            f = os.environ.get("FAKE_RTDB_FAIL", "")
+                            if f and os.path.exists(f):
+                                break   # rete caduta: la connessione si chiude come dal vivo
+                            if _t.time() - last > 2:
+                                self.wfile.write(b"event: keep-alive\ndata: null\n\n"); self.wfile.flush(); last = _t.time()
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    pass
+                finally:
+                    with lock:
+                        streams[:] = [s for s in streams if s[1] is not q]
+                return
+            with lock:
+                node = get_node(path)
+            qs = parse_qs(u.query)
+            if qs.get("shallow", [""])[0] == "true" and isinstance(node, dict):
+                node = {k: True for k in node}
+            self._json(200, node)
+
+        def do_PUT(self):
+            self._write("put")
+
+        def do_PATCH(self):
+            self._write("patch")
+
+        def do_DELETE(self):
+            if self._fail():
+                return
+            u = urlparse(self.path)
+            calls["requests"].append(("DELETE", u.path))
+            with lock:
+                set_node(u.path[:-5], None)
+                notify(u.path[:-5], "put", None)
+            self._json(200, None)
+
+        def _write(self, kind):
+            if self._fail():
+                return
+            u = urlparse(self.path)
+            calls["requests"].append((kind.upper(), u.path))
+            try:
+                value = json.loads(self._body() or "null")
+            except ValueError:
+                return self._json(400, {"error": "bad json"})
+            path = u.path[:-5]
+            with lock:
+                if kind == "patch":
+                    node = get_node(path)
+                    if not isinstance(node, dict):
+                        set_node(path, {})
+                    for k, v in (value or {}).items():
+                        set_node(path + "/" + k, v)
+                else:
+                    set_node(path, value)
+                notify(path, kind, value)
+            silent = "print=silent" in u.query
+            if silent:
+                self.send_response(204); self.send_header("Content-Length", "0"); self.end_headers()
+            else:
+                self._json(200, value)
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    srv.daemon_threads = True
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{srv.server_port}", calls, store
 
 
 def wait_until(pred, timeout=5.0, step=0.2):

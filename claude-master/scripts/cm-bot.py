@@ -154,18 +154,68 @@ def api(method, _http_timeout=None, **params):
         return json.loads(r.read().decode())
 
 
-def reply(chat_id, text, parse_mode=None, reply_markup=None, silent=False, reply_to=None):
+def watch_active(now=None):
+    """L'orologio e' accoppiato al relay (devices.json non vuoto) e l'ultima push e' andata a buon fine da meno di
+    bot.watch_fresh_s (180 s): allora l'app al polso avvisa lei, e Telegram deve restare muto (Franz via master
+    12/09 15:26: le domande arrivavano due volte, notifica dell'app + inoltro Wear OS di quella Telegram)."""
+    rd = Path(cm.expand((CFG.get("relay") or {}).get("dir") or "~/.claude-master/relay"))
+    try:
+        devices = json.loads((rd / "devices.json").read_text())
+        last = json.loads((rd / "last-state.json").read_text())
+    except (OSError, ValueError):
+        return False
+    fresh = float(B.get("watch_fresh_s") or 180)
+    return bool(devices) and (now or time.time()) - float(last.get("pushed_at") or 0) < fresh
+
+
+def reply(chat_id, text, parse_mode=None, reply_markup=None, silent=False, reply_to=None, watch_quiet=True):
     """Manda; torna il message_id (o None). `silent` = disable_notification: il polso vibra solo per le
-    domande, gli esiti seguiti e le sparizioni."""
+    domande, gli esiti seguiti e le sparizioni — e nemmeno per quelle se l'orologio accoppiato riceve gia' dal
+    relay (bot.quiet_when_watch, default on; `watch_quiet=False` per cio' che l'utente ha chiesto apposta)."""
     text = text if len(text) <= MAX_TEXT else text[:MAX_TEXT] + "\n…"
+    if not silent and watch_quiet and B.get("quiet_when_watch", True) and watch_active():
+        silent = True
     try:
         r = api("sendMessage", chat_id=chat_id, text=text, disable_web_page_preview="true", parse_mode=parse_mode,
                 reply_markup=json.dumps(reply_markup, ensure_ascii=False) if reply_markup else None,
                 disable_notification="true" if silent else None, reply_to_message_id=reply_to)
         return ((r or {}).get("result") or {}).get("message_id")
+    except urllib.error.HTTPError as e:
+        # un bottone con URL intent:// (Chrome) rifiutato da Telegram: lo stesso messaggio con il link nel testo,
+        # «Apri in Chrome» come <a> (Franz via master 12/09)
+        fb = chrome_fallback(text, parse_mode, reply_markup) if e.code == 400 else None
+        if fb:
+            try:
+                r = api("sendMessage", chat_id=chat_id, text=fb[0], disable_web_page_preview="true", parse_mode="HTML",
+                        reply_markup=json.dumps(fb[1], ensure_ascii=False) if fb[1] else None,
+                        disable_notification="true" if silent else None, reply_to_message_id=reply_to)
+                return ((r or {}).get("result") or {}).get("message_id")
+            except (urllib.error.URLError, OSError, ValueError) as e2:
+                log(f"reply to {chat_id} FAILED (fallback): {e2}")
+                return None
+        log(f"reply to {chat_id} FAILED: HTTP {e.code}")
+        return None
     except (urllib.error.URLError, OSError, ValueError) as e:
         log(f"reply to {chat_id} FAILED: {e}")
         return None
+
+
+def chrome_fallback(text, parse_mode, reply_markup):
+    """(testo HTML, tastiera senza il bottone intent://) se la tastiera ne aveva uno; altrimenti None."""
+    import html as _html
+    rows = (reply_markup or {}).get("inline_keyboard") or []
+    intents = [b for row in rows for b in row if str(b.get("url") or "").startswith("intent://")]
+    if not intents:
+        return None
+    link = re.sub(r"^intent://(.+?)#Intent;.*$", r"https://\1", intents[0]["url"])
+    kept = [row for row in rows if not any(str(b.get("url") or "").startswith("intent://") for b in row)]
+    body = text if parse_mode == "HTML" else _html.escape(text)
+    return body + f'\n<a href="{_html.escape(link, quote=True)}">Apri in Chrome</a>', ({"inline_keyboard": kept} if kept else None)
+
+
+def link_mode_of(account):
+    """bot.links = {account: app|browser}: dove si apre il link della sessione (default app)."""
+    return str((B.get("links") or {}).get(account or "", "app") or "app")
 
 
 def edit(chat_id, message_id, text, reply_markup=None):
@@ -473,7 +523,8 @@ def render_card(cs, name):
     cs.update(level="card", session=row["tmux"], until=now + STATE_TTL_S, options=list(opts))
     kb = ui.keyboard_card(opts, following=row["tmux"] in cs.get("follow", []), state=ui.state_of(row),
                           has_checkpoint=row["tmux"] in (cs.get("checkpoints") or {}),
-                          full_question=bool(q) and bool((cs.get("qfull") or {}).get(row["tmux"])))
+                          full_question=bool(q) and bool((cs.get("qfull") or {}).get(row["tmux"])),
+                          link=row.get("link") or "", link_mode=link_mode_of(row.get("account")))
     return "\n".join(lines), kb, bool(q)
 
 
@@ -701,13 +752,26 @@ def answer_lines(text, width=ui.WIDTH, max_lines=ui.MAX_LINES - 1):
     return out_e + (out_r[-room:] if room else []), True
 
 
+def relay_push():
+    """L'orologio (0.4.0): dopo segui/smetti il relay ripubblica /state (staccato, solo con relay.enabled)."""
+    if not (CFG.get("relay") or {}).get("enabled"):
+        return
+    try:
+        subprocess.Popen([sys.executable, str(HERE / "cm-relay.py"), "push", "--async"], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        pass
+
+
 def toggle_follow(cs, name):
     fl = cs.setdefault("follow", [])
     if name in fl:
         fl.remove(name)
+        relay_push()
         return M("bot.unfollowed", name=label_of(name))
     fl.append(name)
     cs.setdefault("seen", {})[name] = time.time()
+    relay_push()
     return M("bot.followed", name=label_of(name))
 
 
@@ -732,7 +796,7 @@ def handle(text, cs=None, cq_data=None):
             action, name = cq_data.split(":", 1)
             fl = cs.setdefault("follow", [])
             if action == "unfollow" and name in fl:
-                fl.remove(name); txt = M("bot.unfollowed", name=label_of(name))
+                fl.remove(name); txt = M("bot.unfollowed", name=label_of(name)); relay_push()
             elif action == "follow" and name not in fl:
                 txt = toggle_follow(cs, name)
             else:
@@ -742,6 +806,8 @@ def handle(text, cs=None, cq_data=None):
             name = cq_data[5:]
             full = (cs.get("full") or {}).get(name) or ""
             return {"text": full[:MAX_TEXT] if full else M("bot.no_output"), "markup": ui.keyboard_back(name, label_of(name)), "silent": True, "reply_to": None}
+        if cq_data.startswith("demo:"):
+            return {"text": "", "markup": None, "silent": True, "reply_to": None}   # prove visive: tap ignorato (12/09)
         if cq_data.startswith("q:"):
             name = cq_data[2:] or cs.get("session") or ""
             full = (cs.get("qfull") or {}).get(name) or ""
@@ -821,6 +887,7 @@ def handle(text, cs=None, cq_data=None):
         _, _, groups, label = d.build(["--full"] if rest.strip() in ("full", "tutto") else [])
         out["text"] = d.render_short(groups, label, as_html=False)
         out["silent"] = False   # chiesto apposta: deve farsi sentire
+        out["loud"] = True      # anche con l'orologio accoppiato
     elif cmd == "screen":
         name = str(rest).split()[0] if str(rest).strip() else cs.get("session")
         if not name:
@@ -1107,7 +1174,8 @@ def dispatch(updates, off_p, st):
             if res.get("stopped"):
                 finish_live(chat_id, cs, res["stopped"], M("bot.live_stopped", name=label_of(res["stopped"])))
             if res.get("text"):
-                mid = reply(chat_id, res["text"], parse_mode=res.get("parse_mode"), reply_markup=res.get("markup"), silent=res.get("silent", True), reply_to=res.get("reply_to"))
+                mid = reply(chat_id, res["text"], parse_mode=res.get("parse_mode"), reply_markup=res.get("markup"), silent=res.get("silent", True), reply_to=res.get("reply_to"),
+                            watch_quiet=not res.get("loud"))
                 if res.get("question") and mid:
                     cs["qmsg"] = mid
                 if res.get("live") and mid and res["live"] in (cs.get("live") or {}):

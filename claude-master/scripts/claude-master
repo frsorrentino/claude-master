@@ -53,6 +53,7 @@ case "$cmd" in
   move|sposta)            exec python3 "$S/cm-tile.py" move "$@" ;;
   layout)                 exec python3 "$S/cm-tile.py" layout "$@" ;;
   bot)                    exec python3 "$S/cm-bot.py" "$@" ;;
+  relay)                  exec python3 "$S/cm-relay.py" "$@" ;;
   recap|diary|diario)     exec python3 "$S/cm-recap.py" "$@" ;;
   night|notte)            exec python3 "$S/cm-night.py" "$@" ;;
   guard|guardia)          exec python3 "$S/cm-guard.py" "$@" ;;

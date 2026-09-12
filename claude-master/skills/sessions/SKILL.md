@@ -119,14 +119,18 @@ Invia di nuovo se il prompt non compare entro `bot.receive_timeout_s`; a fine tu
 la riga Watch: (Leggi tutto per il resto). La risposta è lo Stop con la riga Watch:, o il primo se la sessione era
 ferma all'invio, o il secondo se era occupata (il primo è il turno precedente). «Avvisami» segue (avviso «✓ nome ha
 finito:» a fine di un turno > `bot.follow_min_turn_s`, «✗ nome» se sparisce, «✗ nome errore» su StopFailure).
-Silenzioso tranne domande, esiti, risposte, errori e sparizioni; digest delle 8:00 («cosa aspetta te», un tasto
+`claude-master relay push|pair|serve|status|install|uninstall|off` (0.4.0): il PC sul bus dell'app Wear OS
+(Firebase RTDB + FCM, `/state` cifrato nella forma del contratto v1, comandi dal polso eseguiti via CLI); `relay
+push --dry-run` mostra lo stato in chiaro. Silenzioso tranne domande, esiti, risposte, errori e sparizioni; digest delle 8:00 («cosa aspetta te», un tasto
 Apri per ogni ❓). `terminale NOME`/`schermo NOME`/`v NOME`: le ultime 30 righe del riquadro in un blocco `<pre>`.
 L'avviso di una domanda: «❓ icona nome», poi la domanda COMPLETA e di senso compiuto (il testo se sta in 88
 caratteri, altrimenti l'ultima frase interrogativa, altrimenti una sintesi col modello `hooks.ask_notify.synth_model`;
 se la sintesi ha tagliato qualcosa, il bottone «Domanda intera» manda il testo integrale),
 poi le opzioni SOLO se dicono qualcosa che i tasti non dicono (hanno una descrizione: «1 etichetta · descrizione», o sono
 più di tre, o non ci sono tasti); al massimo tre bottoni (oltre tre opzioni: le prime due + Apri). «Type something.» e
-«Chat about this» sono piè di pagina del dialogo, non opzioni. La riga «Esito:» di
+«Chat about this» sono piè di pagina del dialogo, non opzioni. Il link della sessione (Remote Control) sta nella scheda
+e nell'avviso come bottone: `bot.links = {account: app|browser}` decide se lo apre l'app Claude (URL https) o Chrome
+(intent; se Telegram rifiuta il bottone, il link «Apri in Chrome» va nel testo). La riga «Esito:» di
 esiti e risposte è una frase sola ≤ 120 caratteri, per la lettura vocale. `/sessions full` dà la tabella intera. Dopo un riavvio della macchina serve il login a mano.
 
 ## Rispondere alla domanda di un'altra sessione

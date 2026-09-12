@@ -1,0 +1,102 @@
+{
+  "v": 1,
+  "ts": 1789210800,
+  "host": "crostini-franz",
+  "sessions": [
+    {
+      "id": "9e9c87fb-edcd-4c51-8c62-328c0146019b",
+      "name": "ledger-api",
+      "account": "agenzia",
+      "project": "pixelfarm/clienti/ledger-api",
+      "state": "waiting",
+      "since": 1789210500,
+      "turn_started": 1789210380,
+      "tool": null,
+      "link": "https://claude.ai/code/session_01CnGG8im7UG4KtjbPDx9fst",
+      "attached": false,
+      "followed": true,
+      "question": {
+        "id": "q-1789210500-1",
+        "kind": "ask",
+        "text": "Deploy ready, waiting for the client's ok. Deploy now?",
+        "options": [
+          {"n": 1, "label": "yes"},
+          {"n": 2, "label": "no"}
+        ],
+        "tier": "medium",
+        "asked_at": 1789210500
+      },
+      "outcome": null,
+      "next": "Wait for the go"
+    },
+    {
+      "id": "f61903c0-ea6a-409c-a961-d01126a0f3ad",
+      "name": "atlas-shop",
+      "account": "personale",
+      "project": "personali/atlas-shop",
+      "state": "busy",
+      "since": 1789209000,
+      "turn_started": 1789210700,
+      "tool": "Bash pytest -q tests",
+      "link": "https://claude.ai/code/session_018CKZ1Pum1Qs7DX5hbRLQ6X",
+      "attached": true,
+      "followed": false,
+      "question": null,
+      "outcome": {
+        "short": "Migrazioni 008-011 applicate, test verdi",
+        "full": "Esito: migrazioni 008-011 applicate, test verdi.\nRestano da rivedere i seed di prova e la pagina admin.",
+        "at": 1789210300
+      },
+      "next": "Rivedere i seed e la pagina admin"
+    },
+    {
+      "id": "3d1b2c4e-0000-4000-8000-000000000003",
+      "name": "field-notes",
+      "account": "personale",
+      "project": "personali/field-notes",
+      "state": "idle",
+      "since": 1789120000,
+      "turn_started": null,
+      "tool": null,
+      "link": "https://claude.ai/code/session_03fieldnotes",
+      "attached": false,
+      "followed": false,
+      "question": null,
+      "outcome": {"short": "README riscritto", "full": "Esito: README riscritto con le tre sezioni chieste.", "at": 1789121000},
+      "next": null
+    },
+    {
+      "id": "3d1b2c4e-0000-4000-8000-000000000004",
+      "name": "orbit-docs",
+      "account": "agenzia",
+      "project": "pixelfarm/nostri/orbit-docs",
+      "state": "gone",
+      "since": 1789200000,
+      "turn_started": null,
+      "tool": null,
+      "link": "",
+      "attached": false,
+      "followed": false,
+      "question": null,
+      "outcome": null,
+      "next": "Riprendere la pagina prezzi"
+    }
+  ],
+  "quota": {
+    "personale": {"h5": 11, "w7": 36, "reset_w7": 1789610400, "stale": false},
+    "agenzia": {"h5": null, "w7": 75, "reset_w7": 1789444800, "stale": true}
+  },
+  "projects": [
+    {"path": "/home/franz/Desktop/workspaces/personali/atlas-shop", "name": "atlas-shop", "account": "personale"},
+    {"path": "/home/franz/Desktop/workspaces/pixelfarm/clienti/ledger-api", "name": "ledger-api", "account": "agenzia"},
+    {"path": "/home/franz/Desktop/workspaces/pixelfarm/nostri/orbit-docs", "name": "orbit-docs", "account": "agenzia"}
+  ],
+  "night": {"queued": 2, "running": null},
+  "recap": {
+    "date": "2026-09-12",
+    "items": [
+      {"project": "atlas-shop", "done": "Migrazioni 008-011 applicate, test verdi", "next": "Rivedere i seed e la pagina admin"},
+      {"project": "ledger-api", "done": "Deploy pronto", "next": "Wait for the go"}
+    ]
+  }
+}
