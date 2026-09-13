@@ -230,7 +230,8 @@
     "command_timeout_s": 120,
     "pair_ttl_s": 300,
     "pair_attempts": 5,
-    "serve_timeout_s": 50
+    "serve_timeout_s": 50,
+    "colors": {}
   },
   "hooks": {
     "local_time": {

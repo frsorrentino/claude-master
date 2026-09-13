@@ -263,6 +263,29 @@ def awaiting():
     return names
 
 
+def next_dated(cwd):
+    """(«prossimo» del progetto, epoch della sua riga di recap) da docs/recap.md: la riga e' «- AAAA-MM-GG: …»,
+    quindi la data c'e' sempre; senza data, None."""
+    rel = str((CFG.get("recap") or {}).get("project_log") or "").strip()
+    if not rel or not cwd:
+        return "", None
+    try:
+        rows = [l for l in (Path(cwd) / rel).read_text().splitlines() if l.startswith("- ")]
+    except OSError:
+        return "", None
+    if not rows:
+        return "", None
+    last = rows[-1]
+    m = re.search(r"(?:prossimo|next): (.+)$", last)
+    text = m.group(1).strip() if m else re.sub(r"^- \d{4}-\d{2}-\d{2}: ", "", last).strip()
+    md = re.match(r"^- (\d{4})-(\d{2})-(\d{2}):", last)
+    at = None
+    if md:
+        import datetime as _dt
+        at = int(_dt.datetime(int(md.group(1)), int(md.group(2)), int(md.group(3))).timestamp())
+    return text, at
+
+
 def recap_today(now):
     label = time.strftime("%d_%m_%Y", time.localtime(now))
     cache = read_json(Path(cm.expand(CFG["state_dir"])) / "recap-summaries" / f"{label}.json", {})
@@ -316,25 +339,39 @@ def collect_sources(now=None):
                          "waiting": False, "session_id": s.get("session_id") or "", "link": "", "attached": False,
                          "visto_ts": S.epoch(s.get("visto", "")) if s.get("visto") else 0})
     ledger = bot.ledger_rows()
-    questions, nexts, tools = {}, {}, {}
+    aw = awaiting()
+    # 1.1: l'icona della scheda per ogni sessione viva (cm-color: registro stabile), per le sparite l'ultima nota
+    last_icons = {s_.get("name"): s_.get("icon") for s_ in (read_json(rdir() / "last-state.json", {}).get("state") or {}).get("sessions", []) if s_.get("icon")}
+    icons = {}
+    questions, nexts, nexts_at, tools = {}, {}, {}, {}
     for r in rows:
         tm = r.get("tmux") or r.get("name") or ""
+        if r.get("status") == "dead":
+            ic = last_icons.get(S.short_name(r.get("name") or tm, prefixes()))
+        else:
+            ic = bot.icon_of(tm)
+        if ic:
+            icons[tm] = ic
         # il flag dell'hook vale anche se `sessions --json` non l'ha ancora visto (stessa regola di cm-sessions)
         if r.get("status") != "dead" and not r.get("waiting") and waiting_info(r.get("session_id") or ""):
             r["waiting"] = True
-        nx = bot.next_of(r.get("cwd")) if r.get("cwd") else ""
+        nx, nx_at = next_dated(r.get("cwd")) if r.get("cwd") else ("", None)
         if nx:
             nexts[tm] = nx
+            if nx_at:
+                nexts_at[tm] = nx_at
         if S.state_of(r) == "waiting":
             wi = waiting_info(r.get("session_id") or "")
             tool = str(wi.get("tool") or "")
-            text, opts = question_of(tm, tool)
-            for _ in range(3):
-                if opts or not tm:
-                    break
-                time.sleep(1)   # il dialogo si disegna un attimo dopo l'hook: si riprova prima di ripiegare
-                text, opts = question_of(tm, tool)
             inp = wi.get("input") if isinstance(wi.get("input"), dict) else {}
+            text, opts = question_of(tm, tool)
+            # il dialogo si disegna un attimo dopo l'hook: si riprova, ma solo quando il payload dell'hook non
+            # ha gia' la domanda (altrimenti si ripiega subito su quello e la push non aspetta nessuno)
+            for _ in range(3):
+                if opts or not tm or inp.get("options") or inp.get("question") or inp.get("command"):
+                    break
+                time.sleep(1)
+                text, opts = question_of(tm, tool)
             if not opts and inp.get("options"):
                 # schermo non ancora disegnato (o sessione senza tmux): domanda e opzioni dal payload dell'hook
                 text, opts = str(inp.get("question") or text or ""), [str(o) for o in inp["options"]]
@@ -344,7 +381,8 @@ def collect_sources(now=None):
             detail = wi.get("input") if isinstance(wi.get("input"), (str, dict)) else ""
             questions[tm] = {"tool": tool, "text": text or (f"{tool} {json.dumps(detail, ensure_ascii=False)[:200]}" if tool else "?"),
                              "options": opts, "asked_at": asked[-1] if asked else int(now), "detail": json.dumps(detail, ensure_ascii=False) if detail else ""}
-        elif r.get("status") == "busy":
+        elif r.get("status") == "busy" or tm in aw:
+            # anche le «awaiting» (prompt dal polso in corso): senza questo la card restava senza attivita'
             t = tool_of(r)
             if t:
                 tools[tm] = t
@@ -355,7 +393,8 @@ def collect_sources(now=None):
         "rows": rows, "ledger": ledger, "questions": questions,
         "quota": _json_cmd("quota", "--json", expect="{") or {},
         "projects": inventory(), "night": night_queue(), "recap": recap_today(now),
-        "follow": followed(), "awaiting": awaiting(), "next": nexts, "tools": tools,
+        "follow": followed(), "awaiting": aw, "next": nexts, "next_at": nexts_at, "tools": tools,
+        "icons": icons, "colors": R.get("colors") or None,
     }
 
 
@@ -434,6 +473,10 @@ def push_delayed(stamp):
             return 0   # una richiesta piu' recente pushera' lei
     except OSError:
         pass
+    # il relay puo' essere stato spento durante l'attesa: chi spegne si aspetta che nessuno scriva piu'
+    if not (cm.load(warn=False).get("relay") or {}).get("enabled"):
+        log("push (delayed): relay spento durante l'attesa, niente scrittura")
+        return 0
     try:
         push()
     except (RelayError, urllib.error.URLError, OSError, ValueError) as e:
@@ -585,7 +628,8 @@ def execute(cmd):
                 return False, out.splitlines()[0] if out else "talk failed"
             return True, M("relay.cmd_resumed", name=session)
         if op == "screen":
-            rc, out = run_cm("screen", tm, "--lines", "30")
+            # --join: tmux riunisce le righe mandate a capo, cosi' il polso non riceve parole spezzate
+            rc, out = run_cm("screen", tm, "--lines", "30", "--join")
             return (rc == 0), ("\n".join(out.splitlines()[-30:]) if rc == 0 else (out.splitlines()[0] if out else "screen failed"))
         if op == "allow_all":
             q = info.get("question") or {}
@@ -671,6 +715,20 @@ def commands_from(ev, payload):
     return {}
 
 
+def ledger_write(event, **fields):
+    """Una riga nel registro comune (<state_dir>/ledger.jsonl), stessa forma dell'hook: cosi' il recap e le
+    diagnosi vedono anche i comandi arrivati dal polso (design §5: «`by` dice chi ha risposto, il registro lo annota»)."""
+    try:
+        p = Path(cm.expand(CFG["state_dir"])) / "ledger.jsonl"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        row = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "event": event, "session_id": "", "cwd": "", "account": "", "pid": os.getpid()}
+        row.update(fields)
+        with open(p, "a") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
 def handle_cmd(cid, doc, done):
     if doc is None:
         return False
@@ -694,7 +752,11 @@ def handle_cmd(cid, doc, done):
         done.append(cid); return True
     cmd.setdefault("id", cid)
     ok, text = execute(cmd)
-    log(f"cmd {cid}: {cmd.get('op')} {cmd.get('session') or ''} → {'ok' if ok else 'ERR'} {str(text)[:80]}")
+    by = str(cmd.get("by") or "?")
+    log(f"cmd {cid}: {cmd.get('op')} {cmd.get('session') or ''} da {by} → {'ok' if ok else 'ERR'} {str(text)[:80]}")
+    row = last_sessions().get(str(cmd.get("session") or "")) or {}
+    ledger_write("watch-cmd", op=str(cmd.get("op") or ""), name=str(cmd.get("session") or ""), by=by, ok=bool(ok),
+                 text=str(text)[:200], session_id=row.get("id") or "", account=row.get("account") or "")
     try:
         rtdb("PUT", f"result/{cid}", C.encrypt({"id": cid, "ok": bool(ok), "text": str(text), "at": int(time.time())}, k), {"print": "silent"})
         rtdb("DELETE", f"cmd/{cid}")

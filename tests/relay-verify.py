@@ -23,6 +23,7 @@ R7   cm-hook.py: waiting/<sid> in JSON con tool_input; PermissionRequest/Stop/Se
      --async (relay abilitata); disabilitata → niente; bot follow/unfollow → push
 """
 import json
+import re
 import os
 import subprocess
 import sys
@@ -167,6 +168,8 @@ SRC1 = {
     "follow": {"pix-ledger-api"}, "awaiting": set(),
     "next": {"pix-ledger-api": "Wait for the go", "atlas-shop": "Rivedere i seed e la pagina admin", "pix-orbit-docs": "Riprendere la pagina prezzi"},
     "tools": {"atlas-shop": "Bash pytest -q tests"},
+    "icons": {"pix-ledger-api": "🟦", "atlas-shop": "🟢", "field-notes": "🟡", "pix-orbit-docs": "🟪"},
+    "next_at": {"pix-ledger-api": 1789171200, "atlas-shop": 1789171200, "pix-orbit-docs": 1789171200},
 }
 st1 = S.build_state(SRC1, 1789210800)
 
@@ -196,7 +199,7 @@ SRC2 = {"host": "crostini-franz", "root": ROOT_WS, "prefixes": ["pix-"],
         "ledger": [{"event": "stop", "session_id": "f61903c0-ea6a-409c-a961-d01126a0f3ad", "ts": iso(1789213900), "last": "x", "esito": "Esito: seed e pagina admin rivisti, 42 test verdi.", "tail": "Esito: seed e pagina admin rivisti, 42 test verdi.\nWatch: Seed e pagina admin rivisti", "watch": "Watch: Seed e pagina admin rivisti"}],
         "questions": {}, "quota": {"personale": {"cinque_ore_pct": 24, "settimana_pct": 38, "reset_settimanale": 1789610400, "vecchia": False}, "agenzia": {"cinque_ore_pct": 3, "settimana_pct": 75, "reset_settimanale": 1789444800, "vecchia": False}},
         "projects": [{"path": ROOT_WS + "/personali/atlas-shop", "name": "atlas-shop", "account": "personale"}], "night": {"queued": 0, "running": None}, "recap": {"date": "2026-09-12", "items": []},
-        "follow": set(), "awaiting": set(), "next": {"atlas-shop": "Deploy di prova su staging"}, "tools": {}}
+        "follow": set(), "awaiting": set(), "next": {"atlas-shop": "Deploy di prova su staging"}, "tools": {}, "icons": {"atlas-shop": "🟢"}, "next_at": {"atlas-shop": 1789171200}}
 st2 = S.build_state(SRC2, 1789214400)
 T.check("R2 build_state(src) == state-2-idle.json", st2 == F2, diff(st2, F2) or "equal")
 SRC3 = {"host": "crostini-franz", "root": ROOT_WS, "prefixes": [], "rows": [], "ledger": [], "questions": {},
@@ -208,6 +211,9 @@ big = dict(SRC1); big["projects"] = [{"path": f"{ROOT_WS}/personali/p{i:03d}", "
 stb = S.build_state(big, 1789210800)
 T.check("R2 over 8 KB → fit_state trims (recap items, then outcome.full, then projects past 10), the question stays whole", S.size_of(stb) <= 8192 and stb["sessions"][0]["question"]["text"] == F1["sessions"][0]["question"]["text"] and len(stb["projects"]) <= 10, str(S.size_of(stb)))
 T.check("R2 tier_of: dangerous words in a PERMISSION → high; Read → low; Bash → medium; ask/plan → always medium", S.tier_of("permission", "Bash", "rm -rf build") == "high" and S.tier_of("permission", "Read", "cat x") == "low" and S.tier_of("permission", "Bash", "ls") == "medium" and S.tier_of("ask", "AskUserQuestion", "Deploy now?") == "medium" and S.tier_of("ask", None, "git push origin main?") == "medium" and S.tier_of("permission", "Bash", "git push origin main") == "high", "")
+T.check("R2 (1.2) next_at: the date of the recap line that produced «next» (null when there is no next)", st1["sessions"][0]["next_at"] == 1789171200 and st1["sessions"][2]["next"] is None and st1["sessions"][2]["next_at"] is None, str([(x["name"], x["next_at"]) for x in st1["sessions"]]))
+T.check("R2 (1.1) color_of: circle/square/heart of the same hue → the same hex; unknown or empty → None; relay.colors overrides", S.color_of("🟠") == "#F5A623" and S.color_of("🟧") == "#F5A623" and S.color_of("🧡") == "#F5A623" and S.color_of("❤️") == "#E74C3C" and S.color_of("⬜") == "#BDC3C7" and S.color_of("") is None and S.color_of("🐙") is None and S.color_of("🟠", {"🟠": "#111111"}) == "#111111", "")
+T.check("R2 (1.1) a session without an icon → icon and color null (old readers: grey)", S.build_session({"name": "x", "tmux": "x", "status": "idle"}, {"root": "/", "prefixes": []})["icon"] is None and S.build_session({"name": "x", "tmux": "x", "status": "idle"}, {"root": "/", "prefixes": []})["color"] is None, "")
 T.check("R2 awaiting state: a session with a wrist prompt pending is «awaiting» (ordered with busy)", S.state_of({"status": "idle", "tmux": "x"}, {"x"}) == "awaiting" and S.ORDER["awaiting"] == S.ORDER["busy"], "")
 
 # R3: eventi dal diff
@@ -296,6 +302,7 @@ n_req = len(CALLS["requests"])
 r = relay("push", "--dry-run")
 dry = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip().startswith("{") else {}
 T.check("R4 push --dry-run: clear JSON on stdout, no HTTP; sessions ordered ❓ ▶ ✓ ✗ with short names, the question whole with kind ask and options 1-2, the busy session's outcome from the ledger (short = Watch line), gone from the snapshot, quota, projects with accounts from folder_map, recap, night", r.returncode == 0 and len(CALLS["requests"]) == n_req and [(x["name"], x["state"]) for x in dry.get("sessions", [])] == [("ledger-api", "waiting"), ("atlas-shop", "busy"), ("field-notes", "idle"), ("orbit-docs", "gone")] and dry["sessions"][0]["question"]["text"] == "Deploy ready, waiting for the client ok. Deploy now?" and dry["sessions"][0]["question"]["kind"] == "ask" and [o["label"] for o in dry["sessions"][0]["question"]["options"]] == ["yes", "no"] and dry["sessions"][0]["question"]["asked_at"] == 1789210500 and dry["sessions"][0]["followed"] is True and dry["sessions"][0]["project"] == "pixelfarm/clienti/ledger-api" and dry["sessions"][1]["outcome"]["short"] == "Migrazioni applicate, test verdi" and dry["sessions"][1]["turn_started"] == 1789210700 and dry["sessions"][1]["next"] == "Rivedere i seed e la pagina admin" and dry["sessions"][3]["since"] == S.epoch("2026-09-12T09:00:00") and dry["quota"]["agenzia"] == {"h5": None, "w7": 75, "reset_w7": 1789444800, "stale": True} and {(p["name"], p["account"]) for p in dry["projects"]} == {("atlas-shop", "personale"), ("field-notes", "personale"), ("ledger-api", "agenzia"), ("orbit-docs", "agenzia")} and dry["host"] == "crostini-test" and dry["night"] == {"queued": 0, "running": None} and dry["v"] == 1, r.stdout[:600] + r.stderr)
+T.check("R4 (1.1) every live session carries icon (from cm-color's registry, stable) and color «#RRGGBB»; the gone one has none on the first push", all(x["icon"] and re.match(r"^#[0-9A-F]{6}$", x["color"] or "") for x in dry["sessions"] if x["state"] != "gone") and dry["sessions"][3]["icon"] is None, str([(x["name"], x["icon"], x["color"]) for x in dry["sessions"]]))
 r = relay("push")
 T.check("R4 push: exit 0, /state on the bus is {v:1, enc} and decrypts to the same document as the dry-run (but ts)", r.returncode == 0 and set(STORE.get("state", {})) == {"v", "enc"} and STORE["state"]["v"] == 1 and {kk: v for kk, v in C.decrypt(STORE["state"], k).items() if kk != "ts"} == {kk: v for kk, v in dry.items() if kk != "ts"}, r.stdout + r.stderr + str(STORE.get("state"))[:100])
 evs = {kk: C.decrypt(v, k) for kk, v in (STORE.get("events") or {}).items()}
@@ -405,6 +412,8 @@ def send_cmd(cmd, wait=8):
 n_state_puts = len([x for x in CALLS["requests"] if x == ("PUT", "/state.json")])
 res = send_cmd(CMDS[0])   # answer ledger-api 1
 T.check("R6 answer → `answer pix-ledger-api 1` (name mapped to tmux), /result {ok, text «answered 1. yes», at}, /cmd/<id> deleted", res and res["ok"] is True and res["text"] == "answered 1. yes" and isinstance(res["at"], int) and "answer pix-ledger-api 1" in cm_calls() and CMDS[0]["id"] not in (STORE.get("cmd") or {}), str(res) + str(cm_calls()[-4:]))
+led_rows = lambda: [json.loads(l) for l in ledger.read_text().splitlines() if l.strip()]  # noqa: E731
+T.check("R6 the command is annotated in the ledger: event watch-cmd with op, name, by (who answered) and ok", any(x.get("event") == "watch-cmd" and x.get("op") == "answer" and x.get("name") == "ledger-api" and x.get("by") == "watch-pixel5" and x.get("ok") is True for x in led_rows()), str([x for x in led_rows() if x.get("event") == "watch-cmd"][-2:]))
 T.check("R6 after a command /state is republished (a new PUT of /state)", T.wait_until(lambda: len([x for x in CALLS["requests"] if x == ("PUT", "/state.json")]) > n_state_puts, 6), "")
 res = send_cmd(CMDS[1])   # prompt atlas-shop
 T.check("R6 prompt → talk atlas-shop with the watch prefix (Watch: line requested) --no-wait, «delivered», atlas-shop awaiting", res and res["ok"] and res["text"] == "delivered" and any(c.startswith("talk atlas-shop Da Franz via polso") and "Watch:" in c and c.endswith("rivedi i seed di prova --no-wait") for c in cm_calls()) and "atlas-shop" in json.loads((rdir2 / "awaiting.json").read_text()), str(res) + str(cm_calls()[-3:]))
@@ -413,7 +422,7 @@ T.check("R6 launch of a path outside the published projects → ok false, no lau
 res = send_cmd(dict(CMDS[2], id="6f1c2d3e-0003-4000-8000-0000000000aa", arg=str(ws / "pixelfarm" / "nostri" / "orbit-docs")))
 T.check("R6 launch of a published project → `launch PATH --no-window`, «launched orbit-docs (agenzia)»", res and res["ok"] is True and res["text"] == "launched orbit-docs (agenzia)" and any(c.startswith("launch ") and c.endswith("orbit-docs --no-window") for c in cm_calls()), str(res) + str(cm_calls()[-3:]))
 res = send_cmd(CMDS[3])   # screen
-T.check("R6 screen → `screen atlas-shop --lines 30`, 30 lines in text", res and res["ok"] and len(res["text"].splitlines()) == 30 and "screen atlas-shop --lines 30" in cm_calls(), str(res)[:200])
+T.check("R6 screen → `screen atlas-shop --lines 30 --join` (tmux reunites wrapped lines: no words cut on the wrist), 30 lines in text", res and res["ok"] and len(res["text"].splitlines()) == 30 and "screen atlas-shop --lines 30 --join" in cm_calls(), str(res)[:200] + str([c for c in cm_calls() if c.startswith("screen ")]))
 res = send_cmd(CMDS[4])   # follow
 T.check("R6 follow → follow.json has atlas-shop, «following atlas-shop»; the next /state marks it followed", res and res["ok"] and res["text"] == "following atlas-shop" and "atlas-shop" in json.loads((rdir2 / "follow.json").read_text()) and T.wait_until(lambda: any(s_["name"] == "atlas-shop" and s_["followed"] for s_ in C.decrypt(STORE["state"], k)["sessions"]), 6), str(res))
 res = send_cmd(dict(CMDS[4], id="6f1c2d3e-0005-4000-8000-0000000000bb", op="unfollow"))
@@ -465,7 +474,7 @@ def state_puts():
 n0 = state_puts()
 r = hook("PermissionRequest", {"session_id": "S-A", "cwd": str(ws / "personali" / "atlas-shop"), "tool_name": "Bash", "tool_input": {"command": "rm -rf build", "description": "clean"}})
 wf = json.loads((state_dir / "waiting" / "S-A").read_text())
-T.check("R7 PermissionRequest: waiting/<sid> is JSON {tool, input{command, description}}; a push follows (async) → a new PUT of /state", r.returncode == 0 and wf["tool"] == "Bash" and wf["input"]["command"] == "rm -rf build" and T.wait_until(lambda: state_puts() > n0, 6), r.stdout + r.stderr + str(wf))
+T.check("R7 PermissionRequest: waiting/<sid> is JSON {tool, input{command, description}}; a push follows (async) → a new PUT of /state", r.returncode == 0 and wf["tool"] == "Bash" and wf["input"]["command"] == "rm -rf build" and T.wait_until(lambda: state_puts() > n0, 15), r.stdout + r.stderr + str(wf))
 r = relay("push", "--dry-run")
 dry7 = json.loads(r.stdout)
 a7 = next(s_ for s_ in dry7["sessions"] if s_["name"] == "atlas-shop")
@@ -483,12 +492,20 @@ r = hook("UserPromptSubmit", {"session_id": "S-A", "cwd": str(ws / "personali" /
 T.check("R7 UserPromptSubmit: a «prompt» row in the ledger (turn_started), no push", r.returncode == 0 and any(json.loads(l).get("event") == "prompt" and json.loads(l).get("session_id") == "S-A" for l in ledger.read_text().splitlines()) and state_puts() == n0, ledger.read_text()[-200:])
 n0 = state_puts()
 r = hook("Stop", {"session_id": "S-A", "cwd": str(ws / "personali" / "atlas-shop"), "last_assistant_message": "Fatto.\nEsito: seed rivisti.\nWatch: Seed rivisti"})
-T.check("R7 Stop: ledger row with watch, then a push", r.returncode == 0 and T.wait_until(lambda: state_puts() > n0, 6) and any(json.loads(l).get("watch") == "Watch: Seed rivisti" for l in ledger.read_text().splitlines()), r.stdout + r.stderr)
+T.check("R7 Stop: ledger row with watch, then a push", r.returncode == 0 and T.wait_until(lambda: state_puts() > n0, 15) and any(json.loads(l).get("watch") == "Watch: Seed rivisti" for l in ledger.read_text().splitlines()), r.stdout + r.stderr)
 n0 = state_puts()
 hook("SessionEnd", {"session_id": "S-F", "cwd": str(ws / "personali" / "field-notes"), "reason": "other"})
-T.check("R7 SessionEnd → push", T.wait_until(lambda: state_puts() > n0, 6), "")
+T.check("R7 SessionEnd → push", T.wait_until(lambda: state_puts() > n0, 15), "")
+# le push asincrone gia' partite scrivono comunque (il figlio ha letto la config quando era abilitata): si
+# aspetta che il conto delle PUT resti fermo PRIMA di spegnere il relay
+prev = -1
+for _ in range(12):
+    cur = state_puts()
+    if cur == prev:
+        break
+    prev = cur
+    time.sleep(1.5)
 write_cfg(enabled=False)
-time.sleep(5)   # le push asincrone precedenti (con i 3 s di attesa del dialogo) devono essersi esaurite
 n0 = state_puts()
 r = hook("Stop", {"session_id": "S-A", "cwd": str(ws / "personali" / "atlas-shop"), "last_assistant_message": "x"})
 time.sleep(2.5)
@@ -499,6 +516,11 @@ bot = load("cm-bot")
 n0 = state_puts()
 cs7 = {"follow": []}
 txt = bot.toggle_follow(cs7, "atlas-shop")
-T.check("R7 bot toggle_follow → push (a new PUT of /state)", "atlas-shop" in cs7["follow"] and T.wait_until(lambda: state_puts() > n0, 6), txt)
+(rdir2 / "awaiting.json").write_text(json.dumps({"atlas-shop": int(time.time())}))
+r = relay("push", "--dry-run"); dryaw = json.loads(r.stdout)
+a_aw = next(s_ for s_ in dryaw["sessions"] if s_["name"] == "atlas-shop")
+T.check("R7b (1.2) a session awaiting a wrist prompt is «awaiting» and its tool is read too (before: only busy ones, so the card had no activity)", a_aw["state"] == "awaiting" and "tool" in a_aw, str((a_aw["state"], a_aw["tool"])))
+(rdir2 / "awaiting.json").write_text("{}")
+T.check("R7 bot toggle_follow → push (a new PUT of /state)", "atlas-shop" in cs7["follow"] and T.wait_until(lambda: state_puts() > n0, 15), txt)
 
 T.finish()

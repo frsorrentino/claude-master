@@ -13,6 +13,15 @@ Niente I/O qui: cm-relay.py raccoglie e scrive, questo modulo costruisce. Testat
   quota: {account: {cinque_ore_pct, settimana_pct, reset_settimanale, vecchia}}
   projects: [{path, name, account}] · night: {queued, running} · recap: {date, items[{project, done, next}]}
   follow: nomi seguiti · awaiting: nomi in attesa di risposta a un prompt dal watch
+
+Tempi di una sessione in `/state` (chiesto dall'app il 13/09/2026, qui perche' non si reinterpreti):
+  `since`        la NASCITA della sessione (startedAt del registro) mentre lavora o e' ferma; l'istante della
+                 domanda se aspetta; l'ultimo avvistamento se e' sparita. Non cambia a ogni cambio di stato.
+  `turn_started` l'ultimo prompt (o ripresa), valorizzato SOLO mentre lo stato e' busy o awaiting: a turno
+                 finito torna null.
+  `outcome.at`   l'ultimo Stop: e' questo il movimento di una sessione ferma, e si aggiorna a ogni fine turno
+                 perche' l'hook scrive una riga nel ledger ogni volta.
+  Chi vuole «l'ultimo movimento» usa max(since, turn_started, outcome.at): non serve un campo in piu'.
   next: {tmux: «→ prossimo» dal recap del progetto} · tools: {tmux: tool in corso}
 """
 import datetime as _dt
@@ -24,6 +33,18 @@ ORDER = {"waiting": 0, "busy": 1, "awaiting": 1, "idle": 2, "gone": 3}
 HIGH_WORDS = ["rm -rf", "git push", "deploy", "DROP", "ssh", "sudo", "--force", "git reset --hard"]
 LOW_TOOLS = {"Read", "Grep", "Glob", "WebFetch", "WebSearch", "LS", "TodoWrite"}
 STATE_ICON = {"waiting": "❓", "busy": "▶", "awaiting": "▶", "idle": "✓", "gone": "✗"}
+# contratto 1.1 (Franz via master 12/09 16:27): il badge dell'orologio = forma dall'account, colore = quello della scheda
+# del Terminale (cm-color), a prescindere dalla forma o dal cuore dell'emoji
+COLORS = {"🟠": "#F5A623", "🟧": "#F5A623", "🧡": "#F5A623", "🟡": "#F4D03F", "🟨": "#F4D03F", "💛": "#F4D03F",
+          "🔴": "#E74C3C", "🟥": "#E74C3C", "❤️": "#E74C3C", "❤": "#E74C3C", "🟢": "#2ECC71", "🟩": "#2ECC71", "💚": "#2ECC71",
+          "🔵": "#3B82F6", "🟦": "#3B82F6", "💙": "#3B82F6", "🟣": "#9B59B6", "🟪": "#9B59B6", "💜": "#9B59B6",
+          "⚪": "#BDC3C7", "⬜": "#BDC3C7", "🤍": "#BDC3C7", "🟤": "#8D6E63", "🟫": "#8D6E63", "🤎": "#8D6E63"}
+
+
+def color_of(icon, colors=None):
+    """«#RRGGBB» dell'emoji del badge (mappa fissa, o relay.colors), None se ignota o assente."""
+    ic = str(icon or "").strip()
+    return (colors or {}).get(ic) or COLORS.get(ic) or COLORS.get(ic.rstrip("\ufe0f")) or None
 
 
 def epoch(ts):
@@ -182,6 +203,12 @@ def build_session(row, src):
         "question": question,
         "outcome": _outcome(events) if st != "waiting" or not q else None,
         "next": (src.get("next") or {}).get(tmux) or None,
+        # 1.2: quando e' stato scritto quel «prossimo» (la data della riga di recap, mezzanotte locale), cosi'
+        # chi legge sa se e' di oggi o di tre giorni fa e puo' ordinarlo rispetto a outcome.at
+        "next_at": (src.get("next_at") or {}).get(tmux) or None,
+        # 1.1: icona della scheda (stabile per la vita della sessione) e il suo solo colore
+        "icon": (src.get("icons") or {}).get(tmux) or None,
+        "color": color_of((src.get("icons") or {}).get(tmux), src.get("colors")),
     }
 
 

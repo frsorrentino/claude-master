@@ -421,7 +421,7 @@
   "guard.cron_removed": "guard line removed from the crontab",
   "guard.status_cron": "cron: {state}   ({line})",
   "guard.status_account": "{account}: {pct} ({window}), reset {reset}, warned {warned}, resume planned {resume}",
-  "screen.usage": "usage: claude-master screen <name> [--lines N]",
+  "screen.usage": "usage: claude-master screen <name> [--lines N] [--join]",
   "screen.no_session": "claude-master screen: no tmux session “{name}”",
   "answer.usage": "usage: claude-master answer <name> --show | <name> <n> [<n> ...] [--text \"...\"]",
   "answer.no_session": "claude-master answer: no tmux session “{name}”",

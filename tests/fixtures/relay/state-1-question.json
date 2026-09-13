@@ -27,7 +27,10 @@
         "asked_at": 1789210500
       },
       "outcome": null,
-      "next": "Wait for the go"
+      "next": "Wait for the go",
+      "next_at": 1789171200,
+      "icon": "🟦",
+      "color": "#3B82F6"
     },
     {
       "id": "f61903c0-ea6a-409c-a961-d01126a0f3ad",
@@ -47,7 +50,10 @@
         "full": "Esito: migrazioni 008-011 applicate, test verdi.\nRestano da rivedere i seed di prova e la pagina admin.",
         "at": 1789210300
       },
-      "next": "Rivedere i seed e la pagina admin"
+      "next": "Rivedere i seed e la pagina admin",
+      "next_at": 1789171200,
+      "icon": "🟢",
+      "color": "#2ECC71"
     },
     {
       "id": "3d1b2c4e-0000-4000-8000-000000000003",
@@ -63,7 +69,10 @@
       "followed": false,
       "question": null,
       "outcome": {"short": "README riscritto", "full": "Esito: README riscritto con le tre sezioni chieste.", "at": 1789121000},
-      "next": null
+      "next": null,
+      "next_at": null,
+      "icon": "🟡",
+      "color": "#F4D03F"
     },
     {
       "id": "3d1b2c4e-0000-4000-8000-000000000004",
@@ -79,7 +88,10 @@
       "followed": false,
       "question": null,
       "outcome": null,
-      "next": "Riprendere la pagina prezzi"
+      "next": "Riprendere la pagina prezzi",
+      "next_at": 1789171200,
+      "icon": "🟪",
+      "color": "#9B59B6"
     }
   ],
   "quota": {

@@ -17,7 +17,10 @@
       "followed": false,
       "question": null,
       "outcome": {"short": "Seed e pagina admin rivisti", "full": "Esito: seed e pagina admin rivisti, 42 test verdi.", "at": 1789213900},
-      "next": "Deploy di prova su staging"
+      "next": "Deploy di prova su staging",
+      "next_at": 1789171200,
+      "icon": "🟢",
+      "color": "#2ECC71"
     }
   ],
   "quota": {

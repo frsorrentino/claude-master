@@ -421,7 +421,7 @@
   "guard.cron_removed": "riga della guardia tolta dal crontab",
   "guard.status_cron": "cron: {state}   ({line})",
   "guard.status_account": "{account}: {pct} ({window}), reset {reset}, avvisato {warned}, ripresa prevista {resume}",
-  "screen.usage": "uso: claude-master screen <nome> [--lines N]",
+  "screen.usage": "uso: claude-master screen <nome> [--lines N] [--join]",
   "screen.no_session": "claude-master screen: nessuna sessione tmux «{name}»",
   "answer.usage": "uso: claude-master answer <nome> --show | <nome> <n> [<n> ...] [--text \"...\"]",
   "answer.no_session": "claude-master answer: nessuna sessione tmux «{name}»",

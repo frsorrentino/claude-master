@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.4.0-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.4.1-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 ![One master session runs all the others: the root session launches, watches, answers and closes the parallel sessions of every project, from the terminal and from a watch — the bot's list shown on a round Wear OS watch and on a rectangular iOS watch.](assets/readme/card0-hero.png)
 
@@ -162,6 +162,13 @@ in the config, then `relay pair`, `relay install`. RTDB rules: `/state`,
 writable only by those, `/pair/<code>/watch` writable by an anonymous user; the
 PC writes with the service account. `relay push --dry-run` prints the clear
 state without touching the network.
+
+Each session in `/state` carries the badge the watch draws: `icon`, the emoji
+of its Terminal tab (stable for the session's life, the last known one once it
+is gone), and `color`, the hue alone as `#RRGGBB` whatever the shape — the
+watch takes the shape from the account (round for the personal one, square for
+the others) and the colour from here, so a session looks the same on the PC, in
+Telegram and on the wrist. `relay.colors` overrides the emoji-to-hex map.
 
 ### Guard, diary, digest, night
 

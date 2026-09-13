@@ -122,7 +122,8 @@ finito:» a fine di un turno > `bot.follow_min_turn_s`, «✗ nome» se sparisce
 `claude-master relay push|pair|serve|status|install|uninstall|off` (0.4.0): il PC sul bus dell'app Wear OS
 (Firebase RTDB + FCM, `/state` cifrato nella forma del contratto v1, comandi dal polso eseguiti via CLI); `relay
 push --dry-run` mostra lo stato in chiaro. Silenzioso tranne domande, esiti, risposte, errori e sparizioni; digest delle 8:00 («cosa aspetta te», un tasto
-Apri per ogni ❓). `terminale NOME`/`schermo NOME`/`v NOME`: le ultime 30 righe del riquadro in un blocco `<pre>`.
+Apri per ogni ❓). `terminale NOME`/`schermo NOME`/`v NOME`: le ultime 30 righe del riquadro in un blocco `<pre>`; `claude-master screen
+NOME --join` le riunisce dove tmux le ha mandate a capo (lo usa il relay per l'orologio).
 L'avviso di una domanda: «❓ icona nome», poi la domanda COMPLETA e di senso compiuto (il testo se sta in 88
 caratteri, altrimenti l'ultima frase interrogativa, altrimenti una sintesi col modello `hooks.ask_notify.synth_model`;
 se la sintesi ha tagliato qualcosa, il bottone «Domanda intera» manda il testo integrale),

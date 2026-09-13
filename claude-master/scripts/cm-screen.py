@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """claude-master screen — lo schermo di una sessione, per vedere dal telefono cosa sta facendo.
 
-  claude-master screen <nome> [--lines N]      le ultime N righe (30) del riquadro tmux della sessione
+  claude-master screen <nome> [--lines N] [--join]   le ultime N righe (30) del riquadro tmux della sessione
 
 `capture-pane -p` col nome nudo (T1: `-t =nome` non risolve per capture-pane), righe vuote in coda
-tolte. Dal telefono: «schermo NOME» alla master → questo comando, risposta in un blocco di codice.
+tolte. `--join` aggiunge `-J`: tmux riunisce le righe che ha mandato a capo dentro la larghezza del
+riquadro, cosi' chi ha uno schermo stretto (l'orologio, 13/09/2026) non legge parole spezzate a meta'
+e riformatta lui; il taglio a `--lines` vale sulle righe LOGICHE. Dal telefono: «schermo NOME» alla master → questo comando, risposta in un blocco di codice.
 Il testo dopo «❯» è un SUGGERIMENTO di Claude Code, non dell'utente (regola 1 del kernel).
 """
 import importlib.util
@@ -35,10 +37,13 @@ def tmux(*args):
 def main(argv):
     lines = 30
     name = ""
+    join = False
     i = 0
     while i < len(argv):
         if argv[i] == "--lines" and i + 1 < len(argv) and argv[i + 1].isdigit():
             lines = int(argv[i + 1]); i += 2
+        elif argv[i] in ("--join", "--unisci"):
+            join = True; i += 1
         elif not name and not argv[i].startswith("-"):
             name = argv[i]; i += 1
         else:
@@ -50,7 +55,7 @@ def main(argv):
     if tmux("has-session", "-t", f"={name}").returncode != 0:
         print(M("screen.no_session", name=name), file=sys.stderr)
         return 1
-    rows = tmux("capture-pane", "-p", "-t", name).stdout.splitlines()
+    rows = tmux("capture-pane", "-pJ" if join else "-p", "-t", name).stdout.splitlines()
     while rows and not rows[-1].strip():
         rows.pop()
     print("\n".join(rows[-lines:]))

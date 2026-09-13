@@ -36,6 +36,12 @@ with T.PrivateTmux() as tm:
     r = screen(tm, "alfa")
     lines = r.stdout.splitlines()
     T.check("S1 last lines of the screen, no trailing blanks, exit 0", r.returncode == 0 and "Enter to select" in r.stdout and "colore preferito?" in r.stdout and lines and lines[-1].strip() != "" and len(lines) <= 30, r.stdout + r.stderr)
+    subprocess.run(["tmux", "-L", tm.socket, "new-session", "-d", "-s", "lungo", "-x", "40", "-y", "12", "sh", "-c",
+                    "printf '%s\\n' 'parola spezzata a meta dal riquadro stretto di quaranta colonne'; sleep 60"], env=env(tm), check=True)
+    time.sleep(1.5)
+    plain = screen(tm, "lungo").stdout
+    joined = screen(tm, "lungo", "--join").stdout
+    T.check("S4 --join: tmux reunites the lines it wrapped (the long sentence is whole on one line; without it, cut)", "parola spezzata a meta dal riquadro stretto di quaranta colonne" in joined and "parola spezzata a meta dal riquadro stretto di quaranta colonne" not in plain, "PLAIN=" + repr(plain[-200:]) + " JOINED=" + repr(joined[-200:]))
     r = screen(tm, "alfa", "--lines", "2")
     T.check("S2 --lines 2 → two lines, the last ones", r.returncode == 0 and len(r.stdout.splitlines()) == 2 and "Enter to select" in r.stdout, r.stdout + r.stderr)
     r = screen(tm, "nessuna")

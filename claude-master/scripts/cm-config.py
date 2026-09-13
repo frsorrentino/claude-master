@@ -149,7 +149,8 @@ DEFAULTS = {
               "fcm_topic": "watch", "tier_high": ["rm -rf", "git push", "deploy", "DROP", "ssh", "sudo", "--force", "git reset --hard"],
               "state_max_kb": 8, "events_days": 7, "dir": "~/.claude-master/relay", "heartbeat_s": 60, "debounce_s": 2,
               "token_url": "https://oauth2.googleapis.com/token", "fcm_url": "https://fcm.googleapis.com", "host": "",
-              "log": "", "command_timeout_s": 120, "pair_ttl_s": 300, "pair_attempts": 5, "serve_timeout_s": 50},
+              "log": "", "command_timeout_s": 120, "pair_ttl_s": 300, "pair_attempts": 5, "serve_timeout_s": 50,
+              "colors": {}},
     "hooks": {
         "local_time": {"enabled": True, "format": "%A %Y-%m-%d %H:%M", "prefix": "[local time]"},
         "restart_stop": {"enabled": True},
@@ -259,7 +260,7 @@ def deep_merge(base, over, path="", unknown=None):
         here = f"{path}.{k}" if path else k
         if k not in out:
             if unknown is not None and path not in ("accounts", "shell.wrappers", "shell.aliases", "tile.monitor_names",
-                                                    "profiles", "session.env", "bot.links") and not path.startswith("profiles."):
+                                                    "profiles", "session.env", "bot.links", "relay.colors") and not path.startswith("profiles."):
                 unknown.append(here)   # ignota: avvisata e scartata, mai propagata
                 continue
             out[k] = v
