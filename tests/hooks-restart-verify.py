@@ -9,6 +9,7 @@ H3  SessionStart stampa il kernel (<= 1900 caratteri, <= 13 righe) a startup/res
 H4  Stop scrive nel ledger `last` troncato; con coda → {"decision":"block","reason":...} e la voce esce dalla coda; con stop_hook_active non consuma; voci scadute scartate
 H4c Stop salva anche `tail` (la coda del messaggio, 600 caratteri) ed `esito` (riga «Esito:») per il polso
 H5  StopFailure scrive nel ledger
+H5b Stop cancella waiting/<sid> (14/09: la domanda risposta restava «waiting» fino al prompt dopo)
 R1  restart arm fuori tmux → exit 3; dentro tmux scrive il flag con tmux/pid/cartella/gen
 R2  restart hook da un'altra sessione → non tocca il flag; dalla stessa → lo consuma e stacca l'esecutore
 R3  esecutore: /exit al claude finto, nome tmux liberato, rilancio con --continue (claude finto), log scritto
@@ -139,6 +140,10 @@ T.check("H4c stop row carries tail and esito (the «Esito:» line), last still �
 r = hook("StopFailure", {"session_id": "sid3", "error": "boom"})
 rows = [json.loads(l) for l in ledger.read_text().splitlines()]
 T.check("H5 StopFailure in the ledger", rows[-1]["event"] == "stop-failure" and rows[-1]["error"] == "boom", str(rows[-1]))
+# H5b: lo Stop toglie il flag waiting — a fine turno nessun dialogo e' aperto (risposta da tastiera: nessun prompt fino al turno dopo)
+(state / "waiting" / "sid-stop").write_text("AskUserQuestion")
+r = hook("Stop", {"session_id": "sid-stop", "cwd": str(home), "last_assistant_message": "fatto"})
+T.check("H5b Stop clears the waiting flag (else the relay kept the session «waiting» until the next prompt)", not (state / "waiting" / "sid-stop").exists(), r.stdout + r.stderr)
 
 # ---- restart con tmux privato e claude finto
 with T.PrivateTmux() as tm:

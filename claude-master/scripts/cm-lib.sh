@@ -13,10 +13,17 @@ case ":$PATH:" in
   *":$HOME/.local/bin:"*) ;;
   *) export PATH="$HOME/.local/bin:/usr/local/bin:$PATH" ;;
 esac
-if [ -z "${CM_CONFIG_LOADED:-}" ]; then
+# Una volta per catena di script, ma legata a QUALE config: la chiave e' file, data di modifica e home.
+# Con il solo «1» (fino al 14/09/2026) le CM_* passavano dal server tmux, partito da uno script al boot, a
+# ogni sessione e ai suoi figli: un test con la sua config e il suo tmux scriveva nel registro colori vero
+# e potava le sessioni vive (schede e polso con colori diversi); e una config cambiata restava invisibile.
+_cm_cfg="${CLAUDE_MASTER_CONFIG:-${CM_HOME:-$HOME}/.config/claude-master/config.json}"
+_cm_key="$_cm_cfg|$(date -r "$_cm_cfg" +%s 2>/dev/null)|${CM_HOME:-}|$HOME"
+if [ "${CM_CONFIG_LOADED:-}" != "$_cm_key" ]; then
   eval "$(python3 "$CM_SCRIPTS/cm-config.py" --sh --messages)"
-  export CM_CONFIG_LOADED=1
+  export CM_CONFIG_LOADED="$_cm_key"
 fi
+unset _cm_cfg _cm_key
 
 cm_tmux() {
   # shellcheck disable=SC2086

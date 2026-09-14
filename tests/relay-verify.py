@@ -443,6 +443,7 @@ def send_cmd(cmd, wait=20):   # sotto carico il daemon impiega di piu' (build in
 n_state_puts = len([x for x in CALLS["requests"] if x == ("PUT", "/state.json")])
 res = send_cmd(CMDS[0])   # answer ledger-api 1
 T.check("R6 answer → `answer pix-ledger-api 1` (name mapped to tmux), /result {ok, text «answered 1. yes», at}, /cmd/<id> deleted", res and res["ok"] is True and res["text"] == "answered 1. yes" and isinstance(res["at"], int) and "answer pix-ledger-api 1" in cm_calls() and CMDS[0]["id"] not in (STORE.get("cmd") or {}), str(res) + str(cm_calls()[-4:]))
+T.check("R6 a successful answer removes the hook's waiting flag (else «waiting» until the next prompt: answered and outcome 3 min late, 14/09)", not (state_dir / "waiting" / "S-L").exists(), str(list((state_dir / "waiting").iterdir())))
 led_rows = lambda: [json.loads(l) for l in ledger.read_text().splitlines() if l.strip()]  # noqa: E731
 T.check("R6 the command is annotated in the ledger: event watch-cmd with op, name, by (who answered) and ok", any(x.get("event") == "watch-cmd" and x.get("op") == "answer" and x.get("name") == "ledger-api" and x.get("by") == "watch-pixel5" and x.get("ok") is True for x in led_rows()), str([x for x in led_rows() if x.get("event") == "watch-cmd"][-2:]))
 T.check("R6 after a command /state is republished (a new PUT of /state)", T.wait_until(lambda: len([x for x in CALLS["requests"] if x == ("PUT", "/state.json")]) > n_state_puts, 6), "")
@@ -476,6 +477,9 @@ res = send_cmd(dict(CMDS[4], id="6f1c2d3e-0005-4000-8000-0000000000bb", op="unfo
 T.check("R6 unfollow → removed", res and res["ok"] and "atlas-shop" not in json.loads((rdir2 / "follow.json").read_text()), str(res))
 res = send_cmd(CMDS[5])   # resume orbit-docs (gone)
 T.check("R6 resume of a gone session → ok false «orbit-docs is gone: use launch»", res and res["ok"] is False and res["text"] == "orbit-docs is gone: use launch", str(res))
+# una domanda nuova su ledger-api: la risposta di prima ha tolto il flag, l'hook del dialogo nuovo lo riscrive
+(state_dir / "waiting" / "S-L").write_text(json.dumps({"tool": "AskUserQuestion", "input": {}}))
+relay("push")
 res = send_cmd(CMDS[6])   # allow_all ledger-api
 T.check("R6 allow_all without a «don't ask again» option → ok false with the contract's text", res and res["ok"] is False and res["text"] == "no «don't ask again» option on this question", str(res))
 n_ans = len([c for c in cm_calls() if c == "answer pix-ledger-api 1"])

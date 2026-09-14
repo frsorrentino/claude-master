@@ -7,6 +7,8 @@ K3  le voci di sessioni morte vengono potate; il colore liberato torna disponibi
 K4  oltre 7 vive: si riusa la coppia forma+colore ancora libera (🟦 e 🔵 restano distinti)
 K5  concorrenza: due chiamate parallele per due sessioni nuove → colori diversi (T56)
 K6  registro nel formato legacy `nome<TAB>indice` (D4: condiviso con colore-sessione)
+K7  CM_* ereditate da un'ALTRA config (14/09: dal server tmux della macchina) non si impongono: cm-color scrive
+    nel registro della config indicata, non tocca l'altro; una config modificata si ricarica
 A1  attach ephemeral: dopo l'attacco destroy-unattached e' `on` e set-titles-string e' il titolo (T7, T26)
 A2  attach senza modo: destroy-unattached resta `off`
 A3  attach su sessione inesistente → exit 3 con l'elenco
@@ -119,6 +121,25 @@ with T.PrivateTmux() as tm:
     # A3
     r = run("cm-attach.sh", "nessuna")
     T.check("A3 missing session → exit 3 with list", r.returncode == 3 and "alfa" in r.stderr, r.stderr)
+    # K7: le CM_* di una sessione nata sotto un'altra config (qui: il «registro vero» è colors-altra)
+    def loaded_env(config):
+        out = subprocess.run(["bash", "-c", f"source '{T.SCRIPTS / 'cm-lib.sh'}' && env -0"], capture_output=True,
+                             env={"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(config)}).stdout
+        return {k: v for k, v in (kv.split("=", 1) for kv in out.decode().split("\0") if kv.startswith("CM_") and "=" in kv) if k != "CM_TMUX_ARGS"}
+    other_reg = Path(tmp) / "colors-altra"; other_reg.write_text("vera\t0\n")
+    other_cfg = Path(tmp) / "config-altra.json"
+    other_cfg.write_text(json.dumps({"language": "it", "tabs": {"color_registry": str(other_reg)}}))
+    r = run("cm-color.sh", "k7", extra=loaded_env(other_cfg))
+    T.check("K7 CM_* inherited from another config don't win: the given config's registry gets the entry, the other is untouched (no pruning of live sessions)",
+            other_reg.read_text() == "vera\t0\n" and "k7\t" in reg.read_text(), r.stdout + r.stderr + other_reg.read_text())
+    inherited = loaded_env(cfg)
+    reg2 = Path(tmp) / "colors-2"
+    saved = cfg.read_text()
+    cfg.write_text(saved.replace(json.dumps(str(reg)), json.dumps(str(reg2))))
+    os.utime(cfg, (time.time() + 5, time.time() + 5))
+    r = run("cm-color.sh", "k7b", extra=inherited)
+    T.check("K7 same config file modified after the load → reloaded: the new registry path is used", reg2.exists() and "k7b\t" in reg2.read_text(), r.stdout + r.stderr)
+    cfg.write_text(saved)
     # A4
     src = (T.SCRIPTS / "cm-terminal.sh").read_text()
     T.check("A4 terminal backends call `attach NAME ephemeral` (no leading dash)", 'attach "$nome"' in src and "attach -t" not in src.split("chromeos)")[1].split("gnome)")[0], "")

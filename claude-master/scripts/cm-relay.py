@@ -225,6 +225,14 @@ def waiting_info(session_id):
         return {"tool": raw}
 
 
+def clear_waiting(session_id):
+    """Via il flag dell'hook dopo una risposta andata a buon fine: l'hook lo toglie solo al prompt dopo (o allo Stop),
+    e fino ad allora la sessione restava «waiting» con la domanda gia' risposta (14/09: answered e outcome partiti
+    3 minuti dopo la risposta dal polso)."""
+    if session_id:
+        (Path(cm.expand(CFG["state_dir"])) / "waiting" / session_id).unlink(missing_ok=True)
+
+
 def question_of(name, tool):
     """(testo intero, [etichette]) dallo schermo via `answer NAME --show` (cm-answer: piè di pagina esclusi)."""
     try:
@@ -678,6 +686,7 @@ def execute(cmd):
             rc, out = run_cm("answer", tm, str(n))
             if rc != 0:
                 return False, out.splitlines()[0] if out else "answer failed"
+            clear_waiting((row or {}).get("session_id"))
             m = re.search(r"risposto\s+(\d+)\.\s+(.*?)\s{2,}", out + "  ") or re.search(r"risposto\s+(\d+)\.\s+(\S.*)$", out.splitlines()[0])
             label = m.group(2).strip() if m else ""
             return True, M("relay.cmd_answered", n=n, label=label)
@@ -729,6 +738,8 @@ def execute(cmd):
             if not opt:
                 return False, M("relay.cmd_no_allow_all")
             rc, out = run_cm("answer", tm, str(opt["n"]))
+            if rc == 0:
+                clear_waiting(next((r.get("session_id") for r in (_json_cmd("sessions", "--json") or []) if (r.get("tmux") or r.get("name")) == tm), ""))
             return (rc == 0), (M("relay.cmd_answered", n=opt["n"], label=opt["label"]) if rc == 0 else (out.splitlines()[0] if out else "answer failed"))
     except subprocess.TimeoutExpired:
         return False, "timeout"

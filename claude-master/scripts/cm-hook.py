@@ -236,6 +236,10 @@ def main(argv):
         ask_notify(p)
         relay_push()
     elif ev == "Stop":
+        # a fine turno nessun dialogo e' aperto: il flag restava fino al prompt dopo e il relay teneva la sessione
+        # «waiting» con la domanda gia' risposta (14/09: answered e outcome partiti 3 minuti tardi)
+        if sid:
+            (STATE / "waiting" / sid).unlink(missing_ok=True)
         msg = p.get("last_assistant_message") or ""
         last = msg[:300]
         # per il polso (regola 9): l'ultima riga di testo e, se c'e', la riga «Esito:» — i primi 300
