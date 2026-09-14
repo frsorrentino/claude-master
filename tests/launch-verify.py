@@ -15,6 +15,8 @@ L11 registro aggiornato al lancio (T52) e link dal registro peer (1.2)
 L12 PATH del cron (T81, 16:30 dell'11/09: «claude non trovato nel PATH» dal bot): con PATH=/usr/bin:/bin e senza
     CM_CLAUDE_BIN, launch trova ~/.local/bin/claude (cm-lib antepone ~/.local/bin); senza nessun claude, exit 3
     con il messaggio che dice i percorsi provati
+L13 display (14/09): sotto tmux senza DISPLAY/WAYLAND_DISPLAY/XDG_RUNTIME_DIR e con wayland-0 vivo → la finestra
+    si apre (backend gnome a secco); senza socket → salta (T57); fuori tmux (cron, daemon) anche col socket → salta
 """
 import json
 import os
@@ -173,6 +175,30 @@ with T.PrivateTmux() as tm:
     (home / ".local" / "bin" / "claude").unlink()
     r = subprocess.run([str(T.SCRIPTS / "cm-launch.sh"), str(home / "ws" / "personali" / "alfa"), "--no-window"], capture_output=True, text=True, env=e12, timeout=90)
     T.check("L12 no claude anywhere → exit 3, the message names ~/.local/bin/claude", r.returncode == 3 and ".local/bin/claude" in r.stderr, r.stdout + r.stderr)
+    # L13: backend gnome (soggetto a T57) a secco: il comando stampato finisce nell'uscita di launch
+    import socket
+    cfg13 = tmp / "config-l13.json"
+    c13 = json.loads(cfg.read_text()); c13["terminal"] = {"backend": "gnome", "attach_wait_s": 1, "attach_retry_wait_s": 1, "headless_skip": True}
+    cfg13.write_text(json.dumps(c13))
+    rt13, x13 = tmp / "runtime13", tmp / "x11-13"
+    rt13.mkdir(); x13.mkdir()
+
+    def run13(folder, under_tmux):
+        (home / "ws" / "personali" / folder).mkdir(exist_ok=True)
+        e = {k: v for k, v in env_base("plain").items() if k not in ("WAYLAND_DISPLAY", "CM_TERMINAL_FAKE_ATTACH")}
+        e.update(CLAUDE_MASTER_CONFIG=str(cfg13), CM_TERMINAL_DRY_RUN="1", XDG_RUNTIME_DIR=str(rt13), CM_X11_SOCKET_DIR=str(x13))
+        if under_tmux:
+            e["TMUX"] = "/tmp/tmux-fake/default,1,0"
+        return subprocess.run([str(T.SCRIPTS / "cm-launch.sh"), str(home / "ws" / "personali" / folder)], capture_output=True, text=True, env=e, timeout=90)
+
+    r = run13("senzasocket", True)
+    T.check("L13 under tmux, no display, no socket → cm-terminal skips (T57)", r.returncode == 0 and "skip: headless" in r.stdout and "gnome-terminal" not in r.stdout, r.stdout + r.stderr)
+    srv = socket.socket(socket.AF_UNIX); srv.bind(str(rt13 / "wayland-0"))
+    r = run13("consocket", True)
+    T.check("L13 under tmux, no display, wayland-0 alive → display recovered, the tab opens", r.returncode == 0 and "gnome-terminal --title consocket" in r.stdout and "skip: headless" not in r.stdout, r.stdout + r.stderr)
+    r = run13("dacron", False)
+    srv.close()
+    T.check("L13 outside tmux (cron, daemons) the socket is not enough → still skips (T57)", r.returncode == 0 and "skip: headless" in r.stdout and "gnome-terminal" not in r.stdout, r.stdout + r.stderr)
 
 T.rm(str(tmp))
 T.finish()

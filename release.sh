@@ -62,11 +62,15 @@ rm -f "$ZIP"
 unzip -l "$ZIP" | tail -1
 
 echo "== 4/6 commit on the local main (never pushed) =="
-git add README.md CHANGELOG.md LICENSE release.sh cutover.sh .claude-plugin .gitignore "$PLUGIN" tests docs
-if git diff --cached --quiet; then
+# Senza docs/ (14/09/2026: un'altra sessione vi lavora, e `git add docs` prendeva anche i suoi file non
+# tracciati; docs/ non va comunque sul ramo pubblico: chi ci scrive lo committa da se'), e il commit SOLO
+# su questi percorsi: quello che altri hanno in stage nel frattempo resta fuori.
+REL_PATHS=(README.md CHANGELOG.md LICENSE release.sh cutover.sh .claude-plugin .gitignore "$PLUGIN" tests)
+git add "${REL_PATHS[@]}"
+if git diff --cached --quiet -- "${REL_PATHS[@]}"; then
   echo "(nothing new to commit — releasing HEAD as is)"
 else
-  git commit -m "release: $VER"
+  git commit -m "release: $VER" -- "${REL_PATHS[@]}"
 fi
 
 echo "== 4b/6 public branch: the tree without docs/ and BRIEF.md → origin/main =="

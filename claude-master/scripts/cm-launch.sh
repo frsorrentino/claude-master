@@ -251,6 +251,8 @@ if e_dialogo <<<"$SCHERMO"; then cm_msg launch.stuck_dialog "name=$NOME" >&2; ex
 
 # --- finestra sul desktop, verificata ATTACCATA (T8) ----------------------------------
 FINESTRA_APERTA=""
+# una launch da una sessione nata sotto il server tmux senza display (14/09/2026): cm_recover_display (cm-lib.sh)
+if [ "$FINESTRA" = true ]; then cm_recover_display || true; fi
 # Backend «none» o nessun display: niente da aprire e niente da aspettare (prima si aspettava
 # attach_wait_s per una finestra impossibile: 25 s a ogni riavvio, traccia del 10/09)
 if [ "$FINESTRA" = true ] && [ "$("$CM_SCRIPTS/cm-terminal.sh" detect)" = none ]; then

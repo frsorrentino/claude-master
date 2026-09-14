@@ -234,7 +234,9 @@ with T.PrivateTmux() as tm:
     rt.mkdir(); x11.mkdir()
     morto = subprocess.Popen(["true"]); morto.wait()
     e8 = {k: v for k, v in e.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "TMUX")}
-    e8.update(CLAUDE_MASTER_CONFIG=str(cfg8), CM_TERMINAL_DRY_RUN="1", XDG_RUNTIME_DIR=str(rt), CM_X11_SOCKET_DIR=str(x11))
+    # TMUX: l'esecutore vero la eredita da claude, che gira in un riquadro (il recupero vale solo sotto tmux)
+    e8.update(CLAUDE_MASTER_CONFIG=str(cfg8), CM_TERMINAL_DRY_RUN="1", XDG_RUNTIME_DIR=str(rt), CM_X11_SOCKET_DIR=str(x11),
+              TMUX="/tmp/tmux-fake/default,1,0")
 
     def exec8(tag):
         f8 = state / f"restart-r8-{tag}.json"

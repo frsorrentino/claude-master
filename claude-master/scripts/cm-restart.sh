@@ -155,16 +155,8 @@ esegui() {
     echo "transcript copiato in $dst/$sid.jsonl ($(du -h "$src" | cut -f1))"
     OPZ=(--resume "$sid" --account "$acc_a")
   fi
-  # 5. Display (14/09/2026): il server tmux ripartito al boot del 12/09 senza DISPLAY/WAYLAND_DISPLAY
-  #    li nega a claude e quindi a questo esecutore; cm-terminal (T57) saltava la finestra, 9 riavvii
-  #    su 9 senza finestra. Se il compositor c'e' (socket vivo), si recupera. Anche XDG_RUNTIME_DIR:
-  #    manca pure quello, e senza WAYLAND_DISPLAY relativo non trova il socket.
-  if [ -z "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
-    local rt="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-    [ -S "$rt/wayland-0" ] && export XDG_RUNTIME_DIR="$rt" WAYLAND_DISPLAY=wayland-0
-    [ -S "${CM_X11_SOCKET_DIR:-/tmp/.X11-unix}/X0" ] && export DISPLAY=:0
-    [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ] && echo "display recuperato: WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-} DISPLAY=${DISPLAY:-}"
-  fi
+  # 5. Display (14/09/2026): 9 riavvii su 9 senza finestra dal 12/09 — cm_recover_display (cm-lib.sh)
+  if cm_recover_display; then echo "display recuperato: WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-} DISPLAY=${DISPLAY:-}"; fi
   local out rc
   out=$("$CM_SCRIPTS/cm-launch.sh" "$cartella" "${OPZ[@]}" 2>&1); rc=$?
   if [ $rc -ne 0 ]; then echo "primo rilancio fallito (rc=$rc):"; echo "$out"; sleep 5
