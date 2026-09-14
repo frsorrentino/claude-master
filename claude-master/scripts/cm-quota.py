@@ -74,6 +74,8 @@ def leggi(config_dir):
         "cinque_ore_pct": d.get("five_hour_used_pct"),
         "settimana_pct": d.get("weekly_used_pct"),
         "reset_settimanale": reset,
+        # il reset della finestra di 5 ore c'e' nella sorgente e serve al polso (14/09): «riparte alle 12:30»
+        "reset_cinque_ore": d.get("five_hour_resets_at"),
         "eta_secondi": round(eta),
         "vecchia": eta > SOGLIA_VECCHIA,
         "finestra_scaduta": scaduta,

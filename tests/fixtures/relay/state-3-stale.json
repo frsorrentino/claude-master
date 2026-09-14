@@ -4,8 +4,8 @@
   "host": "crostini-franz",
   "sessions": [],
   "quota": {
-    "personale": {"h5": 0, "w7": 36, "reset_w7": 1789610400, "stale": true},
-    "agenzia": {"h5": null, "w7": 75, "reset_w7": 1789444800, "stale": true}
+    "personale": {"h5": 0, "w7": 36, "reset_w7": 1789610400, "reset_h5": 1789228800, "stale": true},
+    "agenzia": {"h5": null, "w7": 75, "reset_w7": 1789444800, "reset_h5": 1789225200, "stale": true}
   },
   "projects": [],
   "night": {"queued": 0, "running": null},

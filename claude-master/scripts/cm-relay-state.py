@@ -30,6 +30,8 @@ import re
 
 V = 1
 ORDER = {"waiting": 0, "busy": 1, "awaiting": 1, "idle": 2, "gone": 3}
+SHORT_MAX = 200   # 1.6: la riga «Watch:»/«Esito:» intera (a 60 il polso mostrava mezza frase; chiesto dall'app il 14/09)
+KEEP_GONE = 3     # fit_state: le sessioni finite piu' recenti che restano quando lo stato non entra
 HIGH_WORDS = ["rm -rf", "git push", "deploy", "DROP", "ssh", "sudo", "--force", "git reset --hard"]
 LOW_TOOLS = {"Read", "Grep", "Glob", "WebFetch", "WebSearch", "LS", "TodoWrite"}
 STATE_ICON = {"waiting": "❓", "busy": "▶", "awaiting": "▶", "idle": "✓", "gone": "✗"}
@@ -154,7 +156,7 @@ def _outcome(events):
     full_src = tail if esito and esito.splitlines()[0] in tail else (esito + ("\n" if esito and tail else "") + tail)
     full = strip_markdown(without_watch(full_src))[:600]
     short = watch_line(str(r.get("watch") or "")) or watch_line(tail) or esito_line(esito) or esito_line(tail) or (full.splitlines() or [""])[-1]
-    return {"short": short_of(short, 60), "full": full, "at": epoch(r.get("ts"))}
+    return {"short": short_of(short, SHORT_MAX), "full": full, "at": epoch(r.get("ts"))}
 
 
 def _turn_started(events, before=None):
@@ -197,6 +199,8 @@ def build_session(row, src):
         "since": since,
         "turn_started": turn,
         "tool": (src.get("tools") or {}).get(tmux) if st in ("busy", "awaiting") else None,
+        # 1.5: l'intento del comando in corso («Run the plugin test suite»), dove `tool` dice solo «Bash cd …»
+        "tool_note": (src.get("tool_notes") or {}).get(tmux) if st in ("busy", "awaiting") else None,
         "link": row.get("link") or "",
         "attached": bool(row.get("attached")),
         "followed": tmux in (src.get("follow") or ()),
@@ -226,6 +230,9 @@ def build_quota(quota):
         out[acc] = {"h5": _int_or_none(q.get("cinque_ore_pct", q.get("five_hour_used_pct"))),
                     "w7": _int_or_none(q.get("settimana_pct", q.get("weekly_used_pct"))),
                     "reset_w7": _int_or_none(q.get("reset_settimanale", q.get("weekly_resets_at"))),
+                    # 1.3: quando riparte la finestra di 5 ore (il polso mostrava il reset settimanale sotto la
+                    # percentuale delle 5 ore, e sembrava sbagliato)
+                    "reset_h5": _int_or_none(q.get("reset_cinque_ore", q.get("five_hour_resets_at"))),
                     "stale": bool(q.get("vecchia", q.get("stale")))}
     return out
 
@@ -252,22 +259,47 @@ def size_of(state):
     return len(json.dumps(state, ensure_ascii=False, separators=(",", ":")).encode())
 
 
+def cut_at_word(text, n):
+    """≤ n caratteri, alla parola intera se possibile, a capo conservati (per `full`)."""
+    t = str(text or "")
+    if len(t) <= n:
+        return t
+    cut = t[:n]
+    i = max(cut.rfind(" "), cut.rfind("\n"))
+    return cut[:i].rstrip(" ,;:\n") if i > n // 2 else cut
+
+
 def fit_state(state, max_kb=8):
-    """Sotto il tetto, togliendo in ordine: le voci del recap, il `full` degli esiti, i progetti oltre i primi
-    dieci; poi si tronca ancora `full` (mai la domanda)."""
+    """Sotto il tetto, togliendo in ordine: le voci del recap; le sessioni finite piu' vecchie (restano le
+    KEEP_GONE piu' recenti); i progetti oltre i primi dieci; `full` degli esiti a 300 caratteri, poi uguale a
+    `short`; infine le sessioni dal fondo. Mai la domanda. Prima `full` cadeva per primo: il 14/09, con dieci
+    sessioni finite, ogni esito sul polso era la sola riga corta. Una sessione finita che esce dallo stato non
+    genera eventi (events_between ignora le gone sparite e le gone ricomparse)."""
     cap = max_kb * 1024
-    if size_of(state) <= cap:
+
+    def fits():
+        return size_of(state) <= cap
+    if fits():
         return state
     state["recap"]["items"] = []
-    if size_of(state) <= cap:
+    if fits():
         return state
-    for s in state["sessions"]:
-        if s.get("outcome"):
-            s["outcome"]["full"] = s["outcome"]["short"]
-    if size_of(state) <= cap:
-        return state
+    gone = sorted((s for s in state["sessions"] if s["state"] == "gone"), key=lambda s: s.get("since") or 0)
+    for s in gone[:max(0, len(gone) - KEEP_GONE)]:
+        state["sessions"].remove(s)
+        if fits():
+            return state
     state["projects"] = state["projects"][:10]
-    while size_of(state) > cap and state["sessions"]:
+    if fits():
+        return state
+    for n in (300, 0):
+        for s in state["sessions"]:
+            o = s.get("outcome")
+            if o:
+                o["full"] = cut_at_word(o["full"], n) if n else o["short"]
+        if fits():
+            return state
+    while not fits() and state["sessions"]:
         state["sessions"].pop()
     return state
 

@@ -51,7 +51,8 @@ M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
 R = CFG["relay"]
 CM_BIN = os.environ.get("CM_RELAY_CM") or str(HERE / "claude-master")
 BACKOFF = [1, 2, 5, 15, 30]
-OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "screen", "allow_all")
+OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "screen", "allow_all", "last")
+LAST_MAX = 4000   # 1.4: l'ultimo messaggio per la lettura vocale — oltre, l'ascolto non regge
 
 
 class RelayError(Exception):
@@ -334,18 +335,29 @@ def night_queue():
 
 
 def tool_of(row):
-    """Il tool in corso di una sessione che lavora: l'ultimo tool_use nella coda del transcript."""
+    """(tool in corso, nota) dall'ultimo tool_use nella coda del transcript. La nota e' la `description` che
+    Claude scrive per un comando Bash: dice l'intento dove il comando dice «cd …» (1.5). I percorsi di
+    Read/Edit/Write si rendono assoluti rispetto alla cartella della sessione, cosi' chi legge sa quale progetto
+    viene toccato."""
     try:
         bot = _load("cm-bot"); ui = _load("cm-bot-ui")
         path = bot.transcript_of(row)
         if not path:
-            return None
+            return None, ""
         size = os.path.getsize(path)
         events, _ = ui.transcript_events(path, max(0, size - 65536))
         tools = [e for e in events if e[0] == "tool"]
-        return ui.tool_line(tools[-1][1], tools[-1][2]) if tools else None
+        if not tools:
+            return None, ""
+        name, inp = tools[-1][1], tools[-1][2]
+        if isinstance(inp, dict):
+            for k in ("file_path", "path"):
+                v = str(inp.get(k) or "")
+                if v and not v.startswith("/") and row.get("cwd"):
+                    inp = dict(inp); inp[k] = os.path.normpath(os.path.join(row["cwd"], v))
+        return ui.tool_line(name, inp), ui.tool_note(inp)
     except Exception:   # il transcript e' un extra: mai bloccare la push
-        return None
+        return None, ""
 
 
 def collect_sources(now=None):
@@ -366,7 +378,7 @@ def collect_sources(now=None):
     # 1.1: l'icona della scheda per ogni sessione viva (cm-color: registro stabile), per le sparite l'ultima nota
     last_icons = {s_.get("name"): s_.get("icon") for s_ in (read_json(rdir() / "last-state.json", {}).get("state") or {}).get("sessions", []) if s_.get("icon")}
     icons = {}
-    questions, nexts, nexts_at, tools = {}, {}, {}, {}
+    questions, nexts, nexts_at, tools, notes = {}, {}, {}, {}, {}
     for r in rows:
         tm = r.get("tmux") or r.get("name") or ""
         if r.get("status") == "dead":
@@ -406,9 +418,11 @@ def collect_sources(now=None):
                              "options": opts, "asked_at": asked[-1] if asked else int(now), "detail": json.dumps(detail, ensure_ascii=False) if detail else ""}
         elif r.get("status") == "busy" or tm in aw:
             # anche le «awaiting» (prompt dal polso in corso): senza questo la card restava senza attivita'
-            t = tool_of(r)
+            t, note = tool_of(r)
             if t:
                 tools[tm] = t
+            if note:
+                notes[tm] = note
     return {
         "host": str(R.get("host") or socket.gethostname()),
         "root": cm.expand(CFG["workspace"]["root"]), "prefixes": prefixes(), "high_words": R.get("tier_high") or None,
@@ -417,7 +431,7 @@ def collect_sources(now=None):
         "quota": _json_cmd("quota", "--json", expect="{") or {},
         "projects": inventory(), "night": night_queue(), "recap": recap_today(now),
         "follow": followed(), "awaiting": aw, "next": nexts, "next_at": nexts_at, "tools": tools,
-        "icons": icons, "colors": R.get("colors") or None,
+        "icons": icons, "colors": R.get("colors") or None, "tool_notes": notes,
     }
 
 
@@ -597,6 +611,36 @@ def last_sessions():
     return {s["name"]: s for s in (read_json(rdir() / "last-state.json", {}).get("state") or {}).get("sessions", [])}
 
 
+def last_message(row, cap=LAST_MAX):
+    """L'ultimo messaggio dell'assistente di una sessione, dal transcript, INTERO fino a `cap` caratteri (oltre,
+    si taglia a fine frase: all'ascolto conta l'inizio). Testo grezzo, markdown compreso: chi legge ripulisce.
+    «» se non c'e' transcript o nessun messaggio. Il registro tiene solo 600 caratteri della coda, quindi per il
+    testo intero la sorgente e' il transcript (contratto 1.4, per il tasto ▶ del polso, 14/09)."""
+    path = _load("cm-bot").transcript_of(row)
+    if not path:
+        return ""
+    ui = _load("cm-bot-ui")
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return ""
+    texts = []
+    # gli ultimi 512 KB bastano per un turno lungo; se non c'e' nulla si rilegge tutto il file
+    for window in (512 * 1024, size):
+        events, _ = ui.transcript_events(path, max(0, size - window))
+        texts = [e[1] for e in events if e[0] == "text" and str(e[1]).strip()]
+        if texts or window >= size:
+            break
+    if not texts:
+        return ""
+    text = str(texts[-1]).strip()
+    if len(text) <= cap:
+        return text
+    cut = text[:cap]
+    end = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "), cut.rfind(".\n"))
+    return (cut[:end + 1] if end > cap // 2 else cut).rstrip()
+
+
 def execute(cmd):
     """(ok, testo) per un comando del contratto: {op, session, arg, by}. Allow-list fissa, tutto via la CLI."""
     op = str(cmd.get("op") or "")
@@ -650,6 +694,10 @@ def execute(cmd):
             if rc != 0:
                 return False, out.splitlines()[0] if out else "talk failed"
             return True, M("relay.cmd_resumed", name=session)
+        if op == "last":
+            row = next((r for r in (_json_cmd("sessions", "--json") or []) if (r.get("tmux") or r.get("name")) == tm), None)
+            text = last_message(row) if row else ""
+            return (bool(text), text or M("relay.cmd_no_last", name=session))
         if op == "screen":
             # --join: tmux riunisce le righe mandate a capo, cosi' il polso non riceve parole spezzate
             rc, out = run_cm("screen", tm, "--lines", "30", "--join")
@@ -813,6 +861,12 @@ def serve():
     log(f"serve: avvio pid {os.getpid()}")
     done = list(read_json(rdir() / "done-cmds.json", []))
     st_ = {"pid": os.getpid(), "started": started, "last_cmd_ts": None, "last_cmd": "", "served": 0, "reconnects": 0}
+    # subito su file: finche' lo stream regge il ciclo non torna qui, e `relay status` mostrerebbe i numeri del
+    # processo precedente (visto dal vivo il 14/09: «46 riconnessioni» su un daemon appena avviato)
+    try:
+        serve_status_path().write_text(json.dumps(st_))
+    except OSError:
+        pass
     tries = 0
     try:
         while True:

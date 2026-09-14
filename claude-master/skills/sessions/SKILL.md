@@ -119,7 +119,8 @@ Invia di nuovo se il prompt non compare entro `bot.receive_timeout_s`; a fine tu
 la riga Watch: (Leggi tutto per il resto). La risposta è lo Stop con la riga Watch:, o il primo se la sessione era
 ferma all'invio, o il secondo se era occupata (il primo è il turno precedente). «Avvisami» segue (avviso «✓ nome ha
 finito:» a fine di un turno > `bot.follow_min_turn_s`, «✗ nome» se sparisce, «✗ nome errore» su StopFailure).
-`claude-master relay push|pair|serve|status|install|uninstall|off` (0.4.0): il PC sul bus dell'app Wear OS
+`claude-master relay push|pair|serve|status|install|uninstall|off` (0.4.0; comandi dal polso: answer, prompt, launch,
+follow, unfollow, resume, screen, allow_all, last — `last` torna l'ultimo messaggio intero dal transcript per la lettura vocale): il PC sul bus dell'app Wear OS
 (Firebase RTDB + FCM, `/state` cifrato nella forma del contratto v1, comandi dal polso eseguiti via CLI); `relay
 push --dry-run` mostra lo stato in chiaro. Silenzioso tranne domande, esiti, risposte, errori e sparizioni; digest delle 8:00 («cosa aspetta te», un tasto
 Apri per ogni ❓). `terminale NOME`/`schermo NOME`/`v NOME`: le ultime 30 righe del riquadro in un blocco `<pre>`; `claude-master screen

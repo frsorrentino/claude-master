@@ -12,6 +12,7 @@
       "since": 1789210500,
       "turn_started": 1789210380,
       "tool": null,
+      "tool_note": null,
       "link": "https://claude.ai/code/session_01CnGG8im7UG4KtjbPDx9fst",
       "attached": false,
       "followed": true,
@@ -41,6 +42,7 @@
       "since": 1789209000,
       "turn_started": 1789210700,
       "tool": "Bash pytest -q tests",
+      "tool_note": "Run the test suite",
       "link": "https://claude.ai/code/session_018CKZ1Pum1Qs7DX5hbRLQ6X",
       "attached": true,
       "followed": false,
@@ -64,6 +66,7 @@
       "since": 1789120000,
       "turn_started": null,
       "tool": null,
+      "tool_note": null,
       "link": "https://claude.ai/code/session_03fieldnotes",
       "attached": false,
       "followed": false,
@@ -83,6 +86,7 @@
       "since": 1789200000,
       "turn_started": null,
       "tool": null,
+      "tool_note": null,
       "link": "",
       "attached": false,
       "followed": false,
@@ -95,8 +99,8 @@
     }
   ],
   "quota": {
-    "personale": {"h5": 11, "w7": 36, "reset_w7": 1789610400, "stale": false},
-    "agenzia": {"h5": null, "w7": 75, "reset_w7": 1789444800, "stale": true}
+    "personale": {"h5": 11, "w7": 36, "reset_w7": 1789610400, "reset_h5": 1789228800, "stale": false},
+    "agenzia": {"h5": null, "w7": 75, "reset_w7": 1789444800, "reset_h5": 1789225200, "stale": true}
   },
   "projects": [
     {"path": "/home/franz/Desktop/workspaces/personali/atlas-shop", "name": "atlas-shop", "account": "personale"},

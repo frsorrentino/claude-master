@@ -283,6 +283,7 @@
   "relay.cmd_high": "allow_all is not allowed on a high-tier question",
   "relay.cmd_not_allowed": "op {op} not allowed",
   "relay.cmd_no_project": "{path} is not a published project",
+  "relay.cmd_no_last": "{name}: nessun messaggio da leggere",
   "relay.cmd_no_question": "{name} has no open question",
   "relay.prompt_prefix": "Da Franz via polso (watch). Rispondi nella tua finestra come a un messaggio dell'utente: NON usare SendMessage verso claude-master o la master. Chiudi la risposta con una riga «Watch: <esito nudo, al massimo 60 caratteri>»: è l'unica riga che lo smartwatch mostra.",
   "bot.usage": "uso: claude-master bot serve | ensure | poll | digest | install | uninstall | status",

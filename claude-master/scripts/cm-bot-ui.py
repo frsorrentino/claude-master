@@ -386,6 +386,15 @@ def keyboard_confirm():
 TOOL_INPUT_KEYS = ("command", "file_path", "pattern", "path", "query", "url", "prompt", "description")
 
 
+def tool_note(tool_input):
+    """La `description` che Claude scrive accanto a un comando Bash: dice l'INTENTO («Run the plugin test suite»)
+    dove il comando dice solo «cd …» (contratto 1.5, chiesto dal polso il 14/09). "" se non c'e'."""
+    if isinstance(tool_input, dict):
+        d = " ".join(str(tool_input.get("description") or "").split())
+        return d[:120]
+    return ""
+
+
 def tool_line(name, tool_input, width=120):
     """«Bash git log --since yesterday»: il tool e l'input (fino a `width` caratteri, senza segno di taglio), come
     lo spinner del desktop."""

@@ -283,6 +283,7 @@
   "relay.cmd_high": "allow_all is not allowed on a high-tier question",
   "relay.cmd_not_allowed": "op {op} not allowed",
   "relay.cmd_no_project": "{path} is not a published project",
+  "relay.cmd_no_last": "{name}: no message to read",
   "relay.cmd_no_question": "{name} has no open question",
   "relay.prompt_prefix": "From Franz via the watch. Answer in your own window as to a user message: do NOT SendMessage claude-master or the master. End your answer with one line «Watch: <the bare outcome, 60 characters at most>»: it is the only line the smartwatch shows.",
   "bot.usage": "usage: claude-master bot serve | ensure | poll | digest | install | uninstall | status",

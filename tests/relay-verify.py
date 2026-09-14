@@ -160,14 +160,15 @@ SRC1 = {
         {"event": "stop", "session_id": "3d1b2c4e-0000-4000-8000-000000000003", "ts": iso(1789121000), "last": "x", "esito": "Esito: README riscritto con le tre sezioni chieste.", "tail": "Esito: README riscritto con le tre sezioni chieste.\nWatch: README riscritto", "watch": "Watch: README riscritto"},
     ],
     "questions": {"pix-ledger-api": {"tool": "AskUserQuestion", "text": "Deploy ready, waiting for the client's ok. Deploy now?", "options": ["yes", "no"], "asked_at": 1789210500}},
-    "quota": {"personale": {"cinque_ore_pct": 11, "settimana_pct": 36, "reset_settimanale": 1789610400, "vecchia": False},
-              "agenzia": {"cinque_ore_pct": None, "settimana_pct": 75.2, "reset_settimanale": 1789444800, "vecchia": True}},
+    "quota": {"personale": {"cinque_ore_pct": 11, "settimana_pct": 36, "reset_settimanale": 1789610400, "reset_cinque_ore": 1789228800, "vecchia": False},
+              "agenzia": {"cinque_ore_pct": None, "settimana_pct": 75.2, "reset_settimanale": 1789444800, "reset_cinque_ore": 1789225200, "vecchia": True}},
     "projects": [{"path": ROOT_WS + "/pixelfarm/nostri/orbit-docs", "name": "orbit-docs", "account": "agenzia"}, {"path": ROOT_WS + "/personali/atlas-shop", "name": "atlas-shop", "account": "personale"}, {"path": ROOT_WS + "/pixelfarm/clienti/ledger-api", "name": "ledger-api", "account": "agenzia"}],
     "night": {"queued": 2, "running": None},
     "recap": {"date": "2026-09-12", "items": [{"project": "atlas-shop", "done": "Migrazioni 008-011 applicate, test verdi", "next": "Rivedere i seed e la pagina admin"}, {"project": "ledger-api", "done": "Deploy pronto", "next": "Wait for the go"}]},
     "follow": {"pix-ledger-api"}, "awaiting": set(),
     "next": {"pix-ledger-api": "Wait for the go", "atlas-shop": "Rivedere i seed e la pagina admin", "pix-orbit-docs": "Riprendere la pagina prezzi"},
     "tools": {"atlas-shop": "Bash pytest -q tests"},
+    "tool_notes": {"atlas-shop": "Run the test suite"},
     "icons": {"pix-ledger-api": "🟦", "atlas-shop": "🟢", "field-notes": "🟡", "pix-orbit-docs": "🟪"},
     "next_at": {"pix-ledger-api": 1789171200, "atlas-shop": 1789171200, "pix-orbit-docs": 1789171200},
 }
@@ -193,24 +194,40 @@ def diff(a, b, path=""):
 
 
 T.check("R2 build_state(src) == state-1-question.json (four sessions, two accounts, quota, projects, night, recap)", st1 == F1, diff(st1, F1) or "equal")
-T.check("R2 rules: order waiting/busy/idle/gone then alphabetical, short ≤ 60, full ≤ 600, n from 1, ≤ 8 KB", [x["state"] for x in st1["sessions"]] == ["waiting", "busy", "idle", "gone"] and all(len(x["outcome"]["short"]) <= 60 and len(x["outcome"]["full"]) <= 600 for x in st1["sessions"] if x["outcome"]) and [o["n"] for o in st1["sessions"][0]["question"]["options"]] == [1, 2] and S.size_of(st1) <= 8192, str(S.size_of(st1)))
+T.check("R2 rules: order waiting/busy/idle/gone then alphabetical, short ≤ 200 (1.6), full ≤ 600, n from 1, ≤ 8 KB", [x["state"] for x in st1["sessions"]] == ["waiting", "busy", "idle", "gone"] and all(len(x["outcome"]["short"]) <= 200 and len(x["outcome"]["full"]) <= 600 for x in st1["sessions"] if x["outcome"]) and [o["n"] for o in st1["sessions"][0]["question"]["options"]] == [1, 2] and S.size_of(st1) <= 8192, str(S.size_of(st1)))
 SRC2 = {"host": "crostini-franz", "root": ROOT_WS, "prefixes": ["pix-"],
         "rows": [{"name": "atlas-shop", "tmux": "atlas-shop", "account": "personale", "cwd": ROOT_WS + "/personali/atlas-shop", "status": "idle", "waiting": False, "session_id": "f61903c0-ea6a-409c-a961-d01126a0f3ad", "link": "https://claude.ai/code/session_018CKZ1Pum1Qs7DX5hbRLQ6X", "attached": False, "started_at": 1789214000000}],
         "ledger": [{"event": "stop", "session_id": "f61903c0-ea6a-409c-a961-d01126a0f3ad", "ts": iso(1789213900), "last": "x", "esito": "Esito: seed e pagina admin rivisti, 42 test verdi.", "tail": "Esito: seed e pagina admin rivisti, 42 test verdi.\nWatch: Seed e pagina admin rivisti", "watch": "Watch: Seed e pagina admin rivisti"}],
-        "questions": {}, "quota": {"personale": {"cinque_ore_pct": 24, "settimana_pct": 38, "reset_settimanale": 1789610400, "vecchia": False}, "agenzia": {"cinque_ore_pct": 3, "settimana_pct": 75, "reset_settimanale": 1789444800, "vecchia": False}},
+        "questions": {}, "quota": {"personale": {"cinque_ore_pct": 24, "settimana_pct": 38, "reset_settimanale": 1789610400, "reset_cinque_ore": 1789228800, "vecchia": False}, "agenzia": {"cinque_ore_pct": 3, "settimana_pct": 75, "reset_settimanale": 1789444800, "reset_cinque_ore": 1789225200, "vecchia": False}},
         "projects": [{"path": ROOT_WS + "/personali/atlas-shop", "name": "atlas-shop", "account": "personale"}], "night": {"queued": 0, "running": None}, "recap": {"date": "2026-09-12", "items": []},
         "follow": set(), "awaiting": set(), "next": {"atlas-shop": "Deploy di prova su staging"}, "tools": {}, "icons": {"atlas-shop": "🟢"}, "next_at": {"atlas-shop": 1789171200}}
 st2 = S.build_state(SRC2, 1789214400)
 T.check("R2 build_state(src) == state-2-idle.json", st2 == F2, diff(st2, F2) or "equal")
 SRC3 = {"host": "crostini-franz", "root": ROOT_WS, "prefixes": [], "rows": [], "ledger": [], "questions": {},
-        "quota": {"personale": {"cinque_ore_pct": 0, "settimana_pct": 36, "reset_settimanale": 1789610400, "vecchia": True}, "agenzia": {"cinque_ore_pct": None, "settimana_pct": 75, "reset_settimanale": 1789444800, "vecchia": True}},
+        "quota": {"personale": {"cinque_ore_pct": 0, "settimana_pct": 36, "reset_settimanale": 1789610400, "reset_cinque_ore": 1789228800, "vecchia": True}, "agenzia": {"cinque_ore_pct": None, "settimana_pct": 75, "reset_settimanale": 1789444800, "reset_cinque_ore": 1789225200, "vecchia": True}},
         "projects": [], "night": {"queued": 0, "running": None}, "recap": {"date": "2026-09-12", "items": []}, "follow": set(), "awaiting": set(), "next": {}, "tools": {}}
 st3 = S.build_state(SRC3, 1789200000)
 T.check("R2 build_state(src) == state-3-stale.json", st3 == F3, diff(st3, F3) or "equal")
 big = dict(SRC1); big["projects"] = [{"path": f"{ROOT_WS}/personali/p{i:03d}", "name": f"p{i:03d}", "account": "personale"} for i in range(120)]
 stb = S.build_state(big, 1789210800)
-T.check("R2 over 8 KB → fit_state trims (recap items, then outcome.full, then projects past 10), the question stays whole", S.size_of(stb) <= 8192 and stb["sessions"][0]["question"]["text"] == F1["sessions"][0]["question"]["text"] and len(stb["projects"]) <= 10, str(S.size_of(stb)))
+T.check("R2 over 8 KB → fit_state trims (recap items, old gone sessions, then projects past 10), the question stays whole", S.size_of(stb) <= 8192 and stb["sessions"][0]["question"]["text"] == F1["sessions"][0]["question"]["text"] and len(stb["projects"]) <= 10, str(S.size_of(stb)))
+# 14/09 dal vivo: tre sessioni al lavoro con un esito lungo + dieci finite → prima ogni full diventava short
+live = dict(SRC1)
+long_tail = "Ho messo in pausa a un punto pulito; i passi per riprendere sono nel piano. " * 9
+live["rows"] = [{"name": f"work-{i}", "tmux": f"work-{i}", "account": "personale", "cwd": ROOT_WS + f"/personali/work-{i}", "status": "idle", "waiting": False, "session_id": f"sid-work-{i}", "link": "https://claude.ai/code/session_" + "x" * 24, "attached": False, "started_at": 1789200000000} for i in range(3)] + \
+    [{"name": f"old-{i:02d}", "tmux": f"old-{i:02d}", "account": "personale", "cwd": ROOT_WS + f"/personali/old-progetto-{i:02d}", "status": "dead", "session_id": f"0000000{i:02d}-aaaa-bbbb-cccc-dddddddddddd", "link": "https://claude.ai/code/session_" + "y" * 24, "visto_ts": 1789100000 + i, "started_at": 1789000000000} for i in range(10)]
+live["ledger"] = [{"event": "stop", "session_id": f"sid-work-{i}", "ts": iso(1789210000), "tail": long_tail + "\nWatch: " + "paused at a clean point; resume steps are in the plan and the tests are green on both suites", "watch": "Watch: paused at a clean point; resume steps are in the plan and the tests are green on both suites"} for i in range(3)]
+live["questions"] = {}
+live["projects"] = [{"path": f"{ROOT_WS}/personali/progetto-{i:02d}", "name": f"progetto-{i:02d}", "account": "personale"} for i in range(30)]
+stl = S.build_state(live, 1789210800)
+works = [x for x in stl["sessions"] if x["name"].startswith("work-")]
+gones = [x["name"] for x in stl["sessions"] if x["state"] == "gone"]
+T.check("R2 (14/09) over 8 KB with ten gone sessions: the outcomes keep a real full (> 300, not the short), the three most recent gone stay, under the cap", S.size_of(stl) <= 8192 and len(works) == 3 and all(len(x["outcome"]["full"]) > 300 and x["outcome"]["full"] != x["outcome"]["short"] for x in works) and gones == ["old-07", "old-08", "old-09"], f"{S.size_of(stl)} {[len(x['outcome']['full']) for x in works]} {gones}")
+T.check("R2 (1.6) short = the whole Watch line up to 200, cut at a word, no «…»", works[0]["outcome"]["short"] == "paused at a clean point; resume steps are in the plan and the tests are green on both suites" and S.short_of("parola " * 40, S.SHORT_MAX) == ("parola " * 40)[:200].rsplit(" ", 1)[0].rstrip() and "…" not in S.short_of("parola " * 40, S.SHORT_MAX), works[0]["outcome"]["short"])
+T.check("R2 cut_at_word keeps newlines and cuts at a word", S.cut_at_word("uno due\ntre quattro", 12) == "uno due\ntre" and S.cut_at_word("corto", 50) == "corto", repr(S.cut_at_word("uno due\ntre quattro", 12)))
 T.check("R2 tier_of: dangerous words in a PERMISSION → high; Read → low; Bash → medium; ask/plan → always medium", S.tier_of("permission", "Bash", "rm -rf build") == "high" and S.tier_of("permission", "Read", "cat x") == "low" and S.tier_of("permission", "Bash", "ls") == "medium" and S.tier_of("ask", "AskUserQuestion", "Deploy now?") == "medium" and S.tier_of("ask", None, "git push origin main?") == "medium" and S.tier_of("permission", "Bash", "git push origin main") == "high", "")
+T.check("R2 (1.5) tool_note carries the intent of the running command (null when the session is not working)", st1["sessions"][1]["tool_note"] == "Run the test suite" and st1["sessions"][2]["tool_note"] is None, str([(x["name"], x["tool_note"]) for x in st1["sessions"]]))
+T.check("R2 (1.3) quota carries reset_h5, when the 5-hour window restarts (before, the watch showed the weekly reset under the 5-hour figure)", st1["quota"]["personale"]["reset_h5"] == 1789228800 and st1["quota"]["agenzia"]["reset_h5"] == 1789225200 and S.build_quota({"x": {}})["x"]["reset_h5"] is None, str(st1["quota"]))
 T.check("R2 (1.2) next_at: the date of the recap line that produced «next» (null when there is no next)", st1["sessions"][0]["next_at"] == 1789171200 and st1["sessions"][2]["next"] is None and st1["sessions"][2]["next_at"] is None, str([(x["name"], x["next_at"]) for x in st1["sessions"]]))
 T.check("R2 (1.1) color_of: circle/square/heart of the same hue → the same hex; unknown or empty → None; relay.colors overrides", S.color_of("🟠") == "#F5A623" and S.color_of("🟧") == "#F5A623" and S.color_of("🧡") == "#F5A623" and S.color_of("❤️") == "#E74C3C" and S.color_of("⬜") == "#BDC3C7" and S.color_of("") is None and S.color_of("🐙") is None and S.color_of("🟠", {"🟠": "#111111"}) == "#111111", "")
 T.check("R2 (1.1) a session without an icon → icon and color null (old readers: grey)", S.build_session({"name": "x", "tmux": "x", "status": "idle"}, {"root": "/", "prefixes": []})["icon"] is None and S.build_session({"name": "x", "tmux": "x", "status": "idle"}, {"root": "/", "prefixes": []})["color"] is None, "")
@@ -242,7 +259,7 @@ printf '%s\\n' "$*" >> "{argslog}"
 case "$1" in
   sessions) cat "{alive}" ;;
   registry) echo '{{"sessioni": [{{"nome": "pix-orbit-docs", "cartella": "{ws / 'pixelfarm' / 'nostri' / 'orbit-docs'}", "account": "agenzia", "visto": "2026-09-12T09:00:00"}}]}}' ;;
-  quota) echo '{{"personale": {{"cinque_ore_pct": 11, "settimana_pct": 36, "reset_settimanale": 1789610400, "vecchia": false}}, "agenzia": {{"cinque_ore_pct": null, "settimana_pct": 75, "reset_settimanale": 1789444800, "vecchia": true}}}}' ;;
+  quota) echo '{{"personale": {{"cinque_ore_pct": 11, "settimana_pct": 36, "reset_settimanale": 1789610400, "reset_cinque_ore": 1789228800, "vecchia": false}}, "agenzia": {{"cinque_ore_pct": null, "settimana_pct": 75, "reset_settimanale": 1789444800, "reset_cinque_ore": 1789225200, "vecchia": true}}}}' ;;
   answer) if [ "$3" = "--show" ]; then if [ "$2" = "pix-ledger-api" ]; then echo "«$2» chiede — Deploy: Deploy ready, waiting for the client ok. Deploy now?"; echo "  ❯ 1. yes"; echo "    2. no"; else echo "nessuna domanda aperta sullo schermo"; exit 1; fi; else case "$3" in 1|2) echo "«$2»: risposto $3. yes  (Deploy now?)" ;; *) echo "opzione $3 inesistente" >&2; exit 2 ;; esac; fi ;;
   screen) i=1; while [ $i -le 30 ]; do echo "riga $i dello schermo"; i=$((i+1)); done ;;
   talk) echo "consegnato" ;;
@@ -301,7 +318,7 @@ def cm_calls():
 n_req = len(CALLS["requests"])
 r = relay("push", "--dry-run")
 dry = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip().startswith("{") else {}
-T.check("R4 push --dry-run: clear JSON on stdout, no HTTP; sessions ordered ❓ ▶ ✓ ✗ with short names, the question whole with kind ask and options 1-2, the busy session's outcome from the ledger (short = Watch line), gone from the snapshot, quota, projects with accounts from folder_map, recap, night", r.returncode == 0 and len(CALLS["requests"]) == n_req and [(x["name"], x["state"]) for x in dry.get("sessions", [])] == [("ledger-api", "waiting"), ("atlas-shop", "busy"), ("field-notes", "idle"), ("orbit-docs", "gone")] and dry["sessions"][0]["question"]["text"] == "Deploy ready, waiting for the client ok. Deploy now?" and dry["sessions"][0]["question"]["kind"] == "ask" and [o["label"] for o in dry["sessions"][0]["question"]["options"]] == ["yes", "no"] and dry["sessions"][0]["question"]["asked_at"] == 1789210500 and dry["sessions"][0]["followed"] is True and dry["sessions"][0]["project"] == "pixelfarm/clienti/ledger-api" and dry["sessions"][1]["outcome"]["short"] == "Migrazioni applicate, test verdi" and dry["sessions"][1]["turn_started"] == 1789210700 and dry["sessions"][1]["next"] == "Rivedere i seed e la pagina admin" and dry["sessions"][3]["since"] == S.epoch("2026-09-12T09:00:00") and dry["quota"]["agenzia"] == {"h5": None, "w7": 75, "reset_w7": 1789444800, "stale": True} and {(p["name"], p["account"]) for p in dry["projects"]} == {("atlas-shop", "personale"), ("field-notes", "personale"), ("ledger-api", "agenzia"), ("orbit-docs", "agenzia")} and dry["host"] == "crostini-test" and dry["night"] == {"queued": 0, "running": None} and dry["v"] == 1, r.stdout[:600] + r.stderr)
+T.check("R4 push --dry-run: clear JSON on stdout, no HTTP; sessions ordered ❓ ▶ ✓ ✗ with short names, the question whole with kind ask and options 1-2, the busy session's outcome from the ledger (short = Watch line), gone from the snapshot, quota, projects with accounts from folder_map, recap, night", r.returncode == 0 and len(CALLS["requests"]) == n_req and [(x["name"], x["state"]) for x in dry.get("sessions", [])] == [("ledger-api", "waiting"), ("atlas-shop", "busy"), ("field-notes", "idle"), ("orbit-docs", "gone")] and dry["sessions"][0]["question"]["text"] == "Deploy ready, waiting for the client ok. Deploy now?" and dry["sessions"][0]["question"]["kind"] == "ask" and [o["label"] for o in dry["sessions"][0]["question"]["options"]] == ["yes", "no"] and dry["sessions"][0]["question"]["asked_at"] == 1789210500 and dry["sessions"][0]["followed"] is True and dry["sessions"][0]["project"] == "pixelfarm/clienti/ledger-api" and dry["sessions"][1]["outcome"]["short"] == "Migrazioni applicate, test verdi" and dry["sessions"][1]["turn_started"] == 1789210700 and dry["sessions"][1]["next"] == "Rivedere i seed e la pagina admin" and dry["sessions"][3]["since"] == S.epoch("2026-09-12T09:00:00") and dry["quota"]["agenzia"] == {"h5": None, "w7": 75, "reset_w7": 1789444800, "reset_h5": 1789225200, "stale": True} and {(p["name"], p["account"]) for p in dry["projects"]} == {("atlas-shop", "personale"), ("field-notes", "personale"), ("ledger-api", "agenzia"), ("orbit-docs", "agenzia")} and dry["host"] == "crostini-test" and dry["night"] == {"queued": 0, "running": None} and dry["v"] == 1, r.stdout[:600] + r.stderr)
 T.check("R4 (1.1) every live session carries icon (from cm-color's registry, stable) and color «#RRGGBB»; the gone one has none on the first push", all(x["icon"] and re.match(r"^#[0-9A-F]{6}$", x["color"] or "") for x in dry["sessions"] if x["state"] != "gone") and dry["sessions"][3]["icon"] is None, str([(x["name"], x["icon"], x["color"]) for x in dry["sessions"]]))
 r = relay("push")
 T.check("R4 push: exit 0, /state on the bus is {v:1, enc} and decrypts to the same document as the dry-run (but ts)", r.returncode == 0 and set(STORE.get("state", {})) == {"v", "enc"} and STORE["state"]["v"] == 1 and {kk: v for kk, v in C.decrypt(STORE["state"], k).items() if kk != "ts"} == {kk: v for kk, v in dry.items() if kk != "ts"}, r.stdout + r.stderr + str(STORE.get("state"))[:100])
@@ -397,11 +414,12 @@ def serve_pid():
 
 r = relay("ensure")
 T.check("R6 relay ensure starts serve (pidfile, live process); a second ensure keeps the same pid", r.returncode == 0 and serve_pid() > 0 and relay("ensure").returncode == 0 and serve_pid() == serve_pid(), r.stdout + r.stderr)
+T.check("R6 the status file is written at startup with the new pid and zeroed counters (else `status` shows the dead process's numbers)", T.wait_until(lambda: json.loads((rdir2 / "serve.json").read_text()).get("pid") == serve_pid(), 5) and json.loads((rdir2 / "serve.json").read_text())["reconnects"] == 0, (rdir2 / "serve.json").read_text() if (rdir2 / "serve.json").exists() else "assente")
 pid1 = serve_pid()
 CMDS = json.loads((FIX / "cmd-result-sample.json").read_text())["cmd"]
 
 
-def send_cmd(cmd, wait=8):
+def send_cmd(cmd, wait=20):   # sotto carico il daemon impiega di piu' (build in parallelo)
     cid = cmd["id"]
     http("PUT", f"/cmd/{cid}.json", C.encrypt(cmd, k))
     T.wait_until(lambda: (STORE.get("result") or {}).get(cid), wait)
@@ -421,6 +439,22 @@ res = send_cmd(CMDS[2])   # launch path fuori dai progetti pubblicati
 T.check("R6 launch of a path outside the published projects → ok false, no launch", res and res["ok"] is False and "not a published project" in res["text"] and not any(c.startswith("launch ") for c in cm_calls()), str(res))
 res = send_cmd(dict(CMDS[2], id="6f1c2d3e-0003-4000-8000-0000000000aa", arg=str(ws / "pixelfarm" / "nostri" / "orbit-docs")))
 T.check("R6 launch of a published project → `launch PATH --no-window`, «launched orbit-docs (agenzia)»", res and res["ok"] is True and res["text"] == "launched orbit-docs (agenzia)" and any(c.startswith("launch ") and c.endswith("orbit-docs --no-window") for c in cm_calls()), str(res) + str(cm_calls()[-3:]))
+# 1.4: «last» — l'ultimo messaggio dell'assistente per intero dal transcript (il ledger ne tiene solo la coda)
+tdir_a = home / ".claude" / "projects" / "".join(ch if ch.isalnum() else "-" for ch in os.path.realpath(str(ws / "personali" / "atlas-shop")))
+tdir_a.mkdir(parents=True, exist_ok=True)
+lungo = "Prima frase del messaggio lungo. " + ("Dettaglio del lavoro fatto. " * 200) + "Ultima frase."
+(tdir_a / "S-A.jsonl").write_text("\n".join([
+    json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "Messaggio vecchio da ignorare."}]}}),
+    json.dumps({"type": "user", "message": {"role": "user", "content": "fai"}}),
+    json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": lungo}, {"type": "tool_use", "name": "Bash", "input": {"command": "x"}}]}}),
+]) + "\n")
+res = send_cmd({"id": "6f1c2d3e-0010-4000-8000-000000000010", "op": "last", "session": "atlas-shop", "arg": None, "issued": 1, "by": "watch-pixel5"})
+T.check("R6 (1.4) last → the whole last assistant message from the transcript, up to 4000 chars cut at a sentence end (the ledger only keeps 600 of the tail)", res and res["ok"] is True and res["text"].startswith("Prima frase del messaggio lungo.") and len(res["text"]) <= 4000 and len(res["text"]) > 3000 and res["text"].rstrip().endswith(".") and "Messaggio vecchio" not in res["text"], str(len(res["text"] if res else "")) + " " + (res or {}).get("text", "")[:60])
+(tdir_a / "S-A.jsonl").write_text(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "Corto e intero."}]}}) + "\n")
+res = send_cmd({"id": "6f1c2d3e-0011-4000-8000-000000000011", "op": "last", "session": "atlas-shop", "arg": None, "issued": 1, "by": "watch-pixel5"})
+T.check("R6 (1.4) a short message comes back whole, untouched", res and res["ok"] and res["text"] == "Corto e intero.", str(res))
+res = send_cmd({"id": "6f1c2d3e-0012-4000-8000-000000000012", "op": "last", "session": "field-notes", "arg": None, "issued": 1, "by": "watch-pixel5"})
+T.check("R6 (1.4) a session without a transcript → ok false with «nessun messaggio da leggere»", res and res["ok"] is False and "nessun messaggio" in res["text"], str(res))
 res = send_cmd(CMDS[3])   # screen
 T.check("R6 screen → `screen atlas-shop --lines 30 --join` (tmux reunites wrapped lines: no words cut on the wrist), 30 lines in text", res and res["ok"] and len(res["text"].splitlines()) == 30 and "screen atlas-shop --lines 30 --join" in cm_calls(), str(res)[:200] + str([c for c in cm_calls() if c.startswith("screen ")]))
 res = send_cmd(CMDS[4])   # follow
@@ -433,7 +467,8 @@ res = send_cmd(CMDS[6])   # allow_all ledger-api
 T.check("R6 allow_all without a «don't ask again» option → ok false with the contract's text", res and res["ok"] is False and res["text"] == "no «don't ask again» option on this question", str(res))
 n_ans = len([c for c in cm_calls() if c == "answer pix-ledger-api 1"])
 http("PUT", f"/cmd/{CMDS[0]['id']}.json", C.encrypt(CMDS[0], k))
-time.sleep(2.5)
+T.wait_until(lambda: CMDS[0]["id"] not in (STORE.get("cmd") or {}), 8)
+time.sleep(1)
 T.check("R6 the same id again → ignored (no second `answer`), /cmd cleaned", len([c for c in cm_calls() if c == "answer pix-ledger-api 1"]) == n_ans and CMDS[0]["id"] not in (STORE.get("cmd") or {}), str(cm_calls()[-3:]))
 res = send_cmd({"id": "6f1c2d3e-0009-4000-8000-000000000009", "op": "mode", "session": "atlas-shop", "arg": "plan", "issued": 1, "by": "watch"})
 T.check("R6 an op outside the allow-list → ok false «op mode not allowed», nothing run", res and res["ok"] is False and res["text"] == "op mode not allowed", str(res))
@@ -496,16 +531,21 @@ T.check("R7 Stop: ledger row with watch, then a push", r.returncode == 0 and T.w
 n0 = state_puts()
 hook("SessionEnd", {"session_id": "S-F", "cwd": str(ws / "personali" / "field-notes"), "reason": "other"})
 T.check("R7 SessionEnd → push", T.wait_until(lambda: state_puts() > n0, 15), "")
-# le push asincrone gia' partite scrivono comunque (il figlio ha letto la config quando era abilitata): si
-# aspetta che il conto delle PUT resti fermo PRIMA di spegnere il relay
-prev = -1
-for _ in range(12):
-    cur = state_puts()
-    if cur == prev:
-        break
-    prev = cur
-    time.sleep(1.5)
+def settle(rounds=24):
+    """Aspetta che il conto delle PUT resti fermo: le push asincrone gia' partite vanno esaurite prima di
+    misurare, altrimenti la loro scrittura sembra quella dell'hook."""
+    prev = -1
+    for _ in range(rounds):
+        cur = state_puts()
+        if cur == prev:
+            return
+        prev = cur
+        time.sleep(1.5)
+
+
+settle()
 write_cfg(enabled=False)
+settle(8)   # e anche dopo lo spegnimento: un figlio partito un attimo prima ha gia' letto la config
 n0 = state_puts()
 r = hook("Stop", {"session_id": "S-A", "cwd": str(ws / "personali" / "atlas-shop"), "last_assistant_message": "x"})
 time.sleep(2.5)
