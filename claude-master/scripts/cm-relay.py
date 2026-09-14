@@ -377,6 +377,8 @@ def collect_sources(now=None):
     aw = awaiting(ledger, rows)
     # 1.1: l'icona della scheda per ogni sessione viva (cm-color: registro stabile), per le sparite l'ultima nota
     last_icons = {s_.get("name"): s_.get("icon") for s_ in (read_json(rdir() / "last-state.json", {}).get("state") or {}).get("sessions", []) if s_.get("icon")}
+    # il primo avvistamento di una domanda senza evento waiting nel ledger: l'asked_at della push precedente
+    last_asked = {n: (s_.get("question") or {}).get("asked_at") for n, s_ in last_sessions().items() if s_.get("question")}
     icons = {}
     questions, nexts, nexts_at, tools, notes = {}, {}, {}, {}, {}
     for r in rows:
@@ -412,11 +414,20 @@ def collect_sources(now=None):
                 text, opts = str(inp.get("question") or text or ""), [str(o) for o in inp["options"]]
             elif not text and inp.get("question"):
                 text = str(inp["question"])
-            asked = [S.epoch(x.get("ts")) for x in ledger if x.get("session_id") == r.get("session_id") and x.get("event") == "waiting"]
-            detail = wi.get("input") if isinstance(wi.get("input"), (str, dict)) else ""
-            questions[tm] = {"tool": tool, "text": text or (f"{tool} {json.dumps(detail, ensure_ascii=False)[:200]}" if tool else "?"),
-                             "options": opts, "asked_at": asked[-1] if asked else int(now), "detail": json.dumps(detail, ensure_ascii=False) if detail else ""}
-        elif r.get("status") == "busy" or tm in aw:
+            if not text and not opts and not tool:
+                # 14/09 (dall'app): attesa vista solo sullo schermo (waits_on_screen), senza file dell'hook e senza
+                # nulla da estrarre → non e' una domanda: il polso mostrava «?» a «0 m». La sessione torna com'era
+                # secondo il ledger (turno aperto = busy, altrimenti idle); mai «?» come testo.
+                r["waiting"] = False
+                r["status"] = turn_status(ledger, r.get("session_id") or "")
+            else:
+                asked = [S.epoch(x.get("ts")) for x in ledger if x.get("session_id") == r.get("session_id") and x.get("event") == "waiting"]
+                first_seen = last_asked.get(S.short_name(r.get("name") or tm, prefixes()))
+                detail = wi.get("input") if isinstance(wi.get("input"), (str, dict)) else ""
+                questions[tm] = {"tool": tool, "text": text or f"{tool} {json.dumps(detail, ensure_ascii=False)[:200]}",
+                                 "options": opts, "asked_at": asked[-1] if asked else int(first_seen or now),
+                                 "detail": json.dumps(detail, ensure_ascii=False) if detail else ""}
+        if S.state_of(r) != "waiting" and (r.get("status") == "busy" or tm in aw):
             # anche le «awaiting» (prompt dal polso in corso): senza questo la card restava senza attivita'
             t, note = tool_of(r)
             if t:
@@ -605,6 +616,12 @@ def checkpoint(cwd):
         return r.stdout.strip() or subprocess.run(["git", "-C", cwd, "rev-parse", "HEAD"], capture_output=True, text=True, timeout=30).stdout.strip() or None
     except (OSError, subprocess.SubprocessError):
         return None
+
+
+def turn_status(ledger, sid):
+    """busy se l'ultimo evento di turno della sessione e' un prompt (o ripresa), idle se e' uno stop o non c'e'."""
+    ev = [x.get("event") for x in ledger if sid and x.get("session_id") == sid and x.get("event") in ("prompt", "start", "queue-pop", "stop")]
+    return "busy" if ev and ev[-1] != "stop" else "idle"
 
 
 def last_sessions():

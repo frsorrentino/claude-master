@@ -18,6 +18,9 @@ R6  failed marca il flag
 R7  UN FLAG PER SESSIONE (13:10 dell'11/09: 8 arm in due minuti, 4 riavvii — l'ultimo arm sovrascriveva gli altri):
     due sessioni armano in sequenza, entrambe hanno il proprio file; `restart list` le elenca; l'hook della
     prima consuma SOLO il suo, l'altro resta
+R8  DISPLAY (14/09: server tmux ripartito al boot senza display, 9 riavvii senza finestra): `restart exec` con
+    un ambiente senza DISPLAY/WAYLAND_DISPLAY/XDG_RUNTIME_DIR e un socket wayland-0 vivo nella runtime dir
+    → cm-terminal apre la scheda (backend gnome a secco); senza socket → salta (T57)
 """
 import json
 import os
@@ -215,6 +218,31 @@ with T.PrivateTmux() as tm:
     r = subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "hook"], capture_output=True, text=True, env=other)
     T.check("R7 hook of the first consumes only its own flag; the other stays armed", "systemMessage" in r.stdout and not fa.exists() and fb.is_file(), r.stdout + r.stderr + str(sorted(x.name for x in state.glob("restart*"))))
     time.sleep(3)
+    # R8: l'esecutore senza display. Backend gnome (soggetto a T57) a secco: il comando stampato
+    # finisce nell'uscita di launch, che exec ripete. Il pid nel flag e' gia' morto: niente /exit.
+    import socket
+    (home / "ws" / "personali" / "beta").mkdir()
+    cfg8 = tmp / "config-r8.json"
+    c8 = json.loads(cfg.read_text()); c8["terminal"] = {"backend": "gnome", "attach_wait_s": 1, "attach_retry_wait_s": 1, "headless_skip": True}
+    cfg8.write_text(json.dumps(c8))
+    rt, x11 = tmp / "runtime", tmp / "x11"
+    rt.mkdir(); x11.mkdir()
+    morto = subprocess.Popen(["true"]); morto.wait()
+    e8 = {k: v for k, v in e.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "TMUX")}
+    e8.update(CLAUDE_MASTER_CONFIG=str(cfg8), CM_TERMINAL_DRY_RUN="1", XDG_RUNTIME_DIR=str(rt), CM_X11_SOCKET_DIR=str(x11))
+
+    def exec8(tag):
+        f8 = state / f"restart-r8-{tag}.json"
+        f8.write_text(json.dumps({"tmux": "beta", "pid": morto.pid, "cartella": str(home / "ws" / "personali" / "beta"), "gen": tag}))
+        r = subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "exec", str(f8)], capture_output=True, text=True, env=e8, timeout=120)
+        return r.stdout + r.stderr
+
+    out = exec8("senza-socket")
+    T.check("R8 no display and no socket → cm-terminal skips (T57)", "skip: headless" in out and "gnome-terminal" not in out and "riavvio completato" in out, out[-800:])
+    srv = socket.socket(socket.AF_UNIX); srv.bind(str(rt / "wayland-0"))
+    out = exec8("con-socket")
+    srv.close()
+    T.check("R8 no display in the env, wayland-0 alive → display recovered, cm-terminal opens the tab", "WAYLAND_DISPLAY=wayland-0" in out and "gnome-terminal --title beta" in out and "skip: headless" not in out and "riavvio completato" in out, out[-800:])
 
 T.rm(str(tmp))
 T.finish()

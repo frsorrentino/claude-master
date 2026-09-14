@@ -315,6 +315,19 @@ def cm_calls():
     return argslog.read_text().splitlines() if argslog.exists() else []
 
 
+# 14/09 (dall'app): attesa vista solo sullo schermo, senza file dell'hook e senza nulla da estrarre → niente «?»
+rows_alive("ledger-api", "atlas-shop", "field-notes", **{"field-notes": {"status": "waiting", "waiting": True}})
+fq = next(x for x in json.loads(relay("push", "--dry-run").stdout)["sessions"] if x["name"] == "field-notes")
+T.check("R4 waiting seen only on screen, no waiting/<sid>, nothing extracted → no question, the session back to idle (no open turn in the ledger), never «?»", fq["state"] == "idle" and fq["question"] is None, str(fq))
+# senza evento waiting nel ledger l'asked_at e' il primo avvistamento (la push precedente), non «adesso»
+rows_alive("ledger-api", "atlas-shop", "field-notes")
+ledger_bak = ledger.read_text()
+ledger.write_text("\n".join(l for l in ledger_bak.splitlines() if '"waiting"' not in l) + "\n")
+(rdir2 / "last-state.json").write_text(json.dumps({"state": {"sessions": [{"name": "ledger-api", "question": {"asked_at": 1789210123}}]}}))
+lq = json.loads(relay("push", "--dry-run").stdout)["sessions"][0]
+T.check("R4 no waiting event in the ledger → asked_at = first sighting (the previous push), not now", lq["name"] == "ledger-api" and lq["question"]["asked_at"] == 1789210123, str(lq.get("question")))
+(rdir2 / "last-state.json").unlink()
+ledger.write_text(ledger_bak)
 n_req = len(CALLS["requests"])
 r = relay("push", "--dry-run")
 dry = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip().startswith("{") else {}
