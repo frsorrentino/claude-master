@@ -150,7 +150,7 @@ DEFAULTS = {
               "state_max_kb": 8, "events_days": 7, "dir": "~/.claude-master/relay", "heartbeat_s": 60, "debounce_s": 2,
               "token_url": "https://oauth2.googleapis.com/token", "fcm_url": "https://fcm.googleapis.com", "host": "",
               "log": "", "command_timeout_s": 120, "pair_ttl_s": 300, "pair_attempts": 5, "serve_timeout_s": 50,
-              "colors": {}},
+              "colors": {}, "awaiting_max_s": 1800},
     "hooks": {
         "local_time": {"enabled": True, "format": "%A %Y-%m-%d %H:%M", "prefix": "[local time]"},
         "restart_stop": {"enabled": True},

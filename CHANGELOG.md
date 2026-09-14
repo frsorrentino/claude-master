@@ -2,6 +2,8 @@
 
 ## 0.3.x
 
+- **0.4.2 — 2026-09-14: the wrist prompt no longer freezes a session.**
+  - Relay: an «awaiting» entry now expires — when the session finishes a turn after the prompt (a `stop` in the ledger later than it) or after `relay.awaiting_max_s` (30 min). Before, a prompt sent from the wrist left the session marked `awaiting` forever, so `/state` showed it as working with yesterday's `turn_started` and `tool` (seen live on 14/09: the watch said «busy, SendMessage, 12 h» while the PC said idle). `awaiting.json` is rewritten clean at every push.
 - **0.4.1 — 2026-09-13: badges, whole questions, and the wrist in the ledger.**
   - Relay, contract 1.1 (additive; `v` stays 1 on the bus): every session in `/state` carries `icon` (the tab badge emoji from cm-color's registry, stable for the session's life; the last known one for a gone session, else null) and `color` («#RRGGBB», the hue alone whatever the shape or heart: 🟠🟧🧡 #F5A623 · 🟡🟨💛 #F4D03F · 🔴🟥❤️ #E74C3C · 🟢🟩💚 #2ECC71 · 🔵🟦💙 #3B82F6 · 🟣🟪💜 #9B59B6 · ⚪⬜🤍 #BDC3C7 · 🟤🟫🤎 #8D6E63, overridable in `relay.colors`); the watch draws the badge with the shape of the account and this colour (Franz via the master, 12/09 16:27). Fixtures `state-1`/`state-2` updated, identical in the app repo.
   - Relay, contract 1.2 (additive): `tool` is filled for `awaiting` sessions too (a wrist prompt in flight had no activity on the watch's card), and every session carries `next_at` — the date of the recap line that produced `next` (midnight of that day, null when there is no next) — so a reader can tell a fresh next step from a three-day-old one and order it against `outcome.at`. Fixtures updated, identical in the app repo.

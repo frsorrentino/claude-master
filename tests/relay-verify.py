@@ -520,6 +520,19 @@ txt = bot.toggle_follow(cs7, "atlas-shop")
 r = relay("push", "--dry-run"); dryaw = json.loads(r.stdout)
 a_aw = next(s_ for s_ in dryaw["sessions"] if s_["name"] == "atlas-shop")
 T.check("R7b (1.2) a session awaiting a wrist prompt is «awaiting» and its tool is read too (before: only busy ones, so the card had no activity)", a_aw["state"] == "awaiting" and "tool" in a_aw, str((a_aw["state"], a_aw["tool"])))
+# la voce scade quando il turno finisce (uno stop dopo il prompt) o dopo awaiting_max_s: senza questo la
+# sessione restava «awaiting» per sempre, col turno e il tool di ore prima (dal vivo 14/09 08:22)
+sent = time.time() - 60
+(rdir2 / "awaiting.json").write_text(json.dumps({"atlas-shop": sent}))
+with open(ledger, "a") as f:
+    f.write(json.dumps({"ts": iso(time.time()), "event": "stop", "session_id": "S-A", "cwd": str(ws / "personali" / "atlas-shop"), "account": "personale", "pid": 8, "last": "fine turno", "tail": "fine turno", "esito": ""}) + "\n")
+r = relay("push", "--dry-run"); dry_done = json.loads(r.stdout)
+a_done = next(s_ for s_ in dry_done["sessions"] if s_["name"] == "atlas-shop")
+T.check("R7c the awaiting entry expires when the turn ends (a stop after the prompt): the session is no longer «awaiting» and awaiting.json is cleaned", a_done["state"] != "awaiting" and json.loads((rdir2 / "awaiting.json").read_text()) == {}, str(a_done["state"]) + str((rdir2 / "awaiting.json").read_text()))
+(rdir2 / "awaiting.json").write_text(json.dumps({"atlas-shop": time.time() - 3600}))
+r = relay("push", "--dry-run"); dry_old = json.loads(r.stdout)
+a_old = next(s_ for s_ in dry_old["sessions"] if s_["name"] == "atlas-shop")
+T.check("R7c an entry older than relay.awaiting_max_s expires as well", a_old["state"] != "awaiting" and json.loads((rdir2 / "awaiting.json").read_text()) == {}, str(a_old["state"]))
 (rdir2 / "awaiting.json").write_text("{}")
 T.check("R7 bot toggle_follow → push (a new PUT of /state)", "atlas-shop" in cs7["follow"] and T.wait_until(lambda: state_puts() > n0, 15), txt)
 

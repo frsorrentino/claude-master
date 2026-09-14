@@ -231,7 +231,8 @@
     "pair_ttl_s": 300,
     "pair_attempts": 5,
     "serve_timeout_s": 50,
-    "colors": {}
+    "colors": {},
+    "awaiting_max_s": 1800
   },
   "hooks": {
     "local_time": {

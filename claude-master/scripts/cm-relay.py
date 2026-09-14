@@ -256,8 +256,31 @@ def followed():
     return names
 
 
-def awaiting():
-    names = set(read_json(rdir() / "awaiting.json", {}).keys())
+def awaiting(ledger=None, rows=None):
+    """I nomi in attesa di risposta a un prompt dal polso. Una voce SCADE quando la sessione ha finito un turno
+    dopo il prompt (uno stop nel ledger con ts successivo) o dopo relay.awaiting_max_s (30 min): senza questo
+    una sessione restava «awaiting» per sempre, con il turno e il tool di ore prima (dal vivo, 14/09 08:22)."""
+    p = rdir() / "awaiting.json"
+    aw = read_json(p, {})
+    if aw:
+        led = ledger if ledger is not None else _load("cm-bot").ledger_rows()
+        ids = {(r.get("tmux") or r.get("name")): (r.get("session_id") or "") for r in (rows or [])}
+        cap = float(R.get("awaiting_max_s") or 1800)
+        now = time.time()
+        keep = {}
+        for name, since in aw.items():
+            since = float(since or 0)
+            if now - since > cap:
+                continue
+            sid = ids.get(name) or ""
+            stops = [S.epoch(r.get("ts")) for r in led if r.get("session_id") == sid and r.get("event") == "stop"] if sid else []
+            if any(t > since for t in stops):
+                continue   # il turno e' finito: la risposta e' arrivata (o l'ha chiusa un altro canale)
+            keep[name] = since
+        if keep != aw:
+            write_json(p, keep)
+        aw = keep
+    names = set(aw)
     for cs in (bot_state().get("chats") or {}).values():
         names |= set((cs.get("awaiting") or {}).keys())
     return names
@@ -339,7 +362,7 @@ def collect_sources(now=None):
                          "waiting": False, "session_id": s.get("session_id") or "", "link": "", "attached": False,
                          "visto_ts": S.epoch(s.get("visto", "")) if s.get("visto") else 0})
     ledger = bot.ledger_rows()
-    aw = awaiting()
+    aw = awaiting(ledger, rows)
     # 1.1: l'icona della scheda per ogni sessione viva (cm-color: registro stabile), per le sparite l'ultima nota
     last_icons = {s_.get("name"): s_.get("icon") for s_ in (read_json(rdir() / "last-state.json", {}).get("state") or {}).get("sessions", []) if s_.get("icon")}
     icons = {}
