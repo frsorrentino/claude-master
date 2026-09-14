@@ -8,7 +8,7 @@
 #   claude-master desk [start|stop|status] [--no-window]  «sportello»: `claude remote-control` in tmux nella
 #                                                         radice dei workspaces. OPZIONALE, spento di default
 #                                                         (desk.enabled): la sessione della radice resta
-#                                                         l'ingresso dal telefono (Franz, 10/09/2026)
+#                                                         l'ingresso dal telefono (l'utente, 10/09/2026)
 #   (--teleport <id> e' un'opzione di `launch`: porta una sessione cloud in tmux con finestra e colore)
 set -u
 source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/cm-lib.sh"

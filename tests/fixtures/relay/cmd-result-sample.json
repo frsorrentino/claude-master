@@ -12,7 +12,7 @@
       "id": "6f1c2d3e-0002-4000-8000-000000000002",
       "op": "prompt",
       "session": "atlas-shop",
-      "arg": "rivedi i seed di prova",
+      "arg": "review the test seeds",
       "issued": 1789210890,
       "by": "watch-pixel5"
     },
@@ -20,7 +20,7 @@
       "id": "6f1c2d3e-0003-4000-8000-000000000003",
       "op": "launch",
       "session": null,
-      "arg": "/home/franz/Desktop/workspaces/pixelfarm/nostri/orbit-docs",
+      "arg": "/home/demo/workspaces/work/own/orbit-docs",
       "issued": 1789210900,
       "by": "watch-pixel5"
     },
@@ -81,7 +81,7 @@
     {
       "id": "6f1c2d3e-0003-4000-8000-000000000003",
       "ok": true,
-      "text": "launched orbit-docs (agenzia)",
+      "text": "launched orbit-docs (work)",
       "at": 1789210915
     },
     {
@@ -111,7 +111,7 @@
     {
       "id": "6f1c2d3e-0008-4000-8000-000000000008",
       "ok": true,
-      "text": "Seed e pagina admin rivisti: 12 utenti e 40 ordini di prova, la pagina admin li mostra. Test verdi (42). Non committo: lo decidi tu.",
+      "text": "Seeds and admin page reviewed: 12 users and 40 test orders, the admin page shows them. Tests green (42). Not committing: your call.",
       "at": 1789210951
     }
   ]

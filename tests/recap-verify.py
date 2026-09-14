@@ -31,7 +31,7 @@ tg.mkdir(parents=True)
 state = tmp / "state"
 state.mkdir()
 ws = home / "ws"
-for d in ("personali/alfa", "personali/zeta", "pixelfarm/clienti/sito.com"):
+for d in ("personali/alfa", "personali/zeta", "agenzia/clienti/sito.com"):
     (ws / d).mkdir(parents=True, exist_ok=True)
 rows = [
     {"ts": "2026-09-09T09:00:00", "event": "start", "session_id": "A", "cwd": str(ws / "personali" / "alfa"), "account": "personale", "pid": 1, "source": "startup"},
@@ -41,8 +41,8 @@ rows = [
     {"ts": "2026-09-09T10:00:00", "event": "end", "session_id": "A", "cwd": str(ws / "personali" / "alfa"), "account": "personale", "pid": 1, "reason": "other"},
     {"ts": "2026-09-09T11:00:00", "event": "start", "session_id": "B", "cwd": str(ws), "account": "personale", "pid": 2, "source": "startup"},
     {"ts": "2026-09-09T11:30:00", "event": "stop", "session_id": "B", "cwd": str(ws), "account": "personale", "pid": 2, "last": "```\ncodice\n```\nok fatto: risposta pronta"},
-    {"ts": "2026-09-09T12:00:00", "event": "start", "session_id": "C", "cwd": str(ws / "pixelfarm" / "clienti" / "sito.com"), "account": "professionale", "pid": 3, "source": "startup"},
-    {"ts": "2026-09-09T12:30:00", "event": "stop", "session_id": "C", "cwd": str(ws / "pixelfarm" / "clienti" / "sito.com"), "account": "professionale", "pid": 3, "last": "risposta cliente"},
+    {"ts": "2026-09-09T12:00:00", "event": "start", "session_id": "C", "cwd": str(ws / "agenzia" / "clienti" / "sito.com"), "account": "professionale", "pid": 3, "source": "startup"},
+    {"ts": "2026-09-09T12:30:00", "event": "stop", "session_id": "C", "cwd": str(ws / "agenzia" / "clienti" / "sito.com"), "account": "professionale", "pid": 3, "last": "risposta cliente"},
     {"ts": "2026-09-08T12:30:00", "event": "stop", "session_id": "OLD", "cwd": str(ws / "personali" / "vecchia"), "account": "personale", "pid": 4, "last": "ieri"},
 ]
 (state / "ledger.jsonl").write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n")
@@ -120,15 +120,28 @@ T.check("DI1b model summary: one sentence per project from ALL its stop messages
 T.check("DI1b «prossimo» only where the model gave one: not under closed rows", "prossimo: Attendere" not in r.stdout, r.stdout)
 r = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-recap.py"), "--date", "2026-09-09"], capture_output=True, text=True, env={**{"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg), "CM_DIARY_FAKE_PROC": "1"}, "CM_CLAUDE_BIN": str(fake_sum)}, timeout=60)
 T.check("DI1b second run served from the day's cache: no new model call", "✓ alfa: Test sistemati e changelog aggiornato" in r.stdout and (tmp / "sum-args.log").read_text().count("-p") == 1, r.stdout)
+# DI1d (14/09): il cron delle 20:00 ha PATH=/usr/bin:/bin e claude sta solo in ~/.local/bin → prima «claude» non si
+# trovava, l'errore era inghiottito e i riassunti del giorno si scrivevano vuoti. Cache svuotata: il modello va chiamato.
+import shutil as _sh
+_sd = str(json.loads(cfg.read_text()).get("state_dir") or "~/.local/state/claude-master")
+_sd = Path(str(home) + _sd[1:]) if _sd.startswith("~") else Path(_sd)
+_sh.rmtree(_sd / "recap-summaries", ignore_errors=True)
+local_claude = home / ".local" / "bin" / "claude"
+local_claude.parent.mkdir(parents=True, exist_ok=True)
+local_claude.write_text(fake_sum.read_text().replace(str(tmp / "sum-args.log"), str(tmp / "sum-args-cron.log")))
+local_claude.chmod(0o755)
+r = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-recap.py"), "--date", "2026-09-09"], capture_output=True, text=True, env={"PATH": "/usr/bin:/bin", "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg), "CM_DIARY_FAKE_PROC": "1"}, timeout=60)
+T.check("DI1d cron PATH (/usr/bin:/bin), claude only in ~/.local/bin: the model is found and the summary is there (before: empty summaries since 12/09)", "✓ alfa: Test sistemati e changelog aggiornato" in r.stdout and (tmp / "sum-args-cron.log").is_file() and (tmp / "sum-args-cron.log").read_text().count("-p") == 1, r.stdout + r.stderr)
+local_claude.unlink()
 cfg_model["recap"]["summary"] = "last"; cfg.write_text(json.dumps(cfg_model))
 # DI1c: la riga del giorno in docs/recap.md di ogni progetto (dalla cache del modello finto)
 logf = ws / "personali" / "alfa" / "docs" / "recap.md"
 T.check("DI1c project log written: docs/recap.md with the date line from the model summary", logf.is_file() and "- 2026-09-09: Test sistemati e changelog aggiornato" in logf.read_text() and logf.read_text().startswith("# Recap di alfa"), logf.read_text() if logf.is_file() else "missing")
-sito_log = ws / "pixelfarm" / "clienti" / "sito.com" / "docs" / "recap.md"
+sito_log = ws / "agenzia" / "clienti" / "sito.com" / "docs" / "recap.md"
 T.check("DI1c project log carries «prossimo» when the model gave one", sito_log.is_file() and "- 2026-09-09: Risposta al cliente inviata · prossimo: Attendere la conferma del cliente" in sito_log.read_text(), sito_log.read_text() if sito_log.is_file() else "missing")
 recap("--date", "2026-09-09")
 T.check("DI1c idempotent: a second run leaves ONE line for the date", logf.read_text().count("- 2026-09-09:") == 1, logf.read_text())
-T.check("DI1c the root project (master) gets its line too, sito.com as well", (ws / "docs" / "recap.md").is_file() and (ws / "pixelfarm" / "clienti" / "sito.com" / "docs" / "recap.md").is_file(), str(list(ws.rglob("recap.md"))))
+T.check("DI1c the root project (master) gets its line too, sito.com as well", (ws / "docs" / "recap.md").is_file() and (ws / "agenzia" / "clienti" / "sito.com" / "docs" / "recap.md").is_file(), str(list(ws.rglob("recap.md"))))
 # DI6: soglia di sostanza
 cfg_thr = json.loads(cfg.read_text()); cfg_thr["recap"]["min_turns"] = 3; cfg.write_text(json.dumps(cfg_thr))
 r = recap("--date", "2026-09-09")

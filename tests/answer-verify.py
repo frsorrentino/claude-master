@@ -8,6 +8,7 @@ A4  --notify (payload PermissionRequest su stdin, TMUX_PANE della sessione): mes
     autorizzate con domanda, opzioni numerate dallo schermo e «rispondi N a NOME»; riga nel ledger
 A5  --notify senza tmux (TMUX_PANE assente): domanda e opzioni dal tool_input del payload, nome dalla cartella,
     nessun «rispondi»; un permesso (tool diverso) → nome del tool e dettaglio
+A4d --closed (dall'hook PostToolUse: domanda risposta altrove) → il messaggio dell'avviso perde i bottoni, la scheda la dimentica
 A6  --notify senza token Telegram → esce 0 senza chiamare l'API
 """
 import json
@@ -98,7 +99,18 @@ with T.PrivateTmux() as tm:
     T.check("A4 ledger row ask-notified", led.is_file() and '"ask-notified"' in led.read_text() and '"beta"' in led.read_text(), led.read_text() if led.is_file() else "-")
     scr = subprocess.run(["tmux", "-L", tm.socket, "capture-pane", "-p", "-t", "beta"], capture_output=True, text=True).stdout
     T.check("A4 no key sent: the question is still open", "Enter to select" in scr and "❯ 1. rosso" in scr, scr)
-# A7 (Franz 12/09 10:54: la domanda della master arrivava tagliata, non si poteva rispondere): la domanda va mostrata
+    # A4d (14/09, dall'app): la domanda ha avuto risposta altrove → --closed (dall'hook PostToolUse) toglie i bottoni dal
+    # messaggio dell'avviso in ogni chat e la scheda dimentica la domanda (un «2» dal polso non risponde piu')
+    CALLS.pop("editMessageReplyMarkup", None)
+    e_closed = env(tm); e_closed["TMUX_PANE"] = pane
+    r = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-answer.py"), "--closed"], input=json.dumps({"session_id": "sid-beta", "tool_name": "AskUserQuestion"}),
+                       capture_output=True, text=True, env=e_closed, timeout=60)
+    ed = CALLS.get("editMessageReplyMarkup") or []
+    bs = json.loads((tmp / "state" / "bot-state.json").read_text())
+    T.check("A4d --closed: the notice loses its buttons in both chats (editMessageReplyMarkup, empty keyboard), the card forgets the question",
+            r.returncode == 0 and {c.get("chat_id") for c in ed} == {"1001", "1002"} and all(json.loads(c.get("reply_markup") or "{}").get("inline_keyboard") == [] for c in ed)
+            and bs["chats"]["1001"].get("qmsg") is None and bs["chats"]["1002"].get("qmsg") is None, r.stdout + r.stderr + str(ed))
+# A7 (l'utente 12/09 10:54: la domanda della master arrivava tagliata, non si poteva rispondere): la domanda va mostrata
 # COMPLETA e di senso compiuto — l'ultima frase interrogativa se sta in synth_max_chars, altrimenti sintesi col
 # modello (synth_model, `claude -p`), altrimenti il testo a capo. Il parser dello schermo unisce le righe della domanda.
 import importlib.util as _ilu
@@ -132,7 +144,7 @@ r = notify(None, {"session_id": "sid-g", "cwd": str(home / "gamma"), "tool_name"
                   "tool_input": {"questions": [{"question": very_long, "header": "Trasporto", "options": [{"label": "A"}, {"label": "B"}]}]}}, CM_CLAUDE_BIN=str(fake_syn))
 t7c = texts()[0].splitlines() if texts() else []
 T.check("A7 without a model (synth_model empty): the question WHOLE on one line (no cut), no model call; options listed (no tmux → no buttons)", r.returncode == 0 and syn_log.read_text().count("-p") == 1 and t7c[1] == very_long and t7c[2] == "1 A" and "…" not in texts()[0], texts()[0])
-# A8 (Franz 12/09 11:12): il testo dice solo quello che i tasti non dicono — con tmux (tasti) e ≤ 3 opzioni senza
+# A8 (l'utente 12/09 11:12): il testo dice solo quello che i tasti non dicono — con tmux (tasti) e ≤ 3 opzioni senza
 # descrizione: solo la domanda; con descrizioni dal payload: «n etichetta» + descrizione su ≤ 2 righe
 with T.PrivateTmux() as tm8:
     subprocess.run(["tmux", "-L", tm8.socket, "new-session", "-d", "-s", "delta", "-x", "120", "-y", "40",

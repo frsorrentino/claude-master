@@ -17,6 +17,9 @@ L12 PATH del cron (T81, 16:30 dell'11/09: «claude non trovato nel PATH» dal bo
     con il messaggio che dice i percorsi provati
 L13 display (14/09): sotto tmux senza DISPLAY/WAYLAND_DISPLAY/XDG_RUNTIME_DIR e con wayland-0 vivo → la finestra
     si apre (backend gnome a secco); senza socket → salta (T57); fuori tmux (cron, daemon) anche col socket → salta
+L14 (S09, prova) --agent codex: spento (experimental.codex false) → exit 2; acceso → Codex CLI in tmux col nome della
+    cartella, senza gli argomenti di Claude; agente sconosciuto → exit 2
+L14b il dialogo di fiducia di Codex disegnato 4 s dopo la prima riga viene risposto; pronta solo sul segno di Codex pronto
 """
 import json
 import os
@@ -199,6 +202,32 @@ with T.PrivateTmux() as tm:
     r = run13("dacron", False)
     srv.close()
     T.check("L13 outside tmux (cron, daemons) the socket is not enough → still skips (T57)", r.returncode == 0 and "skip: headless" in r.stdout and "gnome-terminal" not in r.stdout, r.stdout + r.stderr)
+    # L14 (S09): --agent codex e' una prova spenta di default; accesa, lancia Codex CLI in tmux senza gli argomenti di Claude
+    r = run(str(home / "ws" / "personali" / "alfa"), "--agent", "codex", "--no-window")
+    T.check("L14 --agent codex with experimental.codex off → exit 2 naming the option", r.returncode == 2 and "experimental.codex" in r.stderr, r.stdout + r.stderr)
+    fake_codex = tmp / "fake-codex.sh"
+    fake_codex.write_text('#!/bin/sh\necho "$@" > "%s"\necho ">_ OpenAI Codex (v0-demo)"\nexec sleep 300\n' % (tmp / "codex-args.log"))
+    fake_codex.chmod(0o755)
+    cfg14 = tmp / "config-l14.json"
+    c14 = json.loads(cfg.read_text()); c14["experimental"] = {"codex": True}
+    cfg14.write_text(json.dumps(c14))
+    (home / "ws" / "personali" / "cxdemo").mkdir(exist_ok=True)
+    r = run(str(home / "ws" / "personali" / "cxdemo"), "--agent", "codex", "--no-window", extra={"CLAUDE_MASTER_CONFIG": str(cfg14), "CM_CODEX_BIN": str(fake_codex)})
+    T.check("L14 experimental.codex on → Codex CLI in tmux under the folder's name, without Claude's arguments (no -n, no remote control)",
+            r.returncode == 0 and "cxdemo" in r.stdout and tm("has-session", "-t", "=cxdemo").returncode == 0 and (tmp / "codex-args.log").read_text().strip() == "", r.stdout + r.stderr)
+    # L14b (dal vivo 14/09): Codex scrive «> You are in …» e il dialogo di fiducia anche 4 s dopo (macchina carica); launch
+    # deve aspettarlo e rispondere (un Invio), e dichiarare pronta la sessione solo sul segno di Codex pronto
+    trusted = tmp / "codex-trusted"
+    fake_trust = tmp / "fake-codex-trust.sh"
+    fake_trust.write_text('#!/bin/sh\necho "> You are in $PWD"\nsleep 4\necho "  Do you trust the contents of this directory?"\n'
+                          'echo "› 1. Yes, continue"\necho "  2. No, quit"\nread ans\necho yes > "%s"\nclear\necho "› Ask Codex to do anything"\nexec sleep 300\n' % trusted)
+    fake_trust.chmod(0o755)
+    (home / "ws" / "personali" / "cxtrust").mkdir(exist_ok=True)
+    r = run(str(home / "ws" / "personali" / "cxtrust"), "--agent", "codex", "--no-window", extra={"CLAUDE_MASTER_CONFIG": str(cfg14), "CM_CODEX_BIN": str(fake_trust)})
+    T.check("L14b the trust dialog drawn a moment after the first line is answered (one Enter) before the session is declared ready",
+            r.returncode == 0 and trusted.is_file() and "Ask Codex to do anything" in (tm("capture-pane", "-p", "-t", "cxtrust").stdout or ""), r.stdout + r.stderr + (tm("capture-pane", "-p", "-t", "cxtrust").stdout or ""))
+    r = run(str(home / "ws" / "personali" / "alfa"), "--agent", "gemini", "--no-window", extra={"CLAUDE_MASTER_CONFIG": str(cfg14)})
+    T.check("L14 unknown agent → exit 2 naming it", r.returncode == 2 and "gemini" in r.stderr, r.stderr)
 
 T.rm(str(tmp))
 T.finish()

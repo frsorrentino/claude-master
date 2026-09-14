@@ -28,7 +28,7 @@ tg.mkdir(parents=True)
 (tg / "access.json").write_text(json.dumps({"allowFrom": ["1001"]}))
 (home / ".claude-pixel").mkdir()
 ws = home / "ws"
-for d in ("personali/alfa", "pixelfarm/clienti/sito.com"):
+for d in ("personali/alfa", "agenzia/clienti/sito.com"):
     (ws / d).mkdir(parents=True)
 state = tmp / "state"
 state.mkdir()
@@ -63,7 +63,7 @@ cfg.write_text(json.dumps({
     "workspace": {"root": str(ws)},
     "accounts": {"personale": {"config_dir": "~/.claude"}, "professionale": {"config_dir": "~/.claude-pixel", "tmux_prefix": "pix-"}},
     "default_account": "personale",
-    "folder_map": [{"path": str(ws / "pixelfarm"), "account": "professionale"}],
+    "folder_map": [{"path": str(ws / "agenzia"), "account": "professionale"}],
     "bot": {"api_base": f"http://127.0.0.1:{srv.server_port}", "token_file": str(tg / ".env"), "access_file": str(tg / "access.json")},
     "night": {"cron_time": "02:00", "min_free_mb": 500, "max_quota_pct": 80, "max_items_per_run": 3, "max_turns": 12},
 }))
@@ -81,7 +81,7 @@ queue = state / "night-queue.jsonl"
 # NI1
 r = night("add", str(ws / "personali" / "alfa"), "sistema i test rossi")
 T.check("NI1 add: queued with the default account", r.returncode == 0 and "personale" in r.stdout and queue.is_file(), r.stdout + r.stderr)
-r = night("add", str(ws / "pixelfarm" / "clienti" / "sito.com"), "aggiorna il changelog", "--model", "sonnet", "--effort", "low", "--max-turns", "5")
+r = night("add", str(ws / "agenzia" / "clienti" / "sito.com"), "aggiorna il changelog", "--model", "sonnet", "--effort", "low", "--max-turns", "5")
 rows = [json.loads(l) for l in queue.read_text().splitlines()]
 T.check("NI1 add: account from folder_map, model/effort/max-turns kept", r.returncode == 0 and rows[1]["account"] == "professionale" and rows[1]["model"] == "sonnet" and rows[1]["effort"] == "low" and rows[1]["max_turns"] == 5 and rows[0]["max_turns"] == 12, r.stdout + r.stderr + str(rows))
 r = night("add", str(tmp / "nope"), "x")
@@ -102,7 +102,7 @@ r = night("run", "--send")
 args = argslog.read_text().splitlines() if argslog.exists() else []
 T.check("NI3 run: claude -p with permission-mode and max-turns, twice", r.returncode == 0 and len(args) == 2 and "-p sistema i test rossi --permission-mode acceptEdits --max-turns 12" in args[0] and "--max-turns 5 --model sonnet --effort low" in args[1], r.stdout + r.stderr + str(args))
 T.check("NI3 CLAUDE_CONFIG_DIR only for the second account (T68)", "CLAUDE_CONFIG_DIR=" in args[0] and args[0].rstrip().endswith("CLAUDE_CONFIG_DIR=") and str(home / ".claude-pixel") in args[1], str(args))
-reports = sorted((ws / "personali" / "alfa" / "docs" / "notte").glob("*.md")) + sorted((ws / "pixelfarm" / "clienti" / "sito.com" / "docs" / "notte").glob("*.md"))
+reports = sorted((ws / "personali" / "alfa" / "docs" / "notte").glob("*.md")) + sorted((ws / "agenzia" / "clienti" / "sito.com" / "docs" / "notte").glob("*.md"))
 T.check("NI3 a report per item in docs/notte with prompt and output", len(reports) == 2 and "sistema i test rossi" in reports[0].read_text() and "Sent to cloud session (fake)" in reports[0].read_text(), str(reports))
 T.check("NI3 queue emptied, done has both with rc", queue.read_text().strip() == "" and len((state / "night-done.jsonl").read_text().splitlines()) == 2 and '"rc": 0' in (state / "night-done.jsonl").read_text(), (state / "night-done.jsonl").read_text()[:300])
 T.check("NI3 --send: one Telegram message with both items", len(CALLS["sendMessage"]) == 1 and "alfa" in CALLS["sendMessage"][0]["text"] and "sito.com" in CALLS["sendMessage"][0]["text"] and "✓" in CALLS["sendMessage"][0]["text"], str(CALLS["sendMessage"])[:400])

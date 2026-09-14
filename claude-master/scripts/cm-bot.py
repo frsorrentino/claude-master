@@ -18,18 +18,18 @@ si ignora (le chat non autorizzate in silenzio, quelle autorizzate con la lista 
                       nessuno → elenca e NON crea
   /sessions           l'output di `claude-master sessions`
   /recap              il recap di oggi (come alle 20:00; /diary è un alias)
-  /start              «vuoi /master?» con un bottone inline (Franz l'ha scritto due volte credendo di
+  /start              «vuoi /master?» con un bottone inline (l'utente l'ha scritto due volte credendo di
                       lanciare la master, 11/09/2026); il tap e' un callback_query che, a sessioni chiuse,
                       arriva a QUESTO poller: lancia la master come /master
 
 Telegram consegna gli update a UN solo consumatore per token: il plugin `telegram` delle sessioni
 vive fa polling e scrive bot.pid. Questo poller gira SOLO se quel pid è assente o morto, altrimenti
-si ruberebbero i messaggi a vicenda (scelta di Franz del 10/09/2026: stesso bot, non un secondo).
+si ruberebbero i messaggi a vicenda (scelta dell'utente del 10/09/2026: stesso bot, non un secondo).
 Al primo giro (nessun offset salvato) l'arretrato si SCARTA: un «/master» di ieri non deve
 lanciare niente oggi. Ogni update confermato appena trattato (offset scritto subito): un crash a
 metà non ripete un lancio. Un lock evita due giri sovrapposti. Nessuna dipendenza: urllib.
 
-A misura di SMARTWATCH (Wear OS, mandato di Franz 11/09/2026 16:36–16:40; le regole di resa in
+A misura di SMARTWATCH (Wear OS, mandato dell'utente 11/09/2026 16:36–16:40; le regole di resa in
 cm-bot-ui.py): ogni messaggio ≤ 8 righe da ≤ 22 caratteri; comandi a parola nuda dettabile («sessioni»,
 «lancia shop-acme», «due si»); bottoni contestuali (Sessioni, «◀ nome», Avvisami, Continua, Ferma, Terminale); stato per chat
 (elenco / scheda di una sessione, scadenza 10 min); in scheda un numero risponde alla domanda con
@@ -37,7 +37,7 @@ cm-bot-ui.py): ogni messaggio ≤ 8 righe da ≤ 22 caratteri; comandi a parola 
 una sessione (avviso «✓ nome ha finito:» a fine di un turno > follow_min_turn_s, «✗ nome» se sparisce); `bot digest`
 alle 8:00. Tutto silenzioso (disable_notification) tranne domande, esiti, risposte, errori e sparizioni.
 
-Un PROMPT dal watch (12/09/2026, parita' col desktop): il prompt parte con il prefisso «Da Franz via Telegram
+Un PROMPT dal watch (12/09/2026, parita' col desktop): il prompt parte con il prefisso «Dall'utente via Telegram
 (watch)…» che chiede di chiudere con una riga «Watch: <esito ≤ 60 caratteri>»; la risposta e' UN messaggio vivo
 «📤 nome» + eco, editato dal transcript della sessione ogni LIVE_EDIT_S («▶ nome al lavoro», «▶ nome · 1m» + il
 tool in corso + le ultime righe di testo, «❓ nome aspetta te»), con i tasti Ferma (Esc in tmux) · Terminale ·
@@ -156,7 +156,7 @@ def api(method, _http_timeout=None, **params):
 
 def watch_active(now=None):
     """L'orologio e' accoppiato al relay (devices.json non vuoto) e l'ultima push e' andata a buon fine da meno di
-    bot.watch_fresh_s (180 s): allora l'app al polso avvisa lei, e Telegram deve restare muto (Franz via master
+    bot.watch_fresh_s (180 s): allora l'app al polso avvisa lei, e Telegram deve restare muto (l'utente via master
     12/09 15:26: le domande arrivavano due volte, notifica dell'app + inoltro Wear OS di quella Telegram)."""
     rd = Path(cm.expand((CFG.get("relay") or {}).get("dir") or "~/.claude-master/relay"))
     try:
@@ -182,7 +182,7 @@ def reply(chat_id, text, parse_mode=None, reply_markup=None, silent=False, reply
         return ((r or {}).get("result") or {}).get("message_id")
     except urllib.error.HTTPError as e:
         # un bottone con URL intent:// (Chrome) rifiutato da Telegram: lo stesso messaggio con il link nel testo,
-        # «Apri in Chrome» come <a> (Franz via master 12/09)
+        # «Apri in Chrome» come <a> (l'utente via master 12/09)
         fb = chrome_fallback(text, parse_mode, reply_markup) if e.code == 400 else None
         if fb:
             try:
@@ -498,7 +498,7 @@ def render_list(cs):
     rows = all_rows()
     now = time.time()
     ic = icons_for(rows)
-    # una riga di testa e SOLI bottoni, uno per sessione (Franz 18:28); i numeri restano accettati
+    # una riga di testa e SOLI bottoni, uno per sessione (l'utente 18:28); i numeri restano accettati
     # come ripiego nell'ordine dei bottoni, il nome dettato apre la scheda
     cs.update(level="list", session="", until=now + STATE_TTL_S, list=[r["tmux"] for r in rows], options=[])
     if not rows:
@@ -636,7 +636,7 @@ def answer_now(cs, name, n):
 def send_now(cs, name, text, force=False):
     """Un prompt dal watch alla sessione con `talk` (canale nativo se e' nel registro peer), dopo il
     checkpoint git del suo workspace; la sessione diventa seguita e «in attesa risposta». Niente anteprima:
-    la tastiera di Wear OS conferma gia' l'invio (Franz 21:05). La risposta e' il messaggio VIVO «📤 nome» +
+    la tastiera di Wear OS conferma gia' l'invio (l'utente 21:05). La risposta e' il messaggio VIVO «📤 nome» +
     l'eco del prompt, che poi si aggiorna da solo (12/09/2026)."""
     row = next((r for r in rows_live(with_questions=False) if r.get("tmux") == name), None)
     label = label_of(name)
@@ -709,7 +709,7 @@ def mark_awaiting(cs, name):
 
 
 def answer_text(text, cap=1200):
-    """L'esito o la risposta per il polso e il telefono, LEGGIBILE (Franz 22:49: niente righe strette):
+    """L'esito o la risposta per il polso e il telefono, LEGGIBILE (l'utente 22:49: niente righe strette):
     testo pulito dal markdown, la riga «Esito:» per prima, poi la coda del messaggio, senza a-capo forzati
     (Telegram va a capo da solo); oltre `cap` caratteri si taglia e si offre «Tutto». Torna (testo, tagliato)."""
     righe = [ui.strip_markdown(l) for l in str(text or "").splitlines()]
@@ -859,7 +859,7 @@ def handle(text, cs=None, cq_data=None):
         elif len(raw) < 3:
             out["text"] = ""   # ignorato: niente risposta
         elif in_card:
-            # PROMPT LIBERO alla sessione della scheda: parte subito (Franz 21:05)
+            # PROMPT LIBERO alla sessione della scheda: parte subito (l'utente 21:05)
             out.update(send_now(cs, cs["session"], raw))
         elif len(pending) == 1:
             out.update(send_now(cs, pending[0], raw))
@@ -983,6 +983,26 @@ def remember_question(name, message_ids, options=(), full_question=""):
     state_save(st)
 
 
+def close_question(name):
+    """La domanda di `name` ha avuto risposta altrove (tastiera, telefono, polso; 14/09, dall'app): il messaggio
+    dell'avviso perde i bottoni e la chat dimentica la domanda, cosi' un «2» dal polso non risponde piu' a una domanda
+    chiusa. Torna quanti messaggi ha chiuso."""
+    st = state_load()
+    n = 0
+    for chat, cs in (st.get("chats") or {}).items():
+        if cs.get("session") != name or not cs.get("qmsg"):
+            continue
+        try:
+            api("editMessageReplyMarkup", chat_id=chat, message_id=cs["qmsg"], reply_markup=json.dumps({"inline_keyboard": []}))
+            n += 1
+        except Exception:   # un messaggio gia' cancellato o la rete giu': la scheda si dimentica comunque
+            pass
+        cs["qmsg"] = None
+        cs["options"] = []
+    state_save(st)
+    return n
+
+
 # ------------------------------------------------------------------ sessioni seguite e digest
 def check_follows(st):
     """Per ogni chat: le sessioni seguite e quelle in attesa di risposta. Uno stop dopo un turno > TURN_MIN_S
@@ -1052,7 +1072,7 @@ def check_follows(st):
                     finish_live(chat, cs, name, M("bot.live_done", name=label, age=age or "0m"))
                     cs.update(level="card", session=name, until=time.time() + STATE_TTL_S, options=[])
                 elif followed and long_turn:
-                    # l'esito di una sessione seguita, per intero come una risposta (Franz 21:25: due righe
+                    # l'esito di una sessione seguita, per intero come una risposta (l'utente 21:25: due righe
                     # troncate non servono): «Esito:» per prima, poi le ultime righe, «Leggi tutto» se e' lungo;
                     # e la chat resta in scheda di quella sessione, cosi' il prossimo prompt si detta subito
                     _send_outcome(chat, cs, name, label, full or esito)

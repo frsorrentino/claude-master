@@ -1,13 +1,14 @@
 {
   "v": 1,
   "ts": 1789214400,
-  "host": "crostini-franz",
+  "host": "crostini-demo",
   "sessions": [
     {
       "id": "f61903c0-ea6a-409c-a961-d01126a0f3ad",
       "name": "atlas-shop",
-      "account": "personale",
-      "project": "personali/atlas-shop",
+      "account": "personal",
+      "account_kind": "personal",
+      "project": "personal/atlas-shop",
       "state": "idle",
       "since": 1789214000,
       "turn_started": null,
@@ -17,20 +18,48 @@
       "attached": false,
       "followed": false,
       "question": null,
-      "outcome": {"short": "Seed e pagina admin rivisti", "full": "Esito: seed e pagina admin rivisti, 42 test verdi.", "at": 1789213900},
-      "next": "Deploy di prova su staging",
+      "outcome": {
+        "short": "Seeds and admin page reviewed",
+        "full": "Esito: seeds and admin page reviewed, 42 tests green.",
+        "at": 1789213900
+      },
+      "next": "Test deploy on staging",
       "next_at": 1789171200,
       "icon": "🟢",
       "color": "#2ECC71"
     }
   ],
   "quota": {
-    "personale": {"h5": 24, "w7": 38, "reset_w7": 1789610400, "reset_h5": 1789228800, "stale": false},
-    "agenzia": {"h5": 3, "w7": 75, "reset_w7": 1789444800, "reset_h5": 1789225200, "stale": false}
+    "personal": {
+      "h5": 24,
+      "w7": 38,
+      "reset_w7": 1789610400,
+      "reset_h5": 1789228800,
+      "stale": false,
+      "kind": "personal"
+    },
+    "work": {
+      "h5": 3,
+      "w7": 75,
+      "reset_w7": 1789444800,
+      "reset_h5": 1789225200,
+      "stale": false,
+      "kind": "work"
+    }
   },
   "projects": [
-    {"path": "/home/franz/Desktop/workspaces/personali/atlas-shop", "name": "atlas-shop", "account": "personale"}
+    {
+      "path": "/home/demo/workspaces/personal/atlas-shop",
+      "name": "atlas-shop",
+      "account": "personal"
+    }
   ],
-  "night": {"queued": 0, "running": null},
-  "recap": {"date": "2026-09-12", "items": []}
+  "night": {
+    "queued": 0,
+    "running": null
+  },
+  "recap": {
+    "date": "2026-09-12",
+    "items": []
+  }
 }

@@ -286,7 +286,7 @@ def summaries(groups, label):
                   f"il lavoro è concluso o non si capisce. Rispondi SOLO con un oggetto JSON "
                   f"{{\"nome progetto\": {{\"fatto\": \"…\", \"prossimo\": \"…\"}}}}, stesse chiavi dell'input.\n\n"
                   + json.dumps(payload, ensure_ascii=False))
-        claude = os.environ.get("CM_CLAUDE_BIN") or "claude"
+        claude = cm.claude_bin()   # dal cron il PATH non ha ~/.local/bin (14/09: riassunti vuoti dal 12/09)
         env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CONFIG_DIR"}   # account di default (T68)
         try:
             p = subprocess.run([claude, "-p", prompt, "--model", str(D.get("summary_model", "haiku")), "--max-turns", "1"],

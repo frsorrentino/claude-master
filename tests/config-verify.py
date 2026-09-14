@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Verifica cm-config.py: default, merge, --sh, --get, init, doctor, shim.
 
-C1  default senza file: language en, root ~, un account `default`
+C1  default senza file: language rilevata (settings.json, poi LANG, poi en — S03), root ~, un account `default`
 C2  merge dal file + default guidati dalla lingua (prefisso ora locale)
 C3  --get con chiave puntata, ~ espansa con CM_HOME
 C4  --sh: export CM_* valutabili da bash (liste, dict annidati, TSV)
@@ -33,7 +33,12 @@ cfg_missing = Path(tmp) / "no-such-config.json"
 
 # C1
 r = T.run_config(["--get", "language"], home, cfg_missing)
-T.check("C1 default language en", r.stdout.strip() == "en", r.stdout + r.stderr)
+# S03 (14/09/2026): senza `language` nella config vale la lingua rilevata come in init — la home finta ha
+# «language: Italiano» in ~/.claude/settings.json → it; una home senza e senza LANG → en
+T.check("C1 no language in the config: detected from ~/.claude/settings.json (Italiano) → it", r.stdout.strip() == "it", r.stdout + r.stderr)
+home_nolang = T.fake_home(T.tmpdir(), language=None)
+r = T.run_config(["--get", "language"], home_nolang, cfg_missing)
+T.check("C1 no language anywhere (no settings language, no LANG) → en", r.stdout.strip() == "en", r.stdout + r.stderr)
 r = T.run_config(["--get", "workspace.root"], home, cfg_missing)
 T.check("C1 default root = HOME", r.stdout.strip() == str(home), r.stdout + r.stderr)
 r = T.run_config(["--get", "accounts"], home, cfg_missing)
@@ -46,7 +51,7 @@ cfg.write_text(json.dumps({"language": "it",
                                         "professionale": {"config_dir": "~/.claude-pixel", "tmux_prefix": "pix-"}},
                            "default_account": "personale",
                            "workspace": {"root": "~/Desktop/workspaces"},
-                           "folder_map": [{"path": "~/Desktop/workspaces/pixelfarm", "account": "professionale"}],
+                           "folder_map": [{"path": "~/Desktop/workspaces/agenzia", "account": "professionale"}],
                            "hooks": {"local_time": {"format": "%H:%M"}}}))
 r = T.run_config(["--get", "hooks.local_time.prefix"], home, cfg)
 T.check("C2 lang-driven default prefix", r.stdout.strip() == "[ora locale]", r.stdout + r.stderr)
@@ -73,7 +78,7 @@ T.check("C4 CM_LANGUAGE", "export CM_LANGUAGE='it'" in sh or 'export CM_LANGUAGE
 T.check("C4 CM_ACCOUNTS_KEYS", "CM_ACCOUNTS_KEYS='personale professionale'" in sh, sh[:2000])
 T.check("C4 nested account var expanded",
         f"CM_ACCOUNTS_PROFESSIONALE_CONFIG_DIR='{home}/.claude-pixel'" in sh, sh[:3000])
-T.check("C4 folder map TSV", f"CM_FOLDER_MAP='{home}/Desktop/workspaces/pixelfarm\tprofessionale" in sh, sh[:3000])
+T.check("C4 folder map TSV", f"CM_FOLDER_MAP='{home}/Desktop/workspaces/agenzia\tprofessionale" in sh, sh[:3000])
 T.check("C4 list space-joined", "CM_TABS_COLORS_CIRCLE='🔴 🟠 🟡 🟢 🔵 🟣 ⚪'" in sh, sh[:3000])
 T.check("C4 bool as true/false", "CM_SESSION_REMOTE_CONTROL='true'" in sh, sh[:3000])
 b = subprocess.run(["bash", "-c", f'eval "$(python3 {T.SCRIPTS}/cm-config.py --sh)"; echo "$CM_LANGUAGE|$CM_ACCOUNTS_PERSONALE_TMUX_PREFIX|$CM_TALK_QUIET_S"'],
@@ -126,15 +131,15 @@ T.check("C8 shell_command claude-pixel (from .bashrc)", acc.get("professionale",
 T.check("C8 shapes circle/square", acc.get("personale", {}).get("shape") == "circle" and acc.get("professionale", {}).get("shape") == "square", str(acc))
 T.check("C8 default_account personale", detected.get("default_account") == "personale", str(detected.get("default_account")))
 T.check("C8 every value has a source", all(k in sources for k in ("terminal.backend", "workspace.root", "accounts.professionale.tmux_prefix")), str(list(sources))[:300])
-T.check("C8 no 'pixelfarm' in plugin defaults", "pixelfarm" not in T.run_config(["--dump-defaults"], home, cfg_missing).stdout)
+T.check("C8 no vendor name in plugin defaults", ("pixel" + "farm") not in T.run_config(["--dump-defaults"], home, cfg_missing).stdout.lower())   # a pezzi (S10)
 
 T.check("C8 session.claude_args from live sessions (T74)", detected.get("session", {}).get("claude_args") == ["--dangerously-skip-permissions"], str(detected.get("session")))
 # C9
 fm = detected.get("folder_map", [])
-T.check("C9 folder_map pixelfarm→professionale", any(e.get("path") == "~/Desktop/workspaces/pixelfarm" and e.get("account") == "professionale" for e in fm), str(fm))
+T.check("C9 folder_map agenzia→professionale", any(e.get("path") == "~/Desktop/workspaces/agenzia" and e.get("account") == "professionale" for e in fm), str(fm))
 T.check("C9 folder_map personali→personale", any(e.get("path") == "~/Desktop/workspaces/personali" and e.get("account") == "personale" for e in fm), str(fm))
 pd = detected.get("workspace", {}).get("project_dirs", [])
-T.check("C9 project_dirs from sessions", set(pd) >= {"personali", "pixelfarm/clienti", "pixelfarm/nostri"}, str(pd))
+T.check("C9 project_dirs from sessions", set(pd) >= {"personali", "agenzia/clienti", "agenzia/nostri"}, str(pd))
 ex = detected.get("workspace", {}).get("excluded_dirs", [])
 T.check("C9 excluded_dirs with _archivio/_prod_backups", {"_archivio", "_prod_backups", ".git", "node_modules"} <= set(ex), str(ex))
 
@@ -209,6 +214,21 @@ T.check("C13b errorDetails → WARN quoting it", "WARN plugin_error" in r.stdout
 pl.write_text("[]")
 r = T.run_config(["doctor"], home, target, machine, extra_env={"CM_FAKE_PLUGIN_LIST": str(pl)})
 T.check("C13b not installed → WARN with the install command", "WARN plugin_missing" in r.stdout and "claude plugin install" in r.stdout, r.stdout)
+
+# C13c (S01, 14/09): lo shim c'e' ma ~/.local/bin non e' nel PATH → WARN con il rimedio; nel PATH → nessuna riga.
+# Un file macchina a parte: fake_machine riscriverebbe quello condiviso.
+shim13 = home / ".local" / "bin" / "claude-master"
+shim13.parent.mkdir(parents=True, exist_ok=True)
+shim13.write_text("#!/bin/sh\n")
+m13 = json.loads(Path(machine).read_text())
+for label, path_value in (("out", "/usr/bin:/bin"), ("in", f"/usr/bin:{home / '.local' / 'bin'}:/bin")):
+    m13["env"] = dict(m13.get("env") or {}, PATH=path_value)
+    (Path(tmp) / f"machine-c13c-{label}.json").write_text(json.dumps(m13))
+r_out = T.run_config(["doctor"], home, target, Path(tmp) / "machine-c13c-out.json")
+r_in = T.run_config(["doctor"], home, target, Path(tmp) / "machine-c13c-in.json")
+T.check("C13c shim dir not in PATH → WARN naming ~/.local/bin with the remedy (export PATH)", "WARN shim_not_in_path" in r_out.stdout and "~/.local/bin" in r_out.stdout and 'export PATH="$HOME/.local/bin:$PATH"' in r_out.stdout, r_out.stdout)
+T.check("C13c shim dir in PATH → no such line", "shim_not_in_path" not in r_in.stdout and "PASS shim_ok" in r_in.stdout, r_in.stdout)
+shim13.unlink()
 
 # C14 shim
 r = T.run_config(["init", "--shim", "--yes"], home, target, machine)

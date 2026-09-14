@@ -19,7 +19,8 @@
       "tmux_prefix": "",
       "shape": "circle",
       "shell_command": "claude",
-      "label": "default"
+      "label": "default",
+      "kind": ""
     }
   },
   "default_account": "default",
@@ -144,6 +145,9 @@
     "name": "sportello",
     "capacity": 4,
     "permission_mode": "acceptEdits"
+  },
+  "experimental": {
+    "codex": false
   },
   "bot": {
     "enabled": false,

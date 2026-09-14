@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifica la modalità SCHEDA (mandato di Franz 11/09 13:20: «sempre tutte schede»): launch/restart/restore
+"""Verifica la modalità SCHEDA (mandato dell'utente 11/09 13:20: «sempre tutte schede»): launch/restart/restore
 aprono la sessione come scheda di una finestra app del Terminale già aperta (duplicazione + segnaposto,
 come merge), garcon solo quando non c'è nessuna finestra, e allora UNA sola per tutte. Bridge finto,
 garcon finto (aggiunge una finestra al mondo del bridge e attacca un client come farebbe la shell nuova),
@@ -13,7 +13,7 @@ O3  subito dopo, beta → scheda nella finestra nata in O2 (la sua shell è sorg
 O4  terminal.open_as_tab false → garcon col comando attach (comportamento precedente)
 O5  restore --dry-run in modalità scheda dice «schede» e la finestra
 O6  launch intero (claude finto) con una finestra aperta → «attaccata», nessuna finestra nuova
-O7  SFRATTO della #home (chrome-bridge ed24b83, Franz 15:25): la finestra nata da garcon porta la #home; dopo
+O7  SFRATTO della #home (chrome-bridge ed24b83, l'utente 15:25): la finestra nata da garcon porta la #home; dopo
     la prima sessione la home viene portata via da sola in un popup (move_tab) e chiusa lì: nessuna finestra
     con sessioni mostra #home (O2, O3, O6); una finestra con la sola #home + shell e nessuna sessione resta
 """

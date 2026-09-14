@@ -136,7 +136,7 @@ def screen_rect(c, w=235, h=280):
 
 
 def watch_pair(x, y, content, content_rect=None, scale=1.0, captions=("Wear OS", "iOS")):
-    """REGOLA (Franz 19:53, 19:57): dove c'e' un orologio ci sono ENTRAMBI, affiancati, con lo STESSO
+    """REGOLA (l'utente 19:53, 19:57): dove c'e' un orologio ci sono ENTRAMBI, affiancati, con lo STESSO
     contenuto del bot: tondo (Pixel Watch, con i bottoni misurati su Wear OS) e Apple Watch a proporzioni
     reali (solo testo: le tastiere inline su watchOS non sono verificate). `content_rect` e' ignorato.
     (x, y) e' l'angolo in alto a sinistra della coppia; larghezza ≈ 630·scale, altezza ≈ 350·scale."""
@@ -219,38 +219,60 @@ def bot_button(x, y, w, text, glyph=None, gcolor=None, shape=None, icolor=None, 
     return o + label(tx, y + 21, text, 15, INK, "600")
 
 
+
+SHOTS = OUT / "watch"   # screenshot veri dell'app (Paparazzi, set demo): fonte in SOURCES.md
+def watch_shot(cx, cy, r, png, caption=None):
+    """Uno screenshot tondo vero (Paparazzi, 456×456) in una cassa di orologio: anello, corona, clip circolare. L'SVG lo
+    richiama con un percorso relativo (assets/readme/watch/), non lo incorpora: niente base64 nel sorgente."""
+    assert (SHOTS / png).is_file(), png
+    cid = f"clip{cx}{cy}"
+    o = f'<circle cx="{cx}" cy="{cy}" r="{r + 18}" fill="#1b1f2a" stroke="#3a4152" stroke-width="3"/>'
+    o += f'<rect x="{cx + r + 14}" y="{cy - 22}" width="12" height="44" rx="5" fill="#3a4152"/>'
+    o += f'<clipPath id="{cid}"><circle cx="{cx}" cy="{cy}" r="{r}"/></clipPath>'
+    o += f'<image x="{cx - r}" y="{cy - r}" width="{2 * r}" height="{2 * r}" href="watch/{png}" clip-path="url(#{cid})"/>'
+    if caption:
+        o += label(cx, cy + r + 46, caption, 16, DIM, anchor="middle")
+    return o
+
 cards = {}
 
 # ---------------------------------------------------------------- hero
 CURRENT[0] = "card0-hero"
 s = head("#151a33", "#0a0e1c") + title("One master runs all the others.", "Parallel sessions, one per project — terminal and wrist")
-s += panel(70, 200, 360, 330, "#3b4d78", "#101733") + icon(108, 232, "circle", "#ff4d4d", 11) + label(130, 240, "master", 26, "#ffffff", "800")
+s += panel(70, 200, 420, 330, "#3b4d78", "#101733") + icon(108, 232, "circle", "#ff4d4d", 11) + label(130, 240, "master", 26, "#ffffff", "800")
 s += label(96, 272, "the session of the root folder:", 18, DIM) + label(96, 296, "launches, watches, answers,", 18, DIM) + label(96, 320, "closes the rest", 18, DIM)
-s += label(96, 372, "$ claude-master sessions", 19, "#9ad1ff", "700", True) + label(96, 400, '$ claude-master talk ledger-api "…"', 19, "#9ad1ff", "700", True)
-s += label(96, 428, "$ claude-master answer ledger-api 1", 19, "#9ad1ff", "700", True) + label(96, 456, "$ claude-master restore", 19, "#9ad1ff", "700", True)
+s += label(96, 372, "$ claude-master sessions", 17, "#9ad1ff", "700", True) + label(96, 400, '$ claude-master talk ledger-api "…"', 17, "#9ad1ff", "700", True)
+s += label(96, 428, "$ claude-master answer ledger-api 1", 17, "#9ad1ff", "700", True) + label(96, 456, "$ claude-master restore", 17, "#9ad1ff", "700", True)
 s += label(96, 500, "your phone talks to it, too", 18, DIM)
 for i, (n, sh, col, st) in enumerate(DEMO[1:]):
     y = 218 + i * 80
-    s += panel(500, y, 260, 64, LINE) + icon(530, y + 32, sh, col, 12) + label(554, y + 39, n, 22, "#ffffff", "700")
-    s += label(732, y + 39, STATE_GLYPH[st], 22, STATE_COL[st], "800", anchor="end")
-    s += f'<line x1="438" y1="{y + 32}" x2="492" y2="{y + 32}" {arrow}/>'
-s += watch_pair(790, 205, {"title": "5 sessions · 1? · 1✗", "sessions": DEMO, "footer": "List"}, scale=0.56)
-s += foot("launch, list, talk, answer, restart, restore, tile — tmux underneath, Telegram on top")
+    s += panel(556, y, 230, 64, LINE) + icon(580, y + 32, sh, col, 12) + label(602, y + 39, n, 20, "#ffffff", "700")
+    s += label(776, y + 39, STATE_GLYPH[st], 22, STATE_COL[st], "800", anchor="end")   # al bordo destro: il nome non lo tocca
+    s += f'<line x1="498" y1="{y + 32}" x2="548" y2="{y + 32}" {arrow}/>'   # dal bordo del riquadro master (490)
+s += watch_shot(960, 360, 140, "sessions.png", "the watch app · beta coming soon")
+s += foot("launch, list, talk, answer, restart, restore, tile — tmux underneath, your wrist on top")
 cards["card0-hero"] = s + "</svg>"
 
 # ---------------------------------------------------------------- 1 sessions
 CURRENT[0] = "card1-sessions"
 s = head("#151a33", "#0d1120") + title("Sessions at a glance.", "Every account: state, who waits for you, how to reach it")
-s += panel(70, 190, 1060, 330)
+s += panel(70, 190, 1060, 262)
 s += label(96, 232, "$ claude-master sessions", 22, "#9ad1ff", "700", True)
-s += label(96, 272, "ACCOUNT        NAME          STATE      VIEW       CHANNEL   SINCE", 19, "#7f8db0", "500", True)
-rows = [("personal", "master", "busy", "open", "(this)", "3h14m"), ("work", "atlas-shop", "busy", "open", "native", "41m"), ("personal", "field-notes", "idle", "open", "native", "2d"),
-        ("work", "ledger-api", "waiting", "DETACHED", "talk", "12m"), ("personal", "orbit-docs", "?", "-", "talk", "-")]
-for i, (a, n, st, v, ch, t) in enumerate(rows):
-    y = 308 + i * 32
-    col = {"busy": YEL, "idle": GREEN, "waiting": RED, "?": "#8a94b3"}[st]
-    s += label(96, y, f"{a:<14} {n:<13} ", 19, INK, "500", True) + label(96 + 11.45 * 29, y, f"{st:<10}", 19, col, "700", True) + label(96 + 11.45 * 40, y, f"{v:<10} {ch:<9} {t}", 19, INK, "500", True)
-s += label(96, 480, "  ← ledger-api is waiting for an answer and nobody is watching it", 19, RED, "600", True)
+TABLE = (OUT / "demo-sessions.txt").read_text().splitlines()   # la tabella vera: tools-demo-sessions.py
+rows_real = [l for l in TABLE[2:] if l.strip() and l[:1].isdigit()]
+CW, FS = 8.73, 14.5   # DejaVu Sans Mono: 0,602 em
+H = TABLE[0]
+s += label(96, 272, H[:46], FS, "#7f8db0", "500", True) + label(96 + CW * 46, 272, H[46:52], FS, "#7f8db0", "500", True) + label(96 + CW * 53, 272, H[53:107].rstrip(), FS, "#7f8db0", "500", True)
+OFF = 0
+for i, l in enumerate(rows_real):
+    y = 304 + i * 30 + OFF
+    body, note = (l.split("  <- ") + [""])[:2]
+    st = body[46:52].strip()
+    col = {"busy": YEL, "idle": GREEN, "wait": RED}.get(st, "#8a94b3")
+    s += label(96, y, body[:46], FS, INK, "500", True) + label(96 + CW * 46, y, body[46:52], FS, col, "700", True) + label(96 + CW * 53, y, body[53:107].rstrip(), FS, INK, "500", True)
+    if note:   # la nota della riga, sotto di lei: «↑» sulla colonna STATE (la riga vera e' piu' larga del riquadro)
+        s += label(96 + CW * 46, y + 24, "↑ " + note, 14, RED, "600", True)
+        OFF += 24
 s += foot("a detached session stuck on a question is work standing still: it goes first")
 cards["card1-sessions"] = s + "</svg>"
 
@@ -272,11 +294,11 @@ CURRENT[0] = "card3-talk"
 s = head("#0f2a2a", "#08161a") + title("Talk. Answer its question.", "From another session, from your phone, on either account")
 s += panel(70, 200, 580, 160, "#2f6b55") + label(96, 240, '$ claude-master talk ledger-api "deploy done?"', 19, "#9ad1ff", "700", True)
 s += label(96, 280, "delivered to ledger-api's own inbox; the answer is read", 19, INK) + label(96, 306, "back from its transcript", 19, INK) + label(96, 340, "→ «yes, live since 14:02, cache purged»", 19, GREEN, "600")
-s += panel(70, 390, 580, 160, "#2f6b55") + label(96, 430, "$ claude-master answer ledger-api --show", 19, "#9ad1ff", "700", True)
-s += label(96, 462, "«ledger-api» asks — Deploy: deploy now?", 19, INK) + label(96, 488, "  ❯ 1. yes", 19, INK, "500", True) + label(96, 512, "    2. no", 19, INK, "500", True)
-s += label(96, 540, "$ claude-master answer ledger-api 1   → answered 1. yes", 19, "#9ad1ff", "700", True)
-s += watch_pair(690, 200, {"title": "ledger-api", "lines": ["? waiting for you", "Deploy ready, waiting", "for the client's ok", "→ Wait for the go"], "question": "Deploy now?", "options": ["yes", "no"], "footer": "List"}, scale=0.74)
-s += label(920, 510, "an inbox message never unblocks a dialog: answer does", 16, DIM, anchor="middle")
+s += panel(70, 376, 580, 184, "#2f6b55") + label(96, 414, "$ claude-master answer ledger-api --show", 19, "#9ad1ff", "700", True)
+s += label(96, 446, "«ledger-api» asks — Deploy: deploy now?", 19, INK) + label(96, 472, "  ❯ 1. yes", 19, INK, "500", True) + label(96, 496, "    2. no", 19, INK, "500", True)
+s += label(96, 524, "$ claude-master answer ledger-api 1", 19, "#9ad1ff", "700", True) + label(96, 548, "  → answered 1. yes", 18, GREEN, "600", True)
+s += watch_shot(900, 318, 118, "question.png", "the same question on the watch")
+s += label(900, 530, "an inbox message never unblocks a dialog:", 16, DIM, anchor="middle") + label(900, 552, "answer does", 16, DIM, anchor="middle")
 s += foot("same registry → native channel; otherwise the tmux pane, after checking for typed text")
 cards["card3-talk"] = s + "</svg>"
 
@@ -329,12 +351,13 @@ cards["card6-screen"] = s + "</svg>"
 
 # ---------------------------------------------------------------- 7a wrist (Wear OS)
 CURRENT[0] = "card7-wrist"
-s = head("#0f2a2a", "#08161a") + title("From your wrist.", "Telegram, 22 characters wide: tap, dictate, be alerted")
-for i, t in enumerate(["«sessioni» → one button per session", "tap a name → its card: state, outcome, next", "a question → its options as buttons", "a number, «due si» or a tap answers it", "free text → a prompt, Invia / Annulla", "silent, except questions and outcomes"]):
+s = head("#0f2a2a", "#08161a") + title("From your wrist.", "The Wear OS app: see every session, answer, follow")
+for i, t in enumerate(["the list: every session, its state and its icon", "tap one → its card: state, outcome, next step", "a question → its options, one tap answers", "an old list says so, it never looks live", "paired once: a 6-digit code from your PC", "it buzzes for questions, outcomes"]):
     s += label(70, 220 + i * 40, "•  " + t, 20, INK)
-s += label(70, 480, "«sessioni», «lancia ledger-api», «segui», «riprendi»", 18, "#9ad1ff", "700", True) + label(70, 508, "bare words, no slash: dictation-friendly", 17, DIM)
-s += watch_pair(600, 190, {"title": "5 sessions · 1? · 1✗", "sessions": DEMO, "footer": "List"}, scale=0.92)
-s += foot("Wear OS tested: keyboards render, taps arrive · watchOS: notifications and dictation, not verified")
+s += label(94, 446, "and sessions that end", 20, INK)
+s += watch_shot(679, 350, 74, "card.png", "a session's card") + watch_shot(884, 350, 74, "question.png", "a question") + watch_shot(1089, 350, 74, "quota.png", "the quota")   # passo 205: la corona non tocca il cerchio accanto
+s += f'<rect x="690" y="158" width="410" height="50" rx="18" fill="#3b2a0a" stroke="#ffd43b"/>' + label(895, 179, "beta coming soon", 18, "#ffd43b", "700", anchor="middle") + label(895, 199, "bring your own Firebase: the relay runs on your PC", 13, "#f5dfa0", anchor="middle")
+s += foot("the native Wear OS app, screens drawn from its real code on the demo set")
 cards["card7-wrist"] = s + "</svg>"
 
 # ---------------------------------------------------------------- 8 guard & night
@@ -374,7 +397,8 @@ cards["card9-doctor"] = s + "</svg>"
 OUT.mkdir(parents=True, exist_ok=True)
 for name, svg in cards.items():
     (OUT / f"{name}.svg").write_text(svg)
-    cairosvg.svg2png(bytestring=svg.encode(), write_to=str(OUT / f"{name}.png"), output_width=1200)
+    # url + unsafe: gli screenshot sono file locali richiamati per percorso relativo (solo nostri, in assets/readme/watch)
+    cairosvg.svg2png(bytestring=svg.encode(), write_to=str(OUT / f"{name}.png"), output_width=1200, url=str(OUT / f"{name}.svg"), unsafe=True)
 print("ok", len(cards))
 if WARN:
     print("SFORANO:"); print("\n".join(WARN))

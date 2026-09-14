@@ -1,8 +1,8 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.4.6-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.4.7-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
-![One master session runs all the others: the root session launches, watches, answers and closes the parallel sessions of every project, from the terminal and from a watch — the bot's list shown on a round Wear OS watch and on a rectangular iOS watch.](assets/readme/card0-hero.png)
+![One master session runs all the others: the root session launches, watches, answers and closes the parallel sessions of every project, from the terminal and from the wrist — beside it, the session list of the Wear OS app (beta coming soon), rendered from the app's code, on the demo set.](assets/readme/card0-hero.png)
 
 **Run several Claude Code sessions on one computer without losing track of
 them.** Each project gets its own terminal tab with a name and a colour; one
@@ -32,7 +32,7 @@ says which.
 
 ```bash
 claude plugin marketplace add frsorrentino/claude-master
-claude plugin install claude-master@fsorrentino --scope user
+claude plugin install claude-master@claude-master-dev --scope user
 claude-master init --dry-run             # reads your machine and shows every value it found, with its source
 claude-master init --yes --shim --shell  # writes the config; --shim = the `claude-master` command in ~/.local/bin;
                                          # --shell = the file that makes `claude` open a named tab
@@ -54,13 +54,16 @@ in the pictures (`master`, `atlas-shop`, `ledger-api`, `field-notes`, `orbit-doc
 
 ### Sessions at a glance
 
-![Sessions at a glance: one table with every session of every account, its state (busy, idle, waiting for an answer), whether a tab is attached and how to reach it; the one waiting with nobody watching goes first.](assets/readme/card1-sessions.png)
+![Sessions at a glance: the real `claude-master sessions` table on the demo set — PID, account, name, state, folder, window, channel, uptime — with the session waiting for an answer and nobody attached on the first row.](assets/readme/card1-sessions.png)
 
 `claude-master sessions` lists every session of every account: busy, idle, or
 stopped on a question waiting for you, whether a tab is attached, which
 channel reaches it. A detached session stuck on a question is work standing
 still, not work in progress: it goes first. `claude-master next` picks the one
 that needs you most.
+
+The `work-` in front of two names is the tmux prefix of the `work` account in the
+demo set: every account has its own, set in `accounts.<name>.tmux_prefix`.
 
 ### Launch by a piece of a name
 
@@ -75,7 +78,7 @@ shown first. Typing `claude` inside a project folder does the same.
 
 ### Talk. Answer its question.
 
-![Talk and answer: a prompt sent to another session and its reply read from that session's transcript; the question a session is stuck on, shown with numbered options and answered by number — and the same question on a round Wear OS watch with option buttons and on a rectangular iOS watch as plain lines.](assets/readme/card3-talk.png)
+![Talk and answer: a prompt sent to another session and its reply read from its transcript; the question a session is stuck on, with numbered options, answered by number — and the same question on the Wear OS app, rendered from the app's code, on the demo set.](assets/readme/card3-talk.png)
 
 `claude-master talk ledger-api "deploy done?"` delivers a prompt to another
 session, on either account, and reads the answer back from its transcript.
@@ -120,7 +123,16 @@ layout. The Terminal's start tab is evicted, never left beside a session.
 
 ### From your wrist
 
-![From your wrist: side by side, a round Wear OS watch and a rectangular iOS watch showing the same Telegram list — one line per session with its state and icon, buttons on Wear OS, plain text on iOS; an illustration, not a screenshot.](assets/readme/card7-wrist.png)
+![From your wrist: the Wear OS app (beta coming soon) on the demo set — a session's card, a question with its options, the quota — real screens rendered from the app's code.](assets/readme/card7-wrist.png)
+
+A native Wear OS app is on its way (**beta coming soon**; bring your own
+Firebase: the relay runs on your PC). The list shows every session with its
+state and icon; a tap opens its card — state, outcome, next step; a question
+comes with its options, and one tap answers it. A list that is no longer fresh
+says so and never looks live, the watch is paired once with a 6-digit code from
+your PC, and it buzzes for questions, outcomes and sessions that end.
+
+### From Telegram
 
 The Telegram bot is written for a watch: every message is a few whole lines
 (the bubble is as wide as its longest line, so nothing is wrapped or cut at a
@@ -227,11 +239,14 @@ session.
 Three things are worth knowing before you turn them on.
 
 - **Sessions start with `--dangerously-skip-permissions`** if `init` sees that
-  your existing sessions use it (it says so, with the source). That is what
-  lets a session work unattended, restart itself, or answer another session
-  without a human pressing "allow". Without it a session cannot run commands
-  at all. Remove it from `session.claude_args` if you want the permission
-  prompts back.
+  your existing sessions use it (it says so, with the source). Without it,
+  every session asks you to confirm each command, as Claude Code does by
+  default: nothing breaks, but a session stops at each command until someone
+  presses "allow". What suffers is what runs with nobody at the keyboard:
+  prompts and answers sent from the phone or from another session, a restart
+  at the end of a turn, the night queue. Keep it where sessions must work
+  unattended; remove it from `session.claude_args` where you prefer to
+  confirm each command.
 - **`crossSessionInbound: accept`** in an account's settings lets another
   session on this machine send prompts to that account's sessions. It is
   needed only for `talk` across accounts, and it means: whoever can run
@@ -273,7 +288,7 @@ longer adds up. A minimal example for two accounts:
   "workspace": {"root": "~/Desktop/workspaces"},
   "accounts": {
     "personal": {"config_dir": "~/.claude", "shell_command": "claude"},
-    "work":     {"config_dir": "~/.claude-work", "tmux_prefix": "w-", "shell_command": "claude-work"}
+    "work":     {"config_dir": "~/.claude-work", "tmux_prefix": "work-", "shell_command": "claude-work"}
   },
   "default_account": "personal",
   "folder_map": [{"path": "~/Desktop/workspaces/clients", "account": "work"}],

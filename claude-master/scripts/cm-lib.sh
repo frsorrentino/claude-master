@@ -7,7 +7,7 @@
 #   cm_get ACCOUNT CAMPO     campo di un account (CONFIG_DIR, TMUX_PREFIX, SHAPE, SHELL_COMMAND, LABEL)
 #   cm_msg CHIAVE k=v ...    messaggio formattato nella lingua configurata
 CM_SCRIPTS="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-# T81 (11/09/2026, dal polso di Franz): dal cron PATH=/usr/bin:/bin e `claude` (link in ~/.local/bin)
+# T81 (11/09/2026, dal polso dell'utente): dal cron PATH=/usr/bin:/bin e `claude` (link in ~/.local/bin)
 # non si trova: il bot rispondeva «AVVIO FALLITO». Ogni script passa di qui: si antepone una volta.
 case ":$PATH:" in
   *":$HOME/.local/bin:"*) ;;

@@ -15,6 +15,16 @@ S11 --json: campi pid, account, name, status, tmux, link, channel
 S12 le sessioni ferme e staccate vanno per prime; avviso server tmux morto
 S13 NOME = nome tmux (quello che ogni comando accetta); se l'app l'ha rinominata (/rename: `name`
     del registro diverso) il nome dell'app segue fra parentesi (idea 9, 11/09)
+S14 (S03) inglese esplicito: intestazione NAME/STATE, niente NOME/STATO/CARTELLA/ATTIVA-DA, niente questa|nativo|aspetta
+S15 italiano esplicito: intestazione NOME/STATO
+S16 una sessione in attesa di risposta mostra UNO stato («attesa»), non «busy» con «aspetta una risposta»
+S17 il processo fuori registro ha un'etichetta leggibile invece del nome vuoto e del «?»
+S18 senza `language` nella config: LANG it → italiano, LANG en → inglese, settings.json «italiano» → italiano anche con LANG en
+S19 il valore esplicito vince sul rilevamento: `language: en` con LANG it → inglese
+S20 il server tmux (primo argomento «tmux», `…/claude` nella riga di comando) non e' un Claude fuori registro; il
+    processo claude vero di S4 resta
+S21 (S09, prova) experimental.codex acceso: il riquadro Codex (argv0 «codex») ha una riga con nome, cartella e stato dal
+    rollout (task_started → busy, task_complete → idle); spento → nessuna riga
 """
 import json
 import os
@@ -107,6 +117,11 @@ with T.PrivateTmux() as tm:
     entry(home / ".claude" / "sessions", p3, "riusata", str(home), "riusata", proc_start_v="424242")
     # S4: fuori registro, cmdline "claude"
     p4 = spawn(argv0="claude")
+    # S20: un finto server tmux con la riga di comando della prima sessione dentro (come il vero, pid 1141 il 14/09)
+    p_tmux = subprocess.Popen(["bash", "-c", "exec -a tmux python3 -c 'import time; time.sleep(300)' new-session -d -s master env /home/demo/.local/bin/claude --x"],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    procs.append(p_tmux)
+    time.sleep(0.3)
     # S10: questo processo di test come antenato
     entry(home / ".claude" / "sessions", os.getpid(), "questa-prova", str(home), "gamma")
 
@@ -120,6 +135,7 @@ with T.PrivateTmux() as tm:
     T.check("S2 stale entry excluded", "morta" not in by, str(list(by)))
     T.check("S3 reused pid excluded", "riusata" not in by, str(list(by)))
     T.check("S4 unregistered claude process from /proc with status ?", by.get(f"pid{p4}", {}).get("status") == "?", str(list(by)))
+    T.check("S20 the tmux server (argv0 tmux, …/claude in its command line) is not listed; the real claude process of S4 is", f"pid{p_tmux.pid}" not in by and f"pid{p4}" in by, str(list(by)))
     T.check("S5 alfa attached (client on pty)", by.get("alfa", {}).get("attached") is True, str(by.get("alfa")))
     T.check("S5 pix-beta detached", by.get("pix-beta", {}).get("attached") is False, str(by.get("pix-beta")))
     T.check("S8 professionale in separate dir → talk", by.get("pix-beta", {}).get("channel") == "talk", str(by.get("pix-beta")))
@@ -162,6 +178,68 @@ with T.PrivateTmux() as tm:
     T.check("S table renders header and rows", "PID" in r.stdout and "alfa" in r.stdout and "aperta" in r.stdout, r.stdout[:500])
     T.check("S table abandoned note", "nessuno la guarda" in r.stdout or "ferma" in r.stdout, r.stdout)
     T.check("S13 renamed in the app: tmux name first, app name in parentheses", "gamma (questa-prova)" in r.stdout, r.stdout)
+
+    # S14-S19 (S03): alfa e' busy con il flag dell'hook (S7), p4 e' il processo fuori registro (S4)
+    import re as _re
+
+    def cfg_lang(fname, lang):
+        d = json.loads(cfg.read_text()); d.pop("language", None)
+        if lang:
+            d["language"] = lang
+        p = Path(tmp) / fname; p.write_text(json.dumps(d))
+        return str(p)
+
+    def head(res):
+        return (res.stdout.splitlines() or [""])[0]
+    en_cfg, it_cfg, auto_cfg = cfg_lang("cm-en.json", "en"), cfg_lang("cm-it.json", "it"), cfg_lang("cm-auto.json", None)
+    r = run(extra={"CLAUDE_MASTER_CONFIG": en_cfg})
+    T.check("S14 English (explicit): header NAME and STATE, none of NOME STATO CARTELLA ATTIVA-DA; no questa|nativo|aspetta anywhere",
+            "NAME" in head(r) and "STATE" in head(r) and not any(w in head(r) for w in ("NOME", "STATO", "CARTELLA", "ATTIVA-DA")) and not _re.search(r"\(questa\)|\bnativo\b|aspetta", r.stdout), r.stdout[:900])
+    r = run(extra={"CLAUDE_MASTER_CONFIG": it_cfg})
+    T.check("S15 Italian (explicit): header NOME and STATO", "NOME" in head(r) and "STATO" in head(r), head(r))
+    alfa_line = next((l for l in r.stdout.splitlines() if l.split()[2:3] == ["alfa"]), "")
+    T.check("S16 a session waiting for an answer shows one state («attesa»), not busy next to «aspetta una risposta»", "attesa" in alfa_line and "busy" not in alfa_line, alfa_line or r.stdout[:600])
+    unreg = [l for l in r.stdout.splitlines() if "(fuori registro)" in l]
+    T.check("S17 the claude process outside the registry: a readable label instead of an empty name and «?»", bool(unreg) and " ? " not in unreg[0], "\n".join(unreg) or r.stdout[:600])
+    st_json = home / ".claude" / "settings.json"
+    saved_st = st_json.read_text() if st_json.exists() else None
+    st_json.unlink(missing_ok=True)
+    r_it = run(extra={"CLAUDE_MASTER_CONFIG": auto_cfg, "LANG": "it_IT.UTF-8"})
+    r_en = run(extra={"CLAUDE_MASTER_CONFIG": auto_cfg, "LANG": "en_US.UTF-8"})
+    st_json.write_text(json.dumps({"language": "italiano"}))
+    r_set = run(extra={"CLAUDE_MASTER_CONFIG": auto_cfg, "LANG": "en_US.UTF-8"})
+    r_win = run(extra={"CLAUDE_MASTER_CONFIG": en_cfg, "LANG": "it_IT.UTF-8"})
+    st_json.write_text(saved_st) if saved_st is not None else st_json.unlink()
+    T.check("S18 no language in the config: LANG it → Italian, LANG en → English, settings.json «italiano» → Italian even with LANG en",
+            "NOME" in head(r_it) and "NAME" in head(r_en) and "NOME" in head(r_set), f"{head(r_it)} | {head(r_en)} | {head(r_set)}")
+    T.check("S19 the explicit value wins over detection: language en with LANG it → English", "NAME" in head(r_win) and "NOME" not in head(r_win), head(r_win))
+
+    # S21 (S09): una sessione Codex CLI in un riquadro tmux (argv0 «codex») con experimental.codex acceso → una riga con
+    # nome, cartella e stato dal rollout; spento → nessuna riga
+    (home / "ws" / "cx").mkdir(parents=True, exist_ok=True)
+    tm("new-session", "-d", "-s", "cxs", "-c", str(home / "ws" / "cx"), "bash", "-c", "exec -a codex sleep 300")
+    time.sleep(0.5)
+    cx_pid = int(tm("list-panes", "-t", "cxs", "-F", "#{pane_pid}").stdout.strip())
+    roll = home / ".codex" / "sessions" / "2026" / "09" / "14"
+    roll.mkdir(parents=True, exist_ok=True)
+    rf = roll / "rollout-2026-09-14T21-00-00-demo.jsonl"
+    rf.write_text(json.dumps({"type": "session_meta", "payload": {"cwd": str(home / "ws" / "cx")}}) + "\n"
+                  + json.dumps({"type": "event_msg", "payload": {"type": "task_started"}}) + "\n")
+    cx_cfg = cfg_lang("cm-codex.json", "en")
+    d = json.loads(Path(cx_cfg).read_text()); d["experimental"] = {"codex": True}; Path(cx_cfg).write_text(json.dumps(d))
+    scan = " ".join(str(p.pid) for p in procs) + f" {cx_pid}"
+
+    def codex_rows(conf):
+        return [x for x in json.loads(run("--json", "--no-screen", extra={"CLAUDE_MASTER_CONFIG": conf, "CM_PROC_SCAN_PIDS": scan}).stdout) if x.get("agent") == "codex"]
+    cx = codex_rows(cx_cfg)
+    T.check("S21 experimental.codex on: the Codex pane is listed with its tmux name, folder and the rollout's state (task_started → busy)",
+            len(cx) == 1 and cx[0]["name"] == "cxs" and os.path.realpath(cx[0]["cwd"]) == os.path.realpath(str(home / "ws" / "cx")) and cx[0]["status"] == "busy", str(cx))
+    with open(rf, "a") as f:
+        f.write(json.dumps({"type": "event_msg", "payload": {"type": "task_complete"}}) + "\n")
+    cx = codex_rows(cx_cfg)
+    table = run("--no-screen", extra={"CLAUDE_MASTER_CONFIG": cx_cfg, "CM_PROC_SCAN_PIDS": scan}).stdout
+    T.check("S21 task_complete → idle; the table shows it by name, not as «(unregistered)»", cx and cx[0]["status"] == "idle" and any(l.split()[2:3] == ["cxs"] and "idle" in l for l in table.splitlines()), str(cx) + table[:600])
+    T.check("S21 experimental.codex off (default): no Codex row", codex_rows(en_cfg) == [], "")
 
     # S9: cartella condivisa via symlink
     import shutil

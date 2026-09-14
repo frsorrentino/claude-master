@@ -48,7 +48,7 @@ CFG = cm.load(warn=False)
 M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
 OPTION = re.compile(r"^\s*(❯)?\s*(\d+)\.\s+(.*\S)\s*$")
 FOOTER = "Enter to select"
-# le voci fisse in coda al dialogo di AskUserQuestion: non sono opzioni (via master 12/09, screenshot di Franz)
+# le voci fisse in coda al dialogo di AskUserQuestion: non sono opzioni (via master 12/09, screenshot dell'utente)
 FOOT_OPTIONS = ("type something.", "chat about this")
 
 
@@ -171,7 +171,7 @@ def clean_label(label):
 
 
 def synth_question(question, ui):
-    """La domanda COMPLETA e di senso compiuto per il polso (Franz 12/09 10:54): il succo deterministico
+    """La domanda COMPLETA e di senso compiuto per il polso (l'utente 12/09 10:54): il succo deterministico
     (ui.question_gist) se sta in hooks.ask_notify.synth_max_chars; altrimenti una sintesi col modello
     (`claude -p`, hooks.ask_notify.synth_model, come il recap); altrimenti il testo com'e' (chi lo mostra lo
     manda a capo e lo tronca)."""
@@ -183,7 +183,7 @@ def synth_question(question, ui):
         return g
     model = str(a.get("synth_model") or "")
     if model:
-        claude = os.environ.get("CM_CLAUDE_BIN") or "claude"
+        claude = cm.claude_bin()   # anche dai daemon partiti dal cron, senza ~/.local/bin nel PATH
         env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CONFIG_DIR"}   # account di default (T68)
         try:
             p = subprocess.run([claude, "-p", M("answer.synth_prompt", n=mx - 8, question=q), "--model", model, "--max-turns", "1"],
@@ -223,11 +223,11 @@ def notify_lines(p, name, on_screen, ui):
     descs = (descs + [""] * len(options))[:len(options)]
     icon = icon_of(name)
     header = header or str(q0.get("header") or "")
-    # larghezza piena (Franz 12/09 11:14): righe intere, la prima la piu' lunga («❓ 🔴 master · Trasporto»)
+    # larghezza piena (l'utente 12/09 11:14): righe intere, la prima la piu' lunga («❓ 🔴 master · Trasporto»)
     lines = [ui.join(f"❓ {icon} {ui.short_name(name)}".replace("  ", " "), header)]
     if question or options:
         lines.append(ui.line(synth_question(question, ui) or "?"))
-        # il testo dice solo quello che i tasti non dicono (Franz 12/09 11:12): le opzioni si elencano se hanno
+        # il testo dice solo quello che i tasti non dicono (l'utente 12/09 11:12): le opzioni si elencano se hanno
         # una descrizione, se sono piu' di tre (i tasti sono due + Apri) o se non ci saranno tasti (senza tmux)
         if any(descs) or len(options) > 3 or not name or not on_screen:
             lines += [ui.join(f"{i + 1} {o}", d) for i, (o, d) in enumerate(zip(options, descs))]
@@ -301,7 +301,7 @@ def notify():
     markup = ui.keyboard_notice(name, labels, f"{icon_of(name)} {ui.short_name(name)}".strip(), full_question=q_cut, link=link, link_mode=mode) if name else ui.keyboard_back()
     mids = {}
     for c in chats:
-        mids[c] = bot.reply(c, text, reply_markup=markup)   # notifica NORMALE: una domanda aspetta Franz
+        mids[c] = bot.reply(c, text, reply_markup=markup)   # notifica NORMALE: una domanda aspetta l'utente
     if name:
         bot.remember_question(name, mids, labels, q_full if q_cut else "")
     hook = _load("cm-hook")
@@ -310,9 +310,28 @@ def notify():
     return 0
 
 
+def closed():
+    """Dall'hook PostToolUse, staccato, payload su stdin (14/09, dall'app): la domanda della sessione di questo riquadro
+    ha avuto risposta altrove, quindi il messaggio dell'avviso perde i bottoni (cm-bot.close_question). Stesso nome
+    tmux dell'avviso (TMUX_PANE): senza, l'avviso non aveva ricordato niente."""
+    bot = _load("cm-bot")
+    if not bot.token():
+        return 0
+    try:
+        json.load(sys.stdin) if not sys.stdin.isatty() else {}
+    except (ValueError, OSError):
+        pass
+    name = my_tmux_name()
+    if name:
+        bot.close_question(name)
+    return 0
+
+
 def main(argv):
     if argv[:1] == ["--notify"]:
         return notify()
+    if argv[:1] == ["--closed"]:
+        return closed()
     if len(argv) < 2:
         print(M("answer.usage"), file=sys.stderr)
         return 2

@@ -32,7 +32,7 @@ if [ -n "${CM_TRACE:-}" ]; then PS4='+ $(date +%T) '; set -x; fi   # CM_TRACE=1:
 
 CARTELLA="${1:-}"
 CREA=no; CONTINUA=no; RIPRENDI=""; ACCOUNT=""; FINESTRA="$CM_SESSION_WINDOW_BY_DEFAULT"; BG=no
-PROFILO=""; MODEL=""; EFFORT=""; TELEPORT=""
+PROFILO=""; MODEL=""; EFFORT=""; TELEPORT=""; AGENT=claude
 shift || true
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -47,6 +47,7 @@ while [ $# -gt 0 ]; do
     --profile|--profilo) shift; PROFILO="${1:-}" ;;
     --model) shift; MODEL="${1:-}" ;;
     --effort) shift; EFFORT="${1:-}" ;;
+    --agent) shift; AGENT="${1:-}" ;;   # S09: prova, `codex` solo con experimental.codex
     --aziendale)  # nome storico: vale il secondo account, con avviso
       ACCOUNT=$(for a in $CM_ACCOUNTS_KEYS; do [ "$a" != "$CM_DEFAULT_ACCOUNT" ] && { echo "$a"; break; }; done)
       cm_msg launch.legacy_flag "flag=--aziendale" "account=$ACCOUNT" >&2 ;;
@@ -58,6 +59,13 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+case "$AGENT" in
+  claude) ;;
+  codex)
+    [ "${CM_EXPERIMENTAL_CODEX:-false}" = true ] || { cm_msg launch.agent_off "agent=codex" >&2; exit 2; }
+    [ "$BG" = si ] && { cm_msg launch.agent_no_bg >&2; exit 2; } ;;
+  *) cm_msg launch.unknown_agent "agent=$AGENT" >&2; exit 2 ;;
+esac
 
 if [ "$CONTINUA" = si ] && [ -n "$RIPRENDI" ]; then cm_msg launch.continue_xor_resume >&2; exit 2; fi
 [ -n "$CARTELLA" ] || { cm_msg launch.usage >&2; exit 2; }
@@ -92,6 +100,11 @@ command -v tmux >/dev/null || { cm_msg launch.no_tmux >&2; exit 3; }
 CLAUDE="${CM_CLAUDE_BIN:-$(command -v claude 2>/dev/null || true)}"
 [ -n "$CLAUDE" ] && [ -x "$CLAUDE" ] || CLAUDE="$HOME/.local/bin/claude"
 [ -x "$CLAUDE" ] || { cm_msg launch.no_claude "tried=PATH ($PATH), $HOME/.local/bin/claude" >&2; exit 3; }
+if [ "$AGENT" = codex ]; then   # S09: stessa regola del binario di claude
+  CODEX="${CM_CODEX_BIN:-$(command -v codex 2>/dev/null || true)}"
+  [ -n "$CODEX" ] && [ -x "$CODEX" ] || CODEX="$HOME/.local/bin/codex"
+  [ -x "$CODEX" ] || { cm_msg launch.no_codex "tried=PATH ($PATH), $HOME/.local/bin/codex" >&2; exit 3; }
+fi
 
 if [ ! -e "$CARTELLA" ]; then
   if [ "$CREA" = si ]; then mkdir -p "$CARTELLA" || { cm_msg launch.mkdir_failed "path=$CARTELLA" >&2; exit 4; }
@@ -187,7 +200,11 @@ fi
 # --- tmux -----------------------------------------------------------------------------
 [ "$CM_SESSION_REMOTE_CONTROL" = true ] && ARGS+=(--remote-control "$NOME")
 ARGS+=(-n "$NOME")
-cm_tmux new-session -d -s "$NOME" -c "$CARTELLA" env "${ENVARGS[@]}" "$CLAUDE" "${ARGS[@]}"
+if [ "$AGENT" = codex ]; then   # S09: Codex CLI nudo, senza gli argomenti di Claude Code (-n, remote control, profili)
+  cm_tmux new-session -d -s "$NOME" -c "$CARTELLA" env CM_LAUNCHED=1 CM_AGENT=codex "$CODEX"
+else
+  cm_tmux new-session -d -s "$NOME" -c "$CARTELLA" env "${ENVARGS[@]}" "$CLAUDE" "${ARGS[@]}"
+fi
 # Il file di registro NON e' <pane_pid>.json: il binario `claude` si rilancia
 # in un figlio (visto dal vivo il 09/09: pane 1122 → sessione registrata 1146),
 # quindi si cerca il file che dichiara QUESTA sessione tmux nel campo `tmux`.
@@ -220,6 +237,20 @@ RISPOSTE=0; SCHERMO=""; REGISTRATA=no
 for _ in $(seq 1 "$CM_SESSION_STARTUP_TIMEOUT_S"); do
   cm_tmux has-session -t "=$NOME" 2>/dev/null || break
   SCHERMO=$(schermo)
+  if [ "$AGENT" = codex ]; then   # S09: niente registro peer; il dialogo di fiducia ha gia' «› 1. Yes» scelto: un Invio
+    if grep -q "Do you trust the contents of this directory" <<<"$SCHERMO"; then
+      # ancora aperto 2 s dopo l'Invio (Codex non ancora in ascolto) → di nuovo, fino a 3 volte
+      [ "$RISPOSTE" -lt 3 ] && { cm_tmux send-keys -t "$NOME" Enter; RISPOSTE=$((RISPOSTE + 1)); }
+      CX_STABILE=0; sleep 2; continue
+    fi
+    # pronta quando Codex lo dice (banner, casella del prompt): scrive «> You are in …» PRIMA del dialogo di fiducia, e
+    # uscire alla prima riga — o dopo 3 s senza dialogo, con la macchina carica — lasciava il dialogo aperto: il primo
+    # `talk` lo «rispondeva» e Codex si chiudeva (prove del 14/09). 8 s senza dialogo: ripiego per altre versioni.
+    grep -qE 'OpenAI Codex \(v|Ask Codex to do anything|for shortcuts' <<<"$SCHERMO" && { REGISTRATA=si; break; }
+    if [ -n "${SCHERMO//[[:space:]]/}" ]; then CX_STABILE=$(( ${CX_STABILE:-0} + 1 )); else CX_STABILE=0; fi
+    [ "$CX_STABILE" -ge 8 ] && { REGISTRATA=si; break; }
+    sleep 1; continue
+  fi
   if e_dialogo <<<"$SCHERMO"; then
     if [ "$RISPOSTE" -lt 3 ]; then
       grep -qE '❯.*Yes, I' <<<"$SCHERMO" || { cm_tmux send-keys -t "$NOME" Down; sleep 0.5; }
@@ -298,6 +329,7 @@ leggi_link() {
   [ -n "$REG_FILE" ] && [ -f "$REG_FILE" ] && sed -n 's/.*"bridgeSessionId":"\([^"]*\)".*/\1/p' "$REG_FILE" | head -1 | sed 's|^session_||; s|^\(.\)|https://claude.ai/code/session_\1|'
 }
 LINK=""; ATTESA=0; [ "$CM_SESSION_REMOTE_CONTROL" = true ] && ATTESA="${CM_SESSION_LINK_WAIT_S:-10}"
+[ "$AGENT" = codex ] && ATTESA=0   # S09: Codex non ha Remote Control
 i=0
 while :; do
   LINK=$(leggi_link)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifica il long polling del bot (mandato di Franz 11/09 18:30): `bot serve` persistente, `bot ensure`
+"""Verifica il long polling del bot (mandato dell'utente 11/09 18:30): `bot serve` persistente, `bot ensure`
 dal cron, riconnessione a scalare, lock, status. Telegram finto (lib) con rete «caduta» a comando.
 
 S1  `bot ensure` avvia `serve` (pidfile, processo vivo); un secondo `ensure` non ne avvia un altro; un

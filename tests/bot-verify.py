@@ -11,11 +11,11 @@ B6  /sessions: elenco compatto (resa da polso); /sessions full: la tabella; test
 B7  guardia: bot.pid del plugin VIVO → poll non chiama l'API
 B8  install (rifiuta se spento; riga nel crontab), status, uninstall
 B9  lock: due poll insieme, uno solo lavora
-B10 /start (Franz l'ha scritto due volte credendo di lanciare la master, 11/09): risposta «vuoi /master?»
+B10 /start (l'utente l'ha scritto due volte credendo di lanciare la master, 11/09): risposta «vuoi /master?»
     con un bottone inline; il tap (callback_query, che a sessioni chiuse arriva a QUESTO poller) lancia
     la master, risponde al callback e alla chat; un tap da chat non autorizzata si ignora; getUpdates
     chiede anche i callback_query
-B11 sessione GIÀ VIVA (Franz dal polso, 16:30): /master con la tmux «master» viva → nessun launch, risposta «già
+B11 sessione GIÀ VIVA (l'utente dal polso, 16:30): /master con la tmux «master» viva → nessun launch, risposta «già
     viva» con link e stato; lo stesso per /launch di un progetto già aperto
 """
 import json
@@ -37,7 +37,7 @@ tg.mkdir(parents=True)
 (tg / ".env").write_text("TELEGRAM_BOT_TOKEN=123:ABC\n")
 (tg / "access.json").write_text(json.dumps({"dmPolicy": "allowlist", "allowFrom": ["1001"], "groups": {}, "pending": {}}))
 ws = home / "ws"
-for d in ("personali/alfa", "personali/alfabeta", "personali/gamma", "pixelfarm/clienti/sito.com", "pixelfarm/clienti/altro.com", "_archivio/vecchio", ".claude"):
+for d in ("personali/alfa", "personali/alfabeta", "personali/gamma", "agenzia/clienti/sito.com", "agenzia/clienti/altro.com", "_archivio/vecchio", ".claude"):
     (ws / d).mkdir(parents=True)
 state = tmp / "state"
 state.mkdir()
@@ -100,7 +100,7 @@ cfg = tmp / "config.json"
 def write_cfg(enabled=True):
     cfg.write_text(json.dumps({
         "language": "it", "state_dir": str(state),
-        "workspace": {"root": str(ws), "excluded_dirs": [".git", "node_modules", ".claude", "_archivio"], "project_dirs": ["personali", "pixelfarm/clienti"]},
+        "workspace": {"root": str(ws), "excluded_dirs": [".git", "node_modules", ".claude", "_archivio"], "project_dirs": ["personali", "agenzia/clienti"]},
         "bot": {"enabled": enabled, "api_base": API, "token_file": str(tg / ".env"), "access_file": str(tg / "access.json"),
                 "pid_file": str(tg / "bot.pid"), "cron_minutes": 1},
     }))

@@ -50,6 +50,7 @@ CFG = cm.load(warn=False)
 TMUX = ["tmux"] + (os.environ.get("CM_TMUX_ARGS", "").split()
                    or (["-L", CFG["tmux"]["socket"]] if CFG["tmux"].get("socket") else []))
 CLAUDE_CMD = re.compile(r"(^|/)claude( |$)")
+CODEX_CMD = re.compile(r"(^|/)codex( |$)")   # S09: prova, solo con experimental.codex
 
 
 def tmux(*args):
@@ -87,6 +88,40 @@ def proc_cmdline(pid):
         return Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace").strip()
     except OSError:
         return ""
+
+
+def is_tmux(pid, cmd):
+    """Il server o un client tmux: primo argomento o comm che comincia con «tmux». Il server porta nella sua riga di
+    comando quella della prima sessione (`tmux new-session … /claude …`) e CLAUDE_CMD da solo lo prendeva per un
+    Claude fuori registro (14/09/2026: «(fuori registro)» col pid del server)."""
+    try:
+        comm = Path(f"/proc/{pid}/comm").read_text().strip()
+    except OSError:
+        comm = ""
+    return os.path.basename(cmd.split(" ", 1)[0]).startswith("tmux") or comm.startswith("tmux")
+
+
+def codex_state(cwd):
+    """S09 (prova): busy/idle di una sessione Codex CLI dal suo rollout (~/.codex/sessions/AAAA/MM/GG/rollout-*.jsonl,
+    il primo evento e' session_meta con la cartella): l'ultimo fra task_started e task_complete. Senza rollout (nessun
+    prompt ancora) e' idle. Le domande in attesa non stanno nel rollout: «waiting» qui non si sa."""
+    root = Path(os.environ.get("CODEX_HOME") or (cm.home() / ".codex")) / "sessions"
+    files = sorted(glob.glob(str(root / "*" / "*" / "*" / "rollout-*.jsonl")), key=os.path.getmtime, reverse=True)[:40]
+    for f in files:
+        try:
+            lines = Path(f).read_text(errors="replace").splitlines()
+            meta = json.loads(lines[0]).get("payload") or {}
+        except (OSError, ValueError, IndexError):
+            continue
+        if os.path.realpath(meta.get("cwd") or "") != os.path.realpath(cwd or ""):
+            continue
+        for line in reversed(lines):
+            if '"task_complete"' in line:
+                return "idle"
+            if '"task_started"' in line:
+                return "busy"
+        return "idle"
+    return "idle"
 
 
 def proc_cwd(pid):
@@ -282,7 +317,16 @@ def collect(read_screen=True):
         if pid in seen_pids:
             continue
         cmd = proc_cmdline(pid)
-        if not CLAUDE_CMD.search(cmd) or "shell-snapshots" in cmd or (" -c " in cmd and "pwd -P" in cmd):
+        if (CFG.get("experimental") or {}).get("codex") and pid in panes and CODEX_CMD.search(cmd) and not is_tmux(pid, cmd):
+            # S09 (prova): il processo del riquadro tmux e' Codex CLI (il binario vero e' un suo figlio: non si conta due
+            # volte); niente registro peer, lo stato viene dal rollout
+            tm, cwd = panes[pid], proc_cwd(pid)
+            seen_pids.add(pid)
+            rows.append({"pid": pid, "name": tm, "account": "codex", "cwd": cwd, "tmux": tm, "status": codex_state(cwd),
+                         "session_id": "", "link": "", "started_at": None, "socket": "", "registry": "", "agent": "codex",
+                         "attached": attached.get(tm), "waiting": False, "channel": "tmux"})
+            continue
+        if not CLAUDE_CMD.search(cmd) or is_tmux(pid, cmd) or "shell-snapshots" in cmd or (" -c " in cmd and "pwd -P" in cmd):
             continue
         tm = panes.get(pid) or panes.get(proc_ppid(pid) or -1) or ""
         seen_pids.add(pid)
@@ -327,7 +371,10 @@ def quota_warnings():
 def render(rows):
     m = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
     lines = []
-    hdr = f"{'PID':<8} {'ACCOUNT':<13} {'NOME':<22} {'STATO':<6} {'CARTELLA':<24} {'VISTA':<9} {'CANALE':<9} {'ATTIVA-DA':<9}"
+    # S03 (14/09/2026): intestazione, canali e stato nella lingua della config (prima fissi in italiano). Nel JSON
+    # `channel` resta «(questa)»/«nativo»/«talk»: talk, next e park lo confrontano.
+    hdr = " ".join(f"{c:<{w}}" for c, w in zip(m("sessions.columns").split(), (8, 13, 22, 6, 24, 9, 9, 9)))
+    channel = {"(questa)": m("sessions.channel_self"), "nativo": m("sessions.channel_native")}
     lines.append(hdr)
     lines.append("-" * len(hdr))
     abandoned = 0
@@ -349,8 +396,15 @@ def render(rows):
         shown = r["tmux"] or r["name"]
         if r["tmux"] and r["name"] and r["name"] != r["tmux"]:
             shown = f"{r['tmux']} ({r['name']})"
-        lines.append(f"{r['pid']:<8} {r['account'][:13]:<13} {shown[:22]:<22} {r['status'][:6]:<6} "
-                     f"{short_cwd(r['cwd'])[:24]:<24} {vista:<9} {r['channel']:<9} {etime(r['started_at']):<9}{note}")
+        # S03: uno stato solo (prima «busy» e «<- aspetta una risposta» insieme); il processo fuori registro (T11)
+        # ha un'etichetta invece del nome vuoto e del «?»
+        state = r["status"]
+        if not r["registry"] and r.get("agent") != "codex":
+            shown, state = shown or m("sessions.unregistered"), "-"
+        if r["waiting"]:
+            state = m("sessions.state_waiting")
+        lines.append(f"{r['pid']:<8} {r['account'][:13]:<13} {shown[:22]:<22} {state[:6]:<6} "
+                     f"{short_cwd(r['cwd'])[:24]:<24} {vista:<9} {channel.get(r['channel'], r['channel']):<9} {etime(r['started_at']):<9}{note}")
     if not rows:
         lines.append("  " + m("sessions.none"))
     if abandoned:

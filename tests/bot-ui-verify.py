@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Verifica cm-bot-ui.py: le funzioni PURE del bot a misura di smartwatch (mandato di Franz 11/09 16:36-16:40).
+"""Verifica cm-bot-ui.py: le funzioni PURE del bot a misura di smartwatch (mandato dell'utente 11/09 16:36-16:40).
 
 U1  normalizzazione della dettatura: minuscole, via punteggiatura, numeri in parole → cifre, si/sì → sì,
     prima parola utile («due si» → 2, «tre» → 3, «Si.» → sì, «Sessioni!» → sessioni)
 U2  comandi a parola nuda e alias: sessioni/s, master/m, lancia X/l X, quota/q, aiuto/?, elenco/0, segui/f,
     riprendi/t, full; le forme /comando restano; un numero → ("number", n); sì → ("yes",)
-U3  elenco: una riga per sessione «N <stato> <nome corto>» col numero ESPLICITO (Franz 18:15: niente da
+U3  elenco: una riga per sessione «N <stato> <nome corto>» col numero ESPLICITO (l'utente 18:15: niente da
     contare) + due parole della domanda sulle ❓, età compatta sulle ✓ ferme da > 1 giorno; ordine ❓ ▶ ✓ ✗
     poi alfabetico, nomi senza prefisso account troncati a 14, OGNI riga ≤ 22 caratteri, ≤ 8 righe (oltre: «+N»)
 U4  scheda: ≤ 8 righe, ≤ 22 caratteri, nome + account, stato, esito in ≤ 2 righe, prossimo, domanda con
@@ -66,7 +66,7 @@ lines = ui.list_lines(ui.order_rows(many), prefixes=[], now=now)
 T.check("U3 more than 8: 7 lines + «+4»; lines still numbered", len(lines) == 8 and lines[-1].startswith("+4") and lines[6].startswith("7 "), str(lines))
 labels = ui.list_labels(ui.order_rows(rows), prefixes=["pix-"], icons=IC)
 T.check("U3 button labels «<stato> <icona> <nome corto>», one per session, ≤ 22", labels[:2] == ["❓ 🟢 api", "▶ 🟥 api-gateway-it"] and len(labels) == 6 and all(len(l) <= 22 for l in labels), str(labels))
-# U4 (Franz 18:24): struttura fissa della scheda
+# U4 (l'utente 18:24): struttura fissa della scheda
 now = time.time()
 card = ui.card_lines({"tmux": "pix-api", "name": "api", "status": "waiting", "account": "professionale", "waiting": True, "last_ts": now - 720},
                      esito="Esito: deploy **pronto** sul `server` di prova, manca la [conferma](https://x) del cliente per pubblicare",
@@ -83,7 +83,7 @@ card4 = ui.card_lines({"tmux": "pix-ledger", "name": "ledger", "status": "idle",
 T.check("U4c a long esito and a long next step stay WHOLE on one line each, no «…» (full width, 12/09)", len(card4) == 3 and card4[0] == "✓ ledger · ferma 1m" and len(card4[1]) > 100 and card4[2].startswith("→ ") and not any("…" in l for l in card4), str(card4))
 T.check("U4 strip_markdown", ui.strip_markdown("**a** `b` [c](http://x) _d_ ## e") == "a b c d e", ui.strip_markdown("**a** `b` [c](http://x) _d_ ## e"))
 T.check("U4 esito_of: the «Esito:» line wins, else the last text line", ui.esito_of("bla\nEsito: fatto tutto\nresto", "resto") == "fatto tutto" and ui.esito_of("prima riga\nultima riga", "ultima riga") == "ultima riga", str(ui.esito_of("bla\nEsito: fatto tutto\nresto", "resto")))
-# U5 (Franz 21:00): tasti CONTESTUALI, mai piu' di quattro in fondo, mai un tasto che ripete quello che hai davanti
+# U5 (l'utente 21:00): tasti CONTESTUALI, mai piu' di quattro in fondo, mai un tasto che ripete quello che hai davanti
 kb = ui.keyboard_list(ui.list_labels(ui.order_rows(many), prefixes=[]), master_alive=False)
 rows_ = kb["inline_keyboard"]
 T.check("U5 list keyboard: one name button per row (11), then Recap / Quota / Avvia master (master not alive), all alone", len(rows_) == 14 and rows_[0] == [{"text": "✓ s00", "callback_data": "n:1"}] and [r[0]["text"] for r in rows_[-3:]] == ["Recap", "Quota", "Avvia master"] and all(len(r) == 1 for r in rows_), str(rows_[-4:]))
@@ -123,12 +123,12 @@ T.check("U9 card: the question's gist wrapped whole over ≤ 3 lines; two option
 import json as _json, tempfile as _tf, os as _os
 tp = _os.path.join(_tf.mkdtemp(prefix="cm-ui-"), "t.jsonl")
 with open(tp, "w") as f:
-    f.write(_json.dumps({"type": "user", "message": {"role": "user", "content": "Da Franz via Telegram (watch). fai X"}}) + "\n")
+    f.write(_json.dumps({"type": "user", "message": {"role": "user", "content": "Dall'utente via Telegram (watch). fai X"}}) + "\n")
     f.write("riga rotta\n")
     f.write(_json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "Cerco il **codice**…"}, {"type": "tool_use", "name": "Bash", "input": {"command": "git log --since yesterday --oneline", "description": "x"}}]}}) + "\n")
     f.write(_json.dumps({"type": "user", "message": {"content": [{"type": "tool_result", "content": "..."}]}}) + "\n")
 ev, off = ui.transcript_events(tp, 0)
-T.check("U7 transcript events: user text, assistant text, tool_use (name + input); tool_result and broken lines ignored; offset = file size", [e[:2] for e in ev] == [("user", "Da Franz via Telegram (watch). fai X"), ("text", "Cerco il **codice**…"), ("tool", "Bash")] and ev[2][2]["command"].startswith("git log") and off == _os.path.getsize(tp), str(ev) + str(off))
+T.check("U7 transcript events: user text, assistant text, tool_use (name + input); tool_result and broken lines ignored; offset = file size", [e[:2] for e in ev] == [("user", "Dall'utente via Telegram (watch). fai X"), ("text", "Cerco il **codice**…"), ("tool", "Bash")] and ev[2][2]["command"].startswith("git log") and off == _os.path.getsize(tp), str(ev) + str(off))
 ev2, off2 = ui.transcript_events(tp, off)
 T.check("U7 from the offset: nothing new; missing file: ([], offset)", ev2 == [] and off2 == off and ui.transcript_events(tp + ".nope", 5) == ([], 5), str(ev2))
 T.check("U10 tool_note: Bash description trimmed to one line and 120 chars; nothing without it", ui.tool_note({"command": "x", "description": "  Run  the suite\n"}) == "Run the suite" and ui.tool_note({"command": "x"}) == "" and ui.tool_note(None) == "" and len(ui.tool_note({"description": "y" * 300})) == 120, "")

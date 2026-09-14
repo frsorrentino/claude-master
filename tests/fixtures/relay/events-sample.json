@@ -1,8 +1,8 @@
 [
-  {"key": "1789210500_001", "kind": "question", "session": "ledger-api", "account": "agenzia", "ts": 1789210500, "title": "❓ ledger-api", "body": "Deploy ready, waiting for the client's ok. Deploy now?", "ref": "q-1789210500-1"},
-  {"key": "1789210300_001", "kind": "outcome", "session": "atlas-shop", "account": "personale", "ts": 1789210300, "title": "✓ atlas-shop", "body": "Migrazioni 008-011 applicate, test verdi", "ref": null},
-  {"key": "1789200000_001", "kind": "gone", "session": "orbit-docs", "account": "agenzia", "ts": 1789200000, "title": "✗ orbit-docs", "body": "", "ref": null},
-  {"key": "1789198000_001", "kind": "launched", "session": "atlas-shop", "account": "personale", "ts": 1789198000, "title": "▶ atlas-shop", "body": "/home/franz/Desktop/workspaces/personali/atlas-shop", "ref": null},
-  {"key": "1789197000_001", "kind": "quota", "session": null, "account": "personale", "ts": 1789197000, "title": "⚠ 95 % personale", "body": "reset 13:10", "ref": null},
-  {"key": "1789210900_001", "kind": "answered", "session": "ledger-api", "account": "agenzia", "ts": 1789210900, "title": "1 yes", "body": "risposto da watch-pixel5", "ref": "q-1789210500-1"}
+  {"key": "1789210500_001", "kind": "question", "session": "ledger-api", "account": "work", "ts": 1789210500, "title": "❓ ledger-api", "body": "Deploy ready, waiting for the client's ok. Deploy now?", "ref": "q-1789210500-1"},
+  {"key": "1789210300_001", "kind": "outcome", "session": "atlas-shop", "account": "personal", "ts": 1789210300, "title": "✓ atlas-shop", "body": "Migrations 008-011 applied, tests green", "ref": null},
+  {"key": "1789200000_001", "kind": "gone", "session": "orbit-docs", "account": "work", "ts": 1789200000, "title": "✗ orbit-docs", "body": "", "ref": null},
+  {"key": "1789198000_001", "kind": "launched", "session": "atlas-shop", "account": "personal", "ts": 1789198000, "title": "▶ atlas-shop", "body": "/home/demo/workspaces/personal/atlas-shop", "ref": null},
+  {"key": "1789197000_001", "kind": "quota", "session": null, "account": "personal", "ts": 1789197000, "title": "⚠ 95 % personal", "body": "reset 13:10", "ref": null},
+  {"key": "1789210900_001", "kind": "answered", "session": "ledger-api", "account": "work", "ts": 1789210900, "title": "1 yes", "body": "answered from watch-pixel5", "ref": "q-1789210500-1"}
 ]

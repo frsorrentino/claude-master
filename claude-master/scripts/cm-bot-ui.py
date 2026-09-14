@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Le funzioni PURE del bot a misura di smartwatch (Wear OS, mandato di Franz dell'11/09/2026 16:36–16:40).
+"""Le funzioni PURE del bot a misura di smartwatch (Wear OS, mandato dell'utente dell'11/09/2026 16:36–16:40).
 
 Misure prese dal polso: ~22 caratteri utili per riga, 8-10 righe visibili, il client rende le tastiere
 inline e il tocco arriva (callback_query); la dettatura scrive minuscole senza accenti e concatena
-(«due si»). Dal 12/09 (screenshot di Franz): la bolla di Telegram è larga quanto la riga più lunga, quindi nel CORPO
+(«due si»). Dal 12/09 (screenshot dell'utente): la bolla di Telegram è larga quanto la riga più lunga, quindi nel CORPO
 niente a capo né tagli a 22 (line/join: righe intere, le corte unite con « · », la prima la più lunga); i 22
 caratteri restano la misura delle ETICHETTE dei bottoni (fit). Comandi a parola nuda dettabile oltre a /comando;
 numeri sempre accettati come alternativa ai bottoni; una riga contestuale di bottoni (Sessioni, «◀ nome»,
@@ -119,7 +119,7 @@ def fit(text, width=WIDTH):
 
 
 def line(text):
-    """Una riga logica = una riga fisica (Franz 12/09 11:14, screenshot di telefono e watch): spazi normalizzati,
+    """Una riga logica = una riga fisica (l'utente 12/09 11:14, screenshot di telefono e watch): spazi normalizzati,
     NESSUN taglio ne' a capo interno — la bolla di Telegram si allarga quanto la riga piu' lunga, e a 22
     caratteri restava a meta' schermo col testo mozzato. Solo le etichette dei bottoni passano da fit()."""
     return " ".join(str(text or "").split())
@@ -152,14 +152,14 @@ def wrap(text, width=WIDTH, max_lines=2):
 
 
 def _icon(r, icons):
-    """L'icona della sessione dal registro colori (Franz 18:27): tondo = personale, quadrato =
+    """L'icona della sessione dal registro colori (l'utente 18:27): tondo = personale, quadrato =
     professionale, lo stesso della scheda del Terminale. Porta account e identita': niente «pers/prof»."""
     ic = (icons or {}).get(r.get("tmux") or "") or (icons or {}).get(r.get("name") or "") or ""
     return f"{ic} " if ic else ""
 
 
 def list_labels(rows, prefixes=(), width=WIDTH, icons=None):
-    """L'etichetta del bottone di ogni sessione: «<stato> <icona> <nome corto>» (Franz 18:15: si tocca il
+    """L'etichetta del bottone di ogni sessione: «<stato> <icona> <nome corto>» (l'utente 18:15: si tocca il
     nome, niente da contare)."""
     return [fit(f"{STATI[state_of(r)]} {_icon(r, icons)}{short_name(r.get('name') or r.get('tmux') or '?', prefixes)}", width) for r in rows]
 
@@ -219,7 +219,7 @@ def cut44(text, n=44):
 
 
 def card_lines(row, esito="", next_step="", question="", options=(), prefixes=(), now=None, width=WIDTH, max_lines=MAX_LINES, icon=""):
-    """La scheda (Franz 18:24; larghezza piena 12/09 11:14): righe INTERE, mai spezzate.
+    """La scheda (l'utente 18:24; larghezza piena 12/09 11:14): righe INTERE, mai spezzate.
     1 «<stato> <icona> nome · stato da quanto» · 2 l'ultimo esito (taciuto se lavora da > 2 min: la durata e'
     gia' in testa) · 3 «→ prossimo» del recap (o «→ nessun recap») · poi la domanda (il suo succo) e, se sono piu'
     di tre, le opzioni una per riga (fino a tre bastano i bottoni)."""
@@ -246,7 +246,7 @@ def card_lines(row, esito="", next_step="", question="", options=(), prefixes=()
 
 
 def list_header(rows):
-    """La riga di testa dell'elenco (Franz 18:28: le righe di testo erano ridondanti coi bottoni):
+    """La riga di testa dell'elenco (l'utente 18:28: le righe di testo erano ridondanti coi bottoni):
     «N sessioni · k aspetta te · j sparite»."""
     n = len(rows)
     k = sum(1 for r in rows if state_of(r) == "waiting")
@@ -269,7 +269,7 @@ def match_session(word, names, prefixes=()):
 
 
 # ------------------------------------------------------------------ tastiere
-# Regola definitiva (Franz 18:24, 21:00; nomi del 12/09/2026 09:26): ogni bottone di UNA parola sta da solo
+# Regola definitiva (l'utente 18:24, 21:00; nomi del 12/09/2026 09:26): ogni bottone di UNA parola sta da solo
 # sulla sua riga; tasti CONTESTUALI, mai piu' di quattro in fondo, mai un tasto che ripete quello che hai
 # davanti, «Avvia master» solo se la master non e' viva, il piu' probabile per primo. Verbi all'imperativo per
 # le azioni (Avvisami, Continua, Ferma, Leggi tutto, Invia di nuovo, Annulla modifiche), sostantivi per le
@@ -328,7 +328,7 @@ def keyboard_retry(name, label=""):
 
 
 def intent_url(link):
-    """Il link come intent Android per Chrome (Franz via master 12/09: l'app Claude tiene un solo login,
+    """Il link come intent Android per Chrome (l'utente via master 12/09: l'app Claude tiene un solo login,
     l'altro account vive in Chrome): intent://host/path#Intent;scheme=https;package=com.android.chrome;end"""
     l = str(link or "")
     m = re.match(r"^https?://(.+)$", l)
@@ -456,7 +456,7 @@ def live_lines(label, since, tool="", note="", width=WIDTH, max_lines=4):
 
 
 def question_gist(text, max_chars=88):
-    """La domanda in breve, deterministica (Franz 12/09 10:54: tagliata non si puo' rispondere): tutta se sta in
+    """La domanda in breve, deterministica (l'utente 12/09 10:54: tagliata non si puo' rispondere): tutta se sta in
     max_chars; altrimenti l'ULTIMA frase interrogativa che ci sta (il contesto prima si lascia); altrimenti ""
     (serve una sintesi: la fa cm-answer col modello)."""
     t = " ".join(str(text or "").split())

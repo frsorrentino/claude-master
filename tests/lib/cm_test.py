@@ -74,8 +74,8 @@ def fake_home(tmp, legacy=True, second_account=True, workspace=True, language="I
                       "command": "date '+%A %d/%m/%Y %H:%M' | sed 's/^/[ora locale] /'"}]}]}}))
     if workspace:
         ws = home / "Desktop" / "workspaces"
-        for d in ("personali/alfa", "personali/beta", "pixelfarm/clienti/sito.com",
-                  "pixelfarm/nostri/hub", "_archivio", "_prod_backups", ".claude"):
+        for d in ("personali/alfa", "personali/beta", "agenzia/clienti/sito.com",
+                  "agenzia/nostri/hub", "_archivio", "_prod_backups", ".claude"):
             (ws / d).mkdir(parents=True)
     if legacy:
         sk = home / ".claude" / "skills" / "nuova-sessione"
@@ -86,8 +86,8 @@ def fake_home(tmp, legacy=True, second_account=True, workspace=True, language="I
             "sessioni": [
                 {"nome": "master", "cartella": str(home / "Desktop/workspaces"), "account": "personale"},
                 {"nome": "alfa", "cartella": str(home / "Desktop/workspaces/personali/alfa"), "account": "personale"},
-                {"nome": "pix-sito-com", "cartella": str(home / "Desktop/workspaces/pixelfarm/clienti/sito.com"), "account": "aziendale"},
-                {"nome": "pix-hub", "cartella": str(home / "Desktop/workspaces/pixelfarm/nostri/hub"), "account": "aziendale"},
+                {"nome": "pix-sito-com", "cartella": str(home / "Desktop/workspaces/agenzia/clienti/sito.com"), "account": "aziendale"},
+                {"nome": "pix-hub", "cartella": str(home / "Desktop/workspaces/agenzia/nostri/hub"), "account": "aziendale"},
             ]}))
         (home / ".claude" / "colori-sessione").write_text("master\t2\nalfa\t0\npix-sito-com\t3\n")
         (home / ".bashrc").write_text(
@@ -116,7 +116,7 @@ def fake_machine(tmp, home, chromeos=True, procs=None, which=None, env=None):
              "environ": {}, "cwd": str(home / "Desktop/workspaces/personali/alfa"), "tmux": "alfa"},
             {"pid": 102, "cmdline": "claude --dangerously-skip-permissions",
              "environ": {"CLAUDE_CONFIG_DIR": str(home / ".claude-pixel")},
-             "cwd": str(home / "Desktop/workspaces/pixelfarm/clienti/sito.com"), "tmux": "pix-sito-com"},
+             "cwd": str(home / "Desktop/workspaces/agenzia/clienti/sito.com"), "tmux": "pix-sito-com"},
         ],
     }
     p = Path(tmp) / "machine.json"

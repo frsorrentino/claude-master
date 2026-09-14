@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Verifica il bot a misura di smartwatch (cm-bot.py + cm-bot-ui.py) con Telegram finto, dispatcher finto,
-ledger e recap finti, un repo git finto per il checkpoint (mandato di Franz 11/09 16:36-16:40).
+ledger e recap finti, un repo git finto per il checkpoint (mandato dell'utente 11/09 16:36-16:40).
 
 W1  «sessioni» (parola nuda) → elenco: righe ≤ 22, una per sessione, ❓ prima; silenzioso (disable_notification);
     tastiera coi numeri + riga fissa Elenco·Quota·Master; stato della chat = elenco
@@ -12,14 +12,14 @@ W4  «f» → segue; al poll seguente uno stop nel ledger dopo un turno > 2 min 
 W5  «lancia alfa» → launch; «q» → quota compatta; «?» → aiuto; tap «list» → elenco; ogni risposta porta
     la riga fissa; «sessioni full» → tabella intera
 W6  scadenza: stato scheda più vecchio di 10 min → un numero apre una scheda invece di rispondere
-W9  PROMPT LIBERO dalla scheda (Franz 18:38): testo non-comando e non-risposta → anteprima «A <icona> nome:» + testo
+W9  PROMPT LIBERO dalla scheda (l'utente 18:38): testo non-comando e non-risposta → anteprima «A <icona> nome:» + testo
     con bottoni Invia/Annulla (uno per riga); Invia → checkpoint git, `talk NOME "testo" --no-wait`, sessione
     seguita in automatico, «inviato a …» silenzioso; Annulla → niente; dall'elenco → «prima scegli la sessione»
     coi bottoni; testo < 3 caratteri ignorato (nessuna risposta); sessione ✗ → «non è viva», niente inviato
-W10 RISPOSTA A UN PROMPT DEL POLSO (Franz 19:20): dopo Invia (o Riprendi) la sessione è «in attesa risposta»; al
+W10 RISPOSTA A UN PROMPT DEL POLSO (l'utente 19:20): dopo Invia (o Riprendi) la sessione è «in attesa risposta»; al
     primo Stop la risposta torna al polso a prescindere dalla durata del turno, pulita, ≤ 8 righe, notifica
     NORMALE, con bottone «Tutto» se è più lunga (il tap manda il testo intero); il prompt consegnato porta il
-    prefisso «Da Franz via Telegram (polso)…» che vieta la reply peer; Segui: soglia bot.follow_min_turn_s (30 s)
+    prefisso «Dall'utente via Telegram (polso)…» che vieta la reply peer; Segui: soglia bot.follow_min_turn_s (30 s)
 W7  `bot digest` → ❓ pendenti, ✓ ferme da ieri, ✗, un tasto «Apri» per ogni ❓; `bot install` scrive anche il cron
     delle 8:00 e chiama setMyCommands
 W11 PARITÀ COL DESKTOP (12/09/2026 09:32): un prompt dal watch → UN messaggio vivo «📤 nome» + eco, con Ferma /
@@ -155,7 +155,7 @@ def kb(m):
 
 
 def has_fixed(m):
-    """l'ultimo tasto e' «Sessioni» (tasti contestuali, Franz 21:00; nomi del 12/09), uno per riga"""
+    """l'ultimo tasto e' «Sessioni» (tasti contestuali, l'utente 21:00; nomi del 12/09), uno per riga"""
     return kb(m) and kb(m)[-1][0]["text"] == "Sessioni" and all(len(row) == 1 for row in kb(m))
 
 
@@ -282,7 +282,7 @@ T.check("W8 ambiguous «mas» → «2 sessioni: quale?» with only the two candi
 r, sent = tap("n:2")
 T.check("W8 tap on the second candidate → master-2's card", sent and head0(sent[-1]).endswith(" master-2"), str(sent))
 rows_alive("master", "api", "alfa")
-# W9: prompt libero dalla scheda (Franz 21:05: niente anteprima, la tastiera Wear OS conferma gia')
+# W9: prompt libero dalla scheda (l'utente 21:05: niente anteprima, la tastiera Wear OS conferma gia')
 say("elenco"); say("mast")   # «master» e' un comando: il prefisso apre la scheda
 CALLS["sendMessage"].clear()
 r, sent = say("riassumi lo stato in due righe")
@@ -313,7 +313,7 @@ say("elenco")
 # W10: risposta a un prompt del watch. master e' ▶ all'invio: il PRIMO Stop senza riga Watch e' il turno
 # precedente (non annunciato: turno di 10 s), il secondo con «Watch:» e' la risposta
 say("mast"); r, sent = say("riassumi lo stato in due righe")
-T.check("W10 the delivered prompt carries the sender/channel prefix «(watch)», forbids peer replies and asks for the «Watch:» line", any(c.startswith("talk master Da Franz via Telegram (watch)") and "NON usare SendMessage" in c and "Watch:" in c and c.endswith("riassumi lo stato in due righe --no-wait") for c in cm_calls()[-3:]), str(cm_calls()[-3:]))
+T.check("W10 the delivered prompt carries the sender/channel prefix «(watch)», forbids peer replies and asks for the «Watch:» line", any(c.startswith("talk master Dall'utente via Telegram (watch)") and "NON usare SendMessage" in c and "Watch:" in c and c.endswith("riassumi lo stato in due righe --no-wait") for c in cm_calls()[-3:]), str(cm_calls()[-3:]))
 T.check("W10 master marked «awaiting», busy_at_send", "master" in (st()["chats"]["1001"].get("awaiting") or {}) and live_of("master").get("busy_at_send") is True, str(st()["chats"]["1001"].get("awaiting")))
 with open(ledger, "a") as f:
     f.write(json.dumps({"ts": ts(now + 300), "event": "start", "session_id": "S-M", "cwd": str(ws), "account": "personale", "pid": 7}) + "\n")
@@ -379,7 +379,7 @@ T.check("W11 after receive_timeout_s without the prompt in the transcript: the l
 r, sent = tap("retry:master")
 T.check("W11 tap «Invia di nuovo» → the same prompt again with --force, a fresh «📤» live message", sent and sent[-1]["text"].startswith("📤 ") and any(c.startswith("talk master ") and "controlla i test della suite --no-wait --force" in c for c in cm_calls()[-3:]) and live_of("master").get("received") is False, str(sent) + str(cm_calls()[-3:]))
 with open(transcript, "a") as f:
-    f.write(json.dumps({"type": "user", "message": {"role": "user", "content": "Da Franz via Telegram (watch). … controlla i test della suite"}}) + "\n")
+    f.write(json.dumps({"type": "user", "message": {"role": "user", "content": "Dall'utente via Telegram (watch). … controlla i test della suite"}}) + "\n")
     f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "Lancio la suite dei test."}, {"type": "tool_use", "name": "Bash", "input": {"command": "pytest -q tests", "description": "run tests"}}]}}) + "\n")
 n_e = len(edits()); CALLS["sendMessage"].clear(); r = bot("poll")
 T.check("W11 the prompt shows up in the transcript → received; the live message edited: «▶ … master · al lavoro · Bash pytest -q tests» in ONE line (the tool in progress), Ferma/Terminale/Sessioni, no new message", live_of("master").get("received") is True and len(edits()) == n_e + 1 and edits()[-1]["text"].splitlines()[0].endswith(" master · al lavoro · Bash pytest -q tests") and [row[0]["text"] for row in json.loads(edits()[-1]["reply_markup"])["inline_keyboard"]] == ["Ferma", "Terminale", "Sessioni"] and not CALLS["sendMessage"], str(edits()[n_e:]) + str(live_of("master")))
@@ -424,7 +424,7 @@ patch_chat(awaiting={}, live={})
 r, sent = say("alfa")
 T.check("W11 card of a ✓ session: Avvisami / Continua / Apri sessione (link) / Sessioni", [row[0]["text"] for row in kb(sent[-1])] == ["Avvisami", "Continua", "Apri sessione", "Sessioni"], str(kb(sent[-1])))
 r, sent = say("continua")
-T.check("W11 «continua» → talk alfa with the resume prompt, «📤 … alfa» + «continua → …», live keyboard, alfa awaiting", any(c.startswith("talk alfa Da Franz via Telegram (watch)") and "--no-wait" in c for c in cm_calls()[-3:]) and sent and sent[-1]["text"].startswith("📤 ") and "continua" in sent[-1]["text"] and [row[0]["text"] for row in kb(sent[-1])] == ["Ferma", "Terminale", "Sessioni"] and "alfa" in st()["chats"]["1001"]["awaiting"], str(sent) + str(cm_calls()[-3:]))
+T.check("W11 «continua» → talk alfa with the resume prompt, «📤 … alfa» + «continua → …», live keyboard, alfa awaiting", any(c.startswith("talk alfa Dall'utente via Telegram (watch)") and "--no-wait" in c for c in cm_calls()[-3:]) and sent and sent[-1]["text"].startswith("📤 ") and "continua" in sent[-1]["text"] and [row[0]["text"] for row in kb(sent[-1])] == ["Ferma", "Terminale", "Sessioni"] and "alfa" in st()["chats"]["1001"]["awaiting"], str(sent) + str(cm_calls()[-3:]))
 patch_chat(awaiting={}, live={}, follow=[])
 say("elenco")
 # W12 (via master 12/09 11:38): tap «Domanda intera» → il testo integrale della domanda salvato dall'avviso
@@ -438,7 +438,7 @@ T.check("W12 tap «Domanda intera» from the card (q: without a name → the car
 patch_chat(qfull={})
 r, sent = tap("card:api")
 T.check("W12 without a whole question on file: no «Domanda intera»", not any(b["text"] == "Domanda intera" for row in kb(sent[-1]) for b in row), str(kb(sent[-1])))
-# W15 (Franz via master 12/09 15:26): con l'orologio accoppiato e il relay fresco, gli avvisi Telegram non suonano
+# W15 (l'utente via master 12/09 15:26): con l'orologio accoppiato e il relay fresco, gli avvisi Telegram non suonano
 (tmp / "relay" / "devices.json").write_text(json.dumps({"u1": {"name": "watch-pixel5"}}))
 (tmp / "relay" / "last-state.json").write_text(json.dumps({"pushed_at": time.time(), "state": {}}))
 patch_chat(follow=["master"], awaiting={}, live={}, seen={"master": now + 900})
@@ -467,7 +467,7 @@ r, sent = say("recap")
 T.check("W15 the recap, asked on purpose, stays LOUD even with the watch paired", sent and sent[-1]["text"].startswith("Recap") and sent[-1].get("disable_notification") != "true", str(sent)[-300:])
 (tmp / "relay" / "devices.json").write_text("{}")
 patch_chat(follow=[], awaiting={}, live={})
-# W14 (Franz via master 12/09 12:23): il link della sessione si apre nel posto giusto per il suo account
+# W14 (l'utente via master 12/09 12:23): il link della sessione si apre nel posto giusto per il suo account
 r, sent = tap("card:master")
 T.check("W14 card of a session of the «app» account: a URL button «Apri sessione» with the claude.ai link, before Sessioni", any(b.get("text") == "Apri sessione" and b.get("url") == "https://claude.ai/code/session_01M" for row in kb(sent[-1]) for b in row) and kb(sent[-1])[-1][0]["text"] == "Sessioni", str(kb(sent[-1])))
 rows_alive("master", "api", "alfa", account={"api": "agenzia"})

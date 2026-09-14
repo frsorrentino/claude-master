@@ -55,6 +55,7 @@ DEFAULTS = {
             "shape": "circle",
             "shell_command": "claude",
             "label": "default",
+            "kind": "",   # 1.8: personal | work per il relay; vuoto = default_account personal, gli altri work
         }
     },
     "default_account": "default",
@@ -116,12 +117,15 @@ DEFAULTS = {
     "report": {"subdir": "docs/reports", "image_exts": ["png", "jpg", "jpeg", "webp", "gif"]},
     "sessions": {"stall_min": 20, "recent_min": 5},
     "quota": {"source": "~/.claude/fable-director", "warn_pct": 85},
-    # spento di default (Franz, 10/09/2026): la master resta l'unico ingresso dal telefono; lo
+    # spento di default (l'utente, 10/09/2026): la master resta l'unico ingresso dal telefono; lo
     # sportello apre sessioni senza progetto, con nome casuale e cartella fissa, e costa un
     # processo sempre acceso
     "desk": {"enabled": False, "name": "sportello", "capacity": 4, "permission_mode": "acceptEdits"},
+    # S09 (14/09/2026): prova di un secondo agente, spenta di default — `launch --agent codex` e le sessioni Codex
+    # in `sessions` (stato dal rollout di ~/.codex); vedi la nota di prova in docs/
+    "experimental": {"codex": False},
     # bot Telegram a cron: /master, /launch, /sessions dal telefono quando nessuna sessione e' viva;
-    # riusa token e chat autorizzate del plugin `telegram` di Claude Code (scelta di Franz, 10/09/2026)
+    # riusa token e chat autorizzate del plugin `telegram` di Claude Code (scelta dell'utente, 10/09/2026)
     "bot": {"enabled": False, "token_file": "~/.claude/channels/telegram/.env",
             "access_file": "~/.claude/channels/telegram/access.json",
             "pid_file": "~/.claude/channels/telegram/bot.pid",
@@ -233,6 +237,30 @@ def home():
     return Path(os.environ.get("CM_HOME") or Path.home())
 
 
+def detect_language(env_get=None):
+    """(lingua, fonte) quando la config non la dice: `language` in ~/.claude/settings.json (italiano se comincia
+    con «ital»), poi LANG (italiano se comincia con «it»), altrimenti inglese. La usa init per proporre il valore
+    e, dal 14/09/2026 (S03), ogni comando quando il file non ha `language`: prima valeva sempre l'inglese."""
+    env_get = env_get or os.environ.get
+    if str(read_json("~/.claude/settings.json").get("language", "")).lower().startswith("ital"):
+        return "it", "~/.claude/settings.json language"
+    if str(env_get("LANG", "") or "").lower().startswith("it"):
+        return "it", "LANG"
+    return "en", "default"
+
+
+def claude_bin():
+    """Il binario di claude per chi lo lancia da python: CM_CLAUDE_BIN (prove), poi il PATH, poi ~/.local/bin/claude.
+    Stessa regola di cm-launch.sh (T81): dal cron il PATH e' /usr/bin:/bin e il link di claude sta in ~/.local/bin.
+    14/09/2026: senza, il recap delle 20:00 chiamava «claude» a vuoto e scriveva i riassunti del giorno vuoti (dal
+    12/09: recap sempre vuoto sul polso); la coda notturna e la sintesi delle risposte avevano lo stesso difetto."""
+    b = os.environ.get("CM_CLAUDE_BIN") or shutil.which("claude")
+    if b:
+        return b
+    p = home() / ".local" / "bin" / "claude"
+    return str(p) if os.access(p, os.X_OK) else "claude"
+
+
 def expand(s):
     """~ → home (CM_HOME nei test). Solo stringhe che iniziano con ~."""
     if isinstance(s, str) and (s == "~" or s.startswith("~/")):
@@ -333,9 +361,11 @@ def _load_raw(path=None, warn=True):
     data = {}
     if p.is_file():
         data = json.loads(p.read_text())
-    lang = data.get("language") or DEFAULTS["language"]
+    # S03 (14/09/2026): senza `language` nel file vale la lingua rilevata (come in init), non sempre l'inglese
+    lang = data.get("language") or detect_language()[0]
     unknown = []
     cfg = deep_merge(defaults_for(lang), data, unknown=unknown)
+    cfg["language"] = lang
     if "accounts" in data:
         # gli account del file sostituiscono quello di default, non si sommano
         cfg["accounts"] = data["accounts"]
@@ -524,13 +554,7 @@ def detect(m):
 
     # lingua: settings dell'account principale, poi LANG
     settings_main = read_json("~/.claude/settings.json")
-    lang = "en"
-    if str(settings_main.get("language", "")).lower().startswith("ital"):
-        lang, src["language"] = "it", "~/.claude/settings.json language"
-    elif m.env("LANG", "").lower().startswith("it"):
-        lang, src["language"] = "it", "LANG"
-    else:
-        src["language"] = "default"
+    lang, src["language"] = detect_language(m.env)
     cfg = defaults_for(lang)
     cfg["language"] = lang
 
@@ -1034,6 +1058,11 @@ def cmd_doctor():
     shim = home() / ".local" / "bin" / "claude-master"
     if shim.is_file():
         rows.append(("PASS", "doctor.shim_ok", {"path": contract(str(shim))}, None))
+        # S01 (14/09/2026): lo shim c'e' ma la sua cartella non e' nel PATH di chi lancia doctor (il PATH arriva
+        # intatto: ne' lo shim ne' il dispatcher lo toccano), e `claude-master` per nome non si trova
+        in_path = {os.path.realpath(os.path.expanduser(x)) for x in m.env("PATH").split(os.pathsep) if x}
+        if os.path.realpath(str(shim.parent)) not in in_path:
+            rows.append(("WARN", "doctor.shim_not_in_path", {"dir": contract(str(shim.parent))}, "doctor.fix_shim_path"))
     else:
         rows.append(("WARN", "doctor.shim_missing", {"path": contract(str(shim))}, "doctor.fix_shim"))
 

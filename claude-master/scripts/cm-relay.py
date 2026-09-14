@@ -445,6 +445,7 @@ def collect_sources(now=None):
     return {
         "host": str(R.get("host") or socket.gethostname()),
         "root": cm.expand(CFG["workspace"]["root"]), "prefixes": prefixes(), "high_words": R.get("tier_high") or None,
+        "account_kinds": S.kinds_of(CFG["accounts"], CFG.get("default_account") or ""),
         "state_max_kb": R.get("state_max_kb") or 8,
         "rows": rows, "ledger": ledger, "questions": questions,
         "quota": _json_cmd("quota", "--json", expect="{") or {},

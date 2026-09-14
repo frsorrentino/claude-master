@@ -16,7 +16,7 @@
 # svuotava la lista che il ripristino doveva leggere.
 #
 # Fotografia «ultimo insieme buono» (`registry.good_file`, 11/09/2026): il mattino
-# dell'11/09 Franz chiuse quattro finestre a mano prima del riavvio, il cron
+# dell'11/09 l'utente chiuse quattro finestre a mano prima del riavvio, il cron
 # riconcilio' il registro con la sola superstite e il ripristino rilancio' 1 su 5.
 # La fotografia cresce quando l'insieme cresce e si sostituisce quando tutte le
 # sue sessioni sono ancora vive; NON dimagrisce quando le sessioni spariscono da

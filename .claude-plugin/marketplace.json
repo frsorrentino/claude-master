@@ -1,6 +1,6 @@
 {
   "name": "claude-master-dev",
-  "description": "Development marketplace for claude-master (the public listing lives in the fsorrentino marketplace).",
+  "description": "The marketplace of claude-master: add it with `claude plugin marketplace add frsorrentino/claude-master`, then `claude plugin install claude-master@claude-master-dev`.",
   "owner": {
     "name": "Francesco Sorrentino",
     "email": "info@francescosorrentino.com"

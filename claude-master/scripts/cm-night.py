@@ -45,7 +45,7 @@ cm = _load("cm-config")
 CFG = cm.load(warn=False)
 M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
 N = CFG["night"]
-CLAUDE = os.environ.get("CM_CLAUDE_BIN") or shutil.which("claude") or "claude"
+CLAUDE = cm.claude_bin()   # parte dal cron delle 02:00: il PATH non ha ~/.local/bin
 
 
 def queue_path():

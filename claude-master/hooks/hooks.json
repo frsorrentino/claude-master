@@ -12,6 +12,9 @@
     "PermissionRequest": [
       {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" PermissionRequest", "timeout": 5}]}
     ],
+    "PostToolUse": [
+      {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" PostToolUse", "timeout": 5}]}
+    ],
     "Stop": [
       {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" Stop", "timeout": 20}]}
     ],

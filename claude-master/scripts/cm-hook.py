@@ -235,6 +235,25 @@ def main(argv):
         ledger("waiting", p, tool=p.get("tool_name", ""))
         ask_notify(p)
         relay_push()
+    elif ev == "PostToolUse":
+        # il tool e' partito: la domanda o il permesso hanno avuto risposta (tastiera, telefono o polso) → via il flag e
+        # un push, cosi' l'orologio chiude la domanda in pochi secondi (14/09, dall'app: restava aperta fino a fine turno).
+        # Parte a OGNI chiamata di strumento: senza flag non fa niente (niente push, niente avviso). Un'uscita prima di
+        # caricare la config non valeva la pena: misurata a 0,09 s contro 0,09, il tempo e' l'avvio di python.
+        flag = STATE / "waiting" / sid if sid else None
+        if not flag or not flag.exists():
+            return 0
+        flag.unlink(missing_ok=True)
+        relay_push()
+        # e il messaggio Telegram dell'avviso perde i bottoni (stesso interruttore dell'avviso; staccato: torna subito)
+        if (CFG["hooks"].get("ask_notify") or {}).get("enabled"):
+            try:
+                pr = subprocess.Popen([sys.executable, str(HERE / "cm-answer.py"), "--closed"], stdin=subprocess.PIPE,
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+                pr.stdin.write(json.dumps(p).encode())
+                pr.stdin.close()
+            except (OSError, ValueError):
+                pass
     elif ev == "Stop":
         # a fine turno nessun dialogo e' aperto: il flag restava fino al prompt dopo e il relay teneva la sessione
         # «waiting» con la domanda gia' risposta (14/09: answered e outcome partiti 3 minuti tardi)

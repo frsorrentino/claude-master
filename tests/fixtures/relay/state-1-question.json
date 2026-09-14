@@ -1,13 +1,14 @@
 {
   "v": 1,
   "ts": 1789210800,
-  "host": "crostini-franz",
+  "host": "crostini-demo",
   "sessions": [
     {
       "id": "9e9c87fb-edcd-4c51-8c62-328c0146019b",
       "name": "ledger-api",
-      "account": "agenzia",
-      "project": "pixelfarm/clienti/ledger-api",
+      "account": "work",
+      "account_kind": "work",
+      "project": "work/clients/ledger-api",
       "state": "waiting",
       "since": 1789210500,
       "turn_started": 1789210380,
@@ -21,8 +22,14 @@
         "kind": "ask",
         "text": "Deploy ready, waiting for the client's ok. Deploy now?",
         "options": [
-          {"n": 1, "label": "yes"},
-          {"n": 2, "label": "no"}
+          {
+            "n": 1,
+            "label": "yes"
+          },
+          {
+            "n": 2,
+            "label": "no"
+          }
         ],
         "tier": "medium",
         "asked_at": 1789210500
@@ -36,8 +43,9 @@
     {
       "id": "f61903c0-ea6a-409c-a961-d01126a0f3ad",
       "name": "atlas-shop",
-      "account": "personale",
-      "project": "personali/atlas-shop",
+      "account": "personal",
+      "account_kind": "personal",
+      "project": "personal/atlas-shop",
       "state": "busy",
       "since": 1789209000,
       "turn_started": 1789210700,
@@ -48,11 +56,11 @@
       "followed": false,
       "question": null,
       "outcome": {
-        "short": "Migrazioni 008-011 applicate, test verdi",
-        "full": "Esito: migrazioni 008-011 applicate, test verdi.\nRestano da rivedere i seed di prova e la pagina admin.",
+        "short": "Migrations 008-011 applied, tests green",
+        "full": "Esito: migrations 008-011 applied, tests green.\nThe test seeds and the admin page are still to review.",
         "at": 1789210300
       },
-      "next": "Rivedere i seed e la pagina admin",
+      "next": "Review the seeds and the admin page",
       "next_at": 1789171200,
       "icon": "🟢",
       "color": "#2ECC71"
@@ -60,8 +68,9 @@
     {
       "id": "3d1b2c4e-0000-4000-8000-000000000003",
       "name": "field-notes",
-      "account": "personale",
-      "project": "personali/field-notes",
+      "account": "personal",
+      "account_kind": "personal",
+      "project": "personal/field-notes",
       "state": "idle",
       "since": 1789120000,
       "turn_started": null,
@@ -71,7 +80,11 @@
       "attached": false,
       "followed": false,
       "question": null,
-      "outcome": {"short": "README riscritto", "full": "Esito: README riscritto con le tre sezioni chieste.", "at": 1789121000},
+      "outcome": {
+        "short": "README rewritten",
+        "full": "Esito: README rewritten with the three sections asked for.",
+        "at": 1789121000
+      },
       "next": null,
       "next_at": null,
       "icon": "🟡",
@@ -80,8 +93,9 @@
     {
       "id": "3d1b2c4e-0000-4000-8000-000000000004",
       "name": "orbit-docs",
-      "account": "agenzia",
-      "project": "pixelfarm/nostri/orbit-docs",
+      "account": "work",
+      "account_kind": "work",
+      "project": "work/own/orbit-docs",
       "state": "gone",
       "since": 1789200000,
       "turn_started": null,
@@ -92,27 +106,64 @@
       "followed": false,
       "question": null,
       "outcome": null,
-      "next": "Riprendere la pagina prezzi",
+      "next": "Pick up the pricing page",
       "next_at": 1789171200,
       "icon": "🟪",
       "color": "#9B59B6"
     }
   ],
   "quota": {
-    "personale": {"h5": 11, "w7": 36, "reset_w7": 1789610400, "reset_h5": 1789228800, "stale": false},
-    "agenzia": {"h5": null, "w7": 75, "reset_w7": 1789444800, "reset_h5": 1789225200, "stale": true}
+    "personal": {
+      "h5": 11,
+      "w7": 36,
+      "reset_w7": 1789610400,
+      "reset_h5": 1789228800,
+      "stale": false,
+      "kind": "personal"
+    },
+    "work": {
+      "h5": null,
+      "w7": 75,
+      "reset_w7": 1789444800,
+      "reset_h5": 1789225200,
+      "stale": true,
+      "kind": "work"
+    }
   },
   "projects": [
-    {"path": "/home/franz/Desktop/workspaces/personali/atlas-shop", "name": "atlas-shop", "account": "personale"},
-    {"path": "/home/franz/Desktop/workspaces/pixelfarm/clienti/ledger-api", "name": "ledger-api", "account": "agenzia"},
-    {"path": "/home/franz/Desktop/workspaces/pixelfarm/nostri/orbit-docs", "name": "orbit-docs", "account": "agenzia"}
+    {
+      "path": "/home/demo/workspaces/personal/atlas-shop",
+      "name": "atlas-shop",
+      "account": "personal"
+    },
+    {
+      "path": "/home/demo/workspaces/work/clients/ledger-api",
+      "name": "ledger-api",
+      "account": "work"
+    },
+    {
+      "path": "/home/demo/workspaces/work/own/orbit-docs",
+      "name": "orbit-docs",
+      "account": "work"
+    }
   ],
-  "night": {"queued": 2, "running": null},
+  "night": {
+    "queued": 2,
+    "running": null
+  },
   "recap": {
     "date": "2026-09-12",
     "items": [
-      {"project": "atlas-shop", "done": "Migrazioni 008-011 applicate, test verdi", "next": "Rivedere i seed e la pagina admin"},
-      {"project": "ledger-api", "done": "Deploy pronto", "next": "Wait for the go"}
+      {
+        "project": "atlas-shop",
+        "done": "Migrations 008-011 applied, tests green",
+        "next": "Review the seeds and the admin page"
+      },
+      {
+        "project": "ledger-api",
+        "done": "Deploy ready",
+        "next": "Wait for the go"
+      }
     ]
   }
 }

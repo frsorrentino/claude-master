@@ -6,10 +6,10 @@ G2  --where elenca i monitor (dalle finestre massimizzate e dalle schede http)
 G3  --dry-run: piano senza toccare niente
 G4  tile: tre sessioni in tre finestre → colonne uguali nell'ordine chiesto, una per volta (T35); `actual` assente non fa morire (T37)
 G5  T34/T72: finestra massimizzata o minimizzata → la sessione riparte in una finestra app NUOVA via garcon
-    (attach NOME, client nuovo T27), la scheda vecchia chiusa, poi il tiling; MAI popup (Franz 11/09 13:26)
+    (attach NOME, client nuovo T27), la scheda vecchia chiusa, poi il tiling; MAI popup (l'utente 11/09 13:26)
 G10 sessioni in finestre popup (versioni precedenti) → convertite in finestre app via garcon; dopo tile
     nessuna finestra popup
-G11 DISPARI con la master (Franz 11/09 15:50, tile.odd_layout master-primary): master grande a sinistra (60%),
+G11 DISPARI con la master (l'utente 11/09 15:50, tile.odd_layout master-primary): master grande a sinistra (60%),
     le altre impilate a destra in N-1 righe; home 0, popup 0; G12 PARI → colonne come prima;
     G13 dispari SENZA master → colonne uniformi (ripiego); G14 odd_layout uniform → comportamento vecchio;
     sotto min_column_px la colonna impilata è consentita ma segnalata

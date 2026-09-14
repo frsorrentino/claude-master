@@ -32,10 +32,11 @@ V = 1
 ORDER = {"waiting": 0, "busy": 1, "awaiting": 1, "idle": 2, "gone": 3}
 SHORT_MAX = 200   # 1.6: la riga «Watch:»/«Esito:» intera (a 60 il polso mostrava mezza frase; chiesto dall'app il 14/09)
 KEEP_GONE = 3     # fit_state: le sessioni finite piu' recenti che restano quando lo stato non entra
+RECAP_CUT = 80    # 1.7 fit_state: `done` e `next` del recap accorciati a fine parola invece di sparire per primi
 HIGH_WORDS = ["rm -rf", "git push", "deploy", "DROP", "ssh", "sudo", "--force", "git reset --hard"]
 LOW_TOOLS = {"Read", "Grep", "Glob", "WebFetch", "WebSearch", "LS", "TodoWrite"}
 STATE_ICON = {"waiting": "❓", "busy": "▶", "awaiting": "▶", "idle": "✓", "gone": "✗"}
-# contratto 1.1 (Franz via master 12/09 16:27): il badge dell'orologio = forma dall'account, colore = quello della scheda
+# contratto 1.1 (l'utente via master 12/09 16:27): il badge dell'orologio = forma dall'account, colore = quello della scheda
 # del Terminale (cm-color), a prescindere dalla forma o dal cuore dell'emoji
 COLORS = {"🟠": "#F5A623", "🟧": "#F5A623", "🧡": "#F5A623", "🟡": "#F4D03F", "🟨": "#F4D03F", "💛": "#F4D03F",
           "🔴": "#E74C3C", "🟥": "#E74C3C", "❤️": "#E74C3C", "❤": "#E74C3C", "🟢": "#2ECC71", "🟩": "#2ECC71", "💚": "#2ECC71",
@@ -194,6 +195,8 @@ def build_session(row, src):
         "id": row.get("session_id") or tmux,
         "name": name,
         "account": row.get("account") or "",
+        # 1.8: personal | work — l'app non deve piu' riconoscere l'account personale dal nome «personale»
+        "account_kind": (src.get("account_kinds") or {}).get(row.get("account") or "") or None,
         "project": project_of(row.get("cwd"), src.get("root")),
         "state": st,
         "since": since,
@@ -223,7 +226,18 @@ def _int_or_none(v):
         return None
 
 
-def build_quota(quota):
+def kinds_of(accounts, default_account=""):
+    """1.8: quale account e' personale e quale di lavoro (l'app lo deduceva dal nome «personale»). Vince
+    `accounts.<nome>.kind` se c'e'; altrimenti l'account di default e' personal e gli altri work; uno solo e' personal."""
+    names = list(accounts or {})
+    out = {}
+    for n in names:
+        k = str((accounts[n] or {}).get("kind") or "").lower()
+        out[n] = k if k in ("personal", "work") else ("personal" if len(names) == 1 or n == default_account else "work")
+    return out
+
+
+def build_quota(quota, kinds=None):
     out = {}
     for acc, q in (quota or {}).items():
         q = q or {}
@@ -233,7 +247,9 @@ def build_quota(quota):
                     # 1.3: quando riparte la finestra di 5 ore (il polso mostrava il reset settimanale sotto la
                     # percentuale delle 5 ore, e sembrava sbagliato)
                     "reset_h5": _int_or_none(q.get("reset_cinque_ore", q.get("five_hour_resets_at"))),
-                    "stale": bool(q.get("vecchia", q.get("stale")))}
+                    "stale": bool(q.get("vecchia", q.get("stale"))),
+                    # 1.8: personale o di lavoro, senza dover conoscere il nome dell'account
+                    "kind": (kinds or {}).get(acc) or None}
     return out
 
 
@@ -247,7 +263,7 @@ def build_state(src, now):
         "ts": int(now),
         "host": src.get("host") or "",
         "sessions": sessions,
-        "quota": build_quota(src.get("quota")),
+        "quota": build_quota(src.get("quota"), src.get("account_kinds")),
         "projects": projects,
         "night": {"queued": int(night.get("queued") or 0), "running": night.get("running") or None},
         "recap": {"date": recap.get("date") or "", "items": [{"project": i.get("project", ""), "done": i.get("done", ""), "next": i.get("next", "")} for i in (recap.get("items") or [])]},
@@ -270,18 +286,17 @@ def cut_at_word(text, n):
 
 
 def fit_state(state, max_kb=8):
-    """Sotto il tetto, togliendo in ordine: le voci del recap; le sessioni finite piu' vecchie (restano le
-    KEEP_GONE piu' recenti); i progetti oltre i primi dieci; `full` degli esiti a 300 caratteri, poi uguale a
-    `short`; infine le sessioni dal fondo. Mai la domanda. Prima `full` cadeva per primo: il 14/09, con dieci
-    sessioni finite, ogni esito sul polso era la sola riga corta. Una sessione finita che esce dallo stato non
-    genera eventi (events_between ignora le gone sparite e le gone ricomparse)."""
+    """Sotto il tetto, togliendo in ordine: le sessioni finite piu' vecchie (restano le KEEP_GONE piu' recenti);
+    i progetti oltre i primi dieci; `done` e `next` del recap a RECAP_CUT caratteri, a fine parola; `full` degli
+    esiti a 300 caratteri, poi uguale a `short`; le voci del recap dal fondo, ma mai l'ultima; infine le sessioni
+    dal fondo. Mai la domanda. 1.7 (14/09, dall'app): le voci del recap cadevano per prime, e con 9 sessioni e
+    10 progetti il polso non aveva mai il recap («Ascolta il recap» assente). Prima ancora `full` cadeva per
+    primo: con dieci sessioni finite ogni esito era la sola riga corta. Una sessione finita che esce dallo stato
+    non genera eventi (events_between ignora le gone sparite e le gone ricomparse)."""
     cap = max_kb * 1024
 
     def fits():
         return size_of(state) <= cap
-    if fits():
-        return state
-    state["recap"]["items"] = []
     if fits():
         return state
     gone = sorted((s for s in state["sessions"] if s["state"] == "gone"), key=lambda s: s.get("since") or 0)
@@ -292,6 +307,11 @@ def fit_state(state, max_kb=8):
     state["projects"] = state["projects"][:10]
     if fits():
         return state
+    items = state["recap"]["items"]
+    for it in items:
+        it["done"], it["next"] = cut_at_word(it.get("done"), RECAP_CUT), cut_at_word(it.get("next"), RECAP_CUT)
+    if fits():
+        return state
     for n in (300, 0):
         for s in state["sessions"]:
             o = s.get("outcome")
@@ -299,6 +319,8 @@ def fit_state(state, max_kb=8):
                 o["full"] = cut_at_word(o["full"], n) if n else o["short"]
         if fits():
             return state
+    while not fits() and len(items) > 1:
+        items.pop()
     while not fits() and state["sessions"]:
         state["sessions"].pop()
     return state

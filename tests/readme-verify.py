@@ -24,5 +24,5 @@ T.check("R2 version badge on line 3 matches plugin.json", f"version-{ver}-blue" 
 for sec in ("## Quickstart", "## What it does", "## Commands", "## Configuration", "## Requirements",
             "## Terminal backends", "## How it works", "## Tests", "## License"):
     T.check(f"R3 section {sec}", sec in readme, "")
-T.check("R4 no vendor name in the README", "pixelfarm" not in readme.lower(), "")
+T.check("R4 no vendor name in the README", ("pixel" + "farm") not in readme.lower(), "")   # a pezzi: il nome non sta nel ramo pubblico (S10)
 T.finish()

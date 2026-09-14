@@ -10,6 +10,7 @@ H4  Stop scrive nel ledger `last` troncato; con coda → {"decision":"block","re
 H4c Stop salva anche `tail` (la coda del messaggio, 600 caratteri) ed `esito` (riga «Esito:») per il polso
 H5  StopFailure scrive nel ledger
 H5b Stop cancella waiting/<sid> (14/09: la domanda risposta restava «waiting» fino al prompt dopo)
+H5c PostToolUse cancella waiting/<sid> (domanda risposta da tastiera o telefono); senza flag esce subito, senza scrivere
 R1  restart arm fuori tmux → exit 3; dentro tmux scrive il flag con tmux/pid/cartella/gen
 R2  restart hook da un'altra sessione → non tocca il flag; dalla stessa → lo consuma e stacca l'esecutore
 R3  esecutore: /exit al claude finto, nome tmux liberato, rilancio con --continue (claude finto), log scritto
@@ -144,6 +145,13 @@ T.check("H5 StopFailure in the ledger", rows[-1]["event"] == "stop-failure" and 
 (state / "waiting" / "sid-stop").write_text("AskUserQuestion")
 r = hook("Stop", {"session_id": "sid-stop", "cwd": str(home), "last_assistant_message": "fatto"})
 T.check("H5b Stop clears the waiting flag (else the relay kept the session «waiting» until the next prompt)", not (state / "waiting" / "sid-stop").exists(), r.stdout + r.stderr)
+# H5c: PostToolUse toglie il flag (la domanda ha avuto risposta da tastiera, dal telefono o dal polso); senza flag esce subito
+(state / "waiting" / "sid-post").write_text("AskUserQuestion")
+r = hook("PostToolUse", {"session_id": "sid-post", "tool_name": "AskUserQuestion"})
+T.check("H5c PostToolUse clears the waiting flag (a question answered on the keyboard or the phone)", r.returncode == 0 and not (state / "waiting" / "sid-post").exists(), r.stdout + r.stderr)
+n_led = len(ledger.read_text().splitlines())
+r = hook("PostToolUse", {"session_id": "sid-none", "tool_name": "Read"})
+T.check("H5c PostToolUse without a flag: exit 0, no output, nothing written (it runs at every tool call)", r.returncode == 0 and not r.stdout and len(ledger.read_text().splitlines()) == n_led, r.stdout + r.stderr)
 
 # ---- restart con tmux privato e claude finto
 with T.PrivateTmux() as tm:

@@ -31,7 +31,7 @@ Alias: `affianca`, `riaffianca`, `unisci`, `sposta`; tasti tmux `Ctrl+b a` / `Ct
 - **Sessioni sparse su più monitor** vengono radunate dove sta la maggioranza (a parità,
   dove sta la prima chiesta): `tile` lo dice.
 - **Meno di 340 px per colonna** (`tile.min_column_px`): griglia automatica.
-- **Numero DISPARI di finestre con la master fra loro** (Franz 11/09, `tile.odd_layout` =
+- **Numero DISPARI di finestre con la master fra loro** (l'utente 11/09, `tile.odd_layout` =
   `master-primary`): la master è la finestra grande a sinistra (60%), le altre impilate a destra
   in N-1 righe; `tile` lo dice («main-vertical»). Con un numero pari, con `--rows`/`--grid`, o
   se la master non è fra le affiancate: colonne/griglia uniformi come sempre. La colonna impilata

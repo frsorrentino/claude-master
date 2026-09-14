@@ -111,7 +111,7 @@ solo con un checkpoint, Ferma, Terminale, Leggi tutto, Invia di nuovo). L'elenco
 (❓ ▶ ✓ ✗, poi alfabetico); un numero o il nome dettato apre la scheda; in scheda un numero (o «due si») risponde
 alla domanda via `answer NOME N`, dopo un checkpoint git del workspace che «Annulla modifiche» ripristina;
 in scheda un testo libero è un prompt per quella sessione (`talk` dopo il checkpoint git) col prefisso
-«Da Franz via Telegram (watch)…» che chiede di chiudere con una riga `Watch: <esito ≤ 60 caratteri>`: chi lo riceve
+«Dall'utente via Telegram (watch)…» che chiede di chiudere con una riga `Watch: <esito ≤ 60 caratteri>`: chi lo riceve
 risponde nella propria finestra, MAI con SendMessage alla master. Il feedback è quello del desktop (12/09/2026): UN
 messaggio vivo «📤 nome» + eco, editato dal transcript della sessione («▶ nome al lavoro», il tool in corso, le
 ultime righe di testo, «❓ nome aspetta te»), con Ferma (Esc in tmux) e Terminale; «⚠ nome non ha ricevuto» +

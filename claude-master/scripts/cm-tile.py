@@ -211,7 +211,7 @@ def attendi_nuovo_client(nome, prima, secondi=None):
 
 def stacca_in_finestra_app(n, schede):
     """La sessione in una finestra app del Terminale TUTTA SUA, via garcon con `attach NOME`
-    (Franz 11/09/2026 13:26: «sempre schede anche quando affiancate» — mai piu' popup: la finestra
+    (l'utente 11/09/2026 13:26: «sempre schede anche quando affiancate» — mai piu' popup: la finestra
     app ha la barra delle schede e si accorpa a mano; porta con se' la sua #home, prezzo noto T78).
     Client NUOVO atteso (T27), poi la scheda vecchia si chiude. Torna l'id della finestra nuova."""
     vecchia = scheda_di(n, schede)
@@ -247,7 +247,7 @@ def unisci(nomi):
     schede = tutte.get("tabs", tutte) if isinstance(tutte, dict) else tutte
     riquadri = tutte.get("windows", []) if isinstance(tutte, dict) else []
     tipo_di = {f["id"]: f.get("type") for f in riquadri}
-    # T78 (Franz, 11/09/2026): la scheda iniziale (#home) della SWA del Terminale NON si chiude
+    # T78 (l'utente, 11/09/2026): la scheda iniziale (#home) della SWA del Terminale NON si chiude
     # finche' nella finestra ci sono altre schede (la x sparisce; via bridge va in timeout): una
     # finestra app senza #home nasce solo trascinando fuori a mano una scheda di sessione. Si
     # preferisce QUELLA come raccolta; con la sola finestra con #home si raccoglie li' e si dice
@@ -345,7 +345,7 @@ def finestra_di_raccolta(schede, riquadri):
 
 
 def apri_scheda(nome, dry=False):
-    """«Sempre tutte schede» (Franz, 11/09/2026): la sessione nasce come scheda di una finestra del
+    """«Sempre tutte schede» (l'utente, 11/09/2026): la sessione nasce come scheda di una finestra del
     Terminale gia' aperta — stessa meccanica di merge (duplicate + segnaposto + client NUOVO, T27/T73).
     Senza nessuna finestra con una shell duplicabile si apre UNA finestra semplice via garcon con il
     segnaposto: la sua shell si attacca e resta la sorgente per le sessioni successive (una finestra
@@ -801,7 +801,7 @@ def affianca(a):
         sys.exit(M("tile.no_reference"))
 
     n = len(ordinate)
-    # DISPARI con la master (Franz, 11/09/2026 15:50; `tile.odd_layout`: master-primary | uniform):
+    # DISPARI con la master (l'utente, 11/09/2026 15:50; `tile.odd_layout`: master-primary | uniform):
     # la sessione della radice diventa la finestra grande a sinistra (60%), le altre impilate a
     # destra in n-1 righe. Solo col layout di default (colonne), con n >= 3 dispari e la master
     # fra le affiancate; altrimenti il ripiego uniforme di sempre. La colonna impilata puo' scendere
