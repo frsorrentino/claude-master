@@ -309,6 +309,17 @@ say("beta")   # ✗ dalla fotografia
 n_talk = len([c for c in cm_calls() if c.startswith("talk ")])
 r, sent = say("fai qualcosa di utile")
 T.check("W9 a ✗ session: «non è viva», nothing sent", sent and "viva" in sent[-1]["text"] and len([c for c in cm_calls() if c.startswith("talk ")]) == n_talk, str(sent) + str(cm_calls()[-1:]))
+# W9b (15/09, dall'orologio: una sessione chiusa non si poteva riprendere): Riprendi sulla scheda ✗
+r, sent = say("beta")
+T.check("W9b card of a ✗ session: Avvisami / Riprendi / Sessioni (no Continua, no link)", [row[0]["text"] for row in kb(sent[-1])] == ["Avvisami", "Riprendi", "Sessioni"], str(kb(sent[-1])))
+beta_launch = f"launch {ws / 'personali' / 'beta'} --window --account personale --continue"
+r, sent = tap("reopen")
+T.check("W9b tap Riprendi → `launch <beta> --window --account personale --continue` (no conversation id, nobody else live in the folder), «ripresa: … beta (personale), ultima conversazione della cartella»", cm_calls().count(beta_launch) == 1 and sent and "ripresa:" in sent[-1]["text"] and "ultima conversazione" in sent[-1]["text"] and has_fixed(sent[-1]), str(sent) + str(cm_calls()[-3:]))
+say("beta")
+r, sent = say("continua")
+T.check("W9b «continua» on a ✗ card (an old Continua button too) reopens instead of writing to a dead session", cm_calls().count(beta_launch) == 2 and not [c for c in cm_calls()[-3:] if c.startswith("talk beta")], str(cm_calls()[-3:]))
+r, sent = say("riapri master")
+T.check("W9b «riapri» on a live session → «è già viva», no launch", sent and "già viva" in sent[-1]["text"] and not cm_calls()[-1].startswith("launch "), str(sent) + str(cm_calls()[-2:]))
 say("elenco")
 # W10: risposta a un prompt del watch. master e' ▶ all'invio: il PRIMO Stop senza riga Watch e' il turno
 # precedente (non annunciato: turno di 10 s), il secondo con «Watch:» e' la risposta

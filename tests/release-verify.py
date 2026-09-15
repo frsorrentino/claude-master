@@ -44,5 +44,20 @@ readme.write_text(readme.read_text().replace(f"version-{ver}-blue", "version-0.0
 r = run(ver)
 T.check("RL3 README badge off → FAIL naming the badge, suite not run",
         r.returncode != 0 and "badge" in (r.stdout + r.stderr).lower() and not marker.exists(), r.stdout + r.stderr)
+readme.write_text(readme.read_text().replace("version-0.0.0-blue", f"version-{ver}-blue"))
+# RL4: la voce della versione che si rilascia ancora «unreleased» (15/09/2026: la 0.4.7 e' uscita con titolo
+# e tag «v0.4.7 — unreleased», e il tag non si corregge)
+cl = copy / "CHANGELOG.md"
+dated = cl.read_text()
+head = next(l for l in dated.splitlines() if l.startswith(f"- **{ver} — "))
+cl.write_text(dated.replace(head, f"- **{ver} — unreleased.**", 1))
+r = run(ver)
+T.check("RL4 CHANGELOG entry of the version being released still «unreleased» → FAIL naming it, suite not run",
+        r.returncode != 0 and "unreleased" in r.stdout + r.stderr and not marker.exists(), r.stdout + r.stderr)
+marker.unlink(missing_ok=True)   # se RL4 ha fatto girare la suite, il marker non deve far passare RL4b da solo
+cl.write_text(dated.replace(head, head + "\n\n- **9.9.8 — unreleased.**", 1))
+r = run(ver)
+T.check("RL4 an «unreleased» entry of ANOTHER version does not block: preflight passes, CHECK OK",
+        r.returncode == 0 and marker.exists() and "CHECK OK" in r.stdout, r.stdout[-600:] + r.stderr[-300:])
 shutil.rmtree(tmp)
 T.finish()

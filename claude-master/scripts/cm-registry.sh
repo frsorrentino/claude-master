@@ -53,7 +53,8 @@ now = time.strftime("%Y-%m-%dT%H:%M:%S%z")
 live = {}
 for r in rows:
     if r["tmux"] != closed:
-        live[r["tmux"]] = {"nome": r["tmux"], "cartella": r["cwd"], "account": r["account"]}
+        # session_id: la conversazione da riprendere con `reopen` quando la sessione sparisce (15/09)
+        live[r["tmux"]] = {"nome": r["tmux"], "cartella": r["cwd"], "account": r["account"], "session_id": r.get("session_id") or ""}
 
 
 def write(path, data):

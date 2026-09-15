@@ -9,6 +9,7 @@
 #   --resume <id>   riprende UNA conversazione precisa                  (it: --riprendi)
 #   --account N     forza l'account (scorciatoie: --personale, --professionale, ...)
 #   --no-window     non aprire la finestra sul desktop                  (it: --senza-finestra)
+#   --window        aprirla anche se il default e' no; recupera il display anche fuori da tmux (it: --finestra)
 #   --bg            sessione in BACKGROUND (claude --bg): niente tmux, finestra, colore
 #   --profile N     profilo di lancio da config `profiles.<N>` (N8): argomenti, modello, effort, env
 #
@@ -42,7 +43,7 @@ while [ $# -gt 0 ]; do
     --account) shift; ACCOUNT="${1:-}" ;;
     --teleport) shift; TELEPORT="${1:-}" ;;   # N4: una sessione cloud portata in tmux con finestra e colore
     --no-window|--senza-finestra) FINESTRA=false ;;
-    --window|--finestra) FINESTRA=true ;;
+    --window|--finestra) FINESTRA=true; FINESTRA_CHIESTA=force ;;
     --bg|--background) BG=si ;;
     --profile|--profilo) shift; PROFILO="${1:-}" ;;
     --model) shift; MODEL="${1:-}" ;;
@@ -282,8 +283,9 @@ if e_dialogo <<<"$SCHERMO"; then cm_msg launch.stuck_dialog "name=$NOME" >&2; ex
 
 # --- finestra sul desktop, verificata ATTACCATA (T8) ----------------------------------
 FINESTRA_APERTA=""
-# una launch da una sessione nata sotto il server tmux senza display (14/09/2026): cm_recover_display (cm-lib.sh)
-if [ "$FINESTRA" = true ]; then cm_recover_display || true; fi
+# una launch da una sessione nata sotto il server tmux senza display (14/09/2026): cm_recover_display (cm-lib.sh);
+# con --window esplicito anche da un daemon fuori da tmux (reopen dal polso, 15/09)
+if [ "$FINESTRA" = true ]; then cm_recover_display "${FINESTRA_CHIESTA:-}" || true; fi
 # Backend «none» o nessun display: niente da aprire e niente da aspettare (prima si aspettava
 # attach_wait_s per una finestra impossibile: 25 s a ogni riavvio, traccia del 10/09)
 if [ "$FINESTRA" = true ] && [ "$("$CM_SCRIPTS/cm-terminal.sh" detect)" = none ]; then

@@ -272,17 +272,21 @@ for d in ("personal/atlas-shop/docs", "personal/field-notes", "work/clients/ledg
 state_dir = home / ".claude"
 argslog = tmp / "cm-args.log"
 alive = tmp / "alive.json"
+good_json = tmp / "good.json"      # la fotografia del registro (registry --good)
+launch_adds = tmp / "launch-adds.json"   # se c'e', launch la copia su alive: la sessione nata dal lancio
+GOOD_ORBIT = {"nome": "work-orbit-docs", "cartella": str(ws / "work" / "own" / "orbit-docs"), "account": "work", "visto": "2026-09-12T09:00:00"}
+good_json.write_text(json.dumps({"sessioni": [GOOD_ORBIT]}))
 fake_cm = tmp / "claude-master"
 fake_cm.write_text(f"""#!/bin/sh
 printf '%s\\n' "$*" >> "{argslog}"
 case "$1" in
   sessions) cat "{alive}" ;;
-  registry) echo '{{"sessioni": [{{"nome": "work-orbit-docs", "cartella": "{ws / 'work' / 'own' / 'orbit-docs'}", "account": "work", "visto": "2026-09-12T09:00:00"}}]}}' ;;
+  registry) if [ "$2" != "--closed" ]; then cat "{good_json}"; fi ;;
   quota) echo '{{"personal": {{"cinque_ore_pct": 11, "settimana_pct": 36, "reset_settimanale": 1789610400, "reset_cinque_ore": 1789228800, "vecchia": false}}, "work": {{"cinque_ore_pct": null, "settimana_pct": 75, "reset_settimanale": 1789444800, "reset_cinque_ore": 1789225200, "vecchia": true}}}}' ;;
-  answer) if [ "$3" = "--show" ]; then if [ "$2" = "work-ledger-api" ]; then echo "«$2» chiede — Deploy: Deploy ready, waiting for the client ok. Deploy now?"; echo "  ❯ 1. yes"; echo "    2. no"; else echo "nessuna domanda aperta sullo schermo"; exit 1; fi; else case "$3" in 1|2) echo "«$2»: risposto $3. yes  (Deploy now?)" ;; *) echo "opzione $3 inesistente" >&2; exit 2 ;; esac; fi ;;
+  answer) if [ "$3" = "--show" ]; then if [ "$2" = "work-ledger-api" ]; then echo "«$2» chiede — Deploy: Deploy ready, waiting for the client ok. Deploy now?"; echo "  ❯ 1. yes"; echo "    2. no"; else echo "nessuna domanda aperta sullo schermo"; exit 1; fi; else case "$3" in 1|2) echo "«$2»: risposto $3. yes  (Deploy now?)" ;; --text) echo "«$2»: risposto 3. $4  (Deploy now?)" ;; --chat) echo "«$2»: risposto 4. Chat about this  (Deploy now?)" ;; *) echo "opzione $3 inesistente" >&2; exit 2 ;; esac; fi ;;
   screen) i=1; while [ $i -le 30 ]; do echo "riga $i dello schermo"; i=$((i+1)); done ;;
   talk) echo "consegnato" ;;
-  launch) echo "sessione avviata"; echo "  link: https://claude.ai/code/session_01NEW" ;;
+  launch) echo "sessione avviata"; echo "  link: https://claude.ai/code/session_01NEW"; if [ -f "{launch_adds}" ]; then cp "{launch_adds}" "{alive}"; fi ;;
 esac
 """)
 fake_cm.chmod(0o755)
@@ -471,7 +475,7 @@ T.check("R6 prompt → talk atlas-shop with the watch prefix (Watch: line reques
 res = send_cmd(CMDS[2])   # launch path fuori dai progetti pubblicati
 T.check("R6 launch of a path outside the published projects → ok false, no launch", res and res["ok"] is False and "not a published project" in res["text"] and not any(c.startswith("launch ") for c in cm_calls()), str(res))
 res = send_cmd(dict(CMDS[2], id="6f1c2d3e-0003-4000-8000-0000000000aa", arg=str(ws / "work" / "own" / "orbit-docs")))
-T.check("R6 launch of a published project → `launch PATH --no-window`, «launched orbit-docs (work)»", res and res["ok"] is True and res["text"] == "launched orbit-docs (work)" and any(c.startswith("launch ") and c.endswith("orbit-docs --no-window") for c in cm_calls()), str(res) + str(cm_calls()[-3:]))
+T.check("R6 launch of a published project → `launch PATH --window` (its tab on the desktop, 1.9.2), «launched orbit-docs (work)»", res and res["ok"] is True and res["text"] == "launched orbit-docs (work)" and any(c.startswith("launch ") and c.endswith("orbit-docs --window") for c in cm_calls()), str(res) + str(cm_calls()[-3:]))
 # 1.4: «last» — l'ultimo messaggio dell'assistente per intero dal transcript (il ledger ne tiene solo la coda)
 tdir_a = home / ".claude" / "projects" / "".join(ch if ch.isalnum() else "-" for ch in os.path.realpath(str(ws / "personal" / "atlas-shop")))
 tdir_a.mkdir(parents=True, exist_ok=True)
@@ -496,11 +500,58 @@ res = send_cmd(dict(CMDS[4], id="6f1c2d3e-0005-4000-8000-0000000000bb", op="unfo
 T.check("R6 unfollow → removed", res and res["ok"] and "atlas-shop" not in json.loads((rdir2 / "follow.json").read_text()), str(res))
 res = send_cmd(CMDS[5])   # resume orbit-docs (gone)
 T.check("R6 resume of a gone session → ok false «orbit-docs is gone: use launch»", res and res["ok"] is False and res["text"] == "orbit-docs is gone: use launch", str(res))
+# R6 (1.9, 15/09, dall'orologio: una sessione chiusa non si poteva riprendere): reopen rilancia una gone
+orbit = ws / "work" / "own" / "orbit-docs"
+
+
+def reopen_cmd(n, session="orbit-docs"):
+    return {"id": f"6f1c2d3e-0010-4000-8000-0000000001{n:02d}", "op": "reopen", "session": session, "arg": None, "issued": 1789210960, "by": "watch-pixel5"}
+
+
+def launches():
+    return [c for c in cm_calls() if c.startswith("launch ")]
+
+
+res = send_cmd(reopen_cmd(1))
+T.check("R6 reopen of a gone session, no conversation id, nobody live in its folder → `launch <path> --window --account work --continue`, «reopened orbit-docs (work): last conversation in the folder»", res and res["ok"] is True and res["text"] == "reopened orbit-docs (work): last conversation in the folder" and launches()[-1] == f"launch {orbit} --window --account work --continue", str(res) + str(cm_calls()[-3:]))
+T.check("R6 reopen is annotated in the ledger (watch-cmd, op reopen, ok)", any(x.get("event") == "watch-cmd" and x.get("op") == "reopen" and x.get("name") == "orbit-docs" and x.get("ok") is True for x in led_rows()), "")
+tdir = home / ".claude-pixel" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", os.path.realpath(orbit))
+tdir.mkdir(parents=True, exist_ok=True)
+(tdir / "S-O.jsonl").write_text("{}\n")
+good_json.write_text(json.dumps({"sessioni": [dict(GOOD_ORBIT, session_id="S-O")]}))
+res = send_cmd(reopen_cmd(2))
+T.check("R6 reopen with the snapshot's conversation id and its transcript on disk → `--resume S-O` (never -c), «…: same conversation»", res and res["ok"] is True and res["text"] == "reopened orbit-docs (work): same conversation" and launches()[-1] == f"launch {orbit} --window --account work --resume S-O", str(res) + str(launches()[-1:]))
+good_json.write_text(json.dumps({"sessioni": [dict(GOOD_ORBIT, session_id="S-GONE")]}))
+rows_alive("ledger-api", "atlas-shop", "field-notes", **{"field-notes": {"cwd": str(orbit)}})
+n_l = len(launches())
+res = send_cmd(reopen_cmd(3))
+T.check("R6 reopen with an id whose transcript is missing and another live session in the folder → ok false, no launch (-c would take the other one's conversation)", res and res["ok"] is False and res["text"] == "orbit-docs: conversation unknown and 1 live session(s) in its folder: use launch" and len(launches()) == n_l, str(res))
+rows_alive("ledger-api", "atlas-shop", "field-notes")
+res = send_cmd(reopen_cmd(4, "atlas-shop"))
+T.check("R6 reopen of a live name → ok false «atlas-shop is already running», no launch", res and res["ok"] is False and res["text"] == "atlas-shop is already running" and len(launches()) == n_l, str(res))
+res = send_cmd(reopen_cmd(5, "nope"))
+T.check("R6 reopen of a name outside the registry snapshot → ok false «nope is not a closed session»", res and res["ok"] is False and res["text"] == "nope is not a closed session" and len(launches()) == n_l, str(res))
+good_json.write_text(json.dumps({"sessioni": [GOOD_ORBIT]}))
+launch_adds.write_text(json.dumps(json.loads(alive.read_text()) + [{"pid": 11, "name": "work-orbit-docs-2", "tmux": "work-orbit-docs-2", "cwd": str(orbit), "status": "idle", "waiting": False, "link": "", "account": "work", "session_id": "S-O2", "attached": False, "started_at": 1789211000000}]))
+res = send_cmd(reopen_cmd(6))
+T.check("R6 reopen that comes back under another name (launch takes the first free one) → the old name leaves the snapshot (`registry --closed work-orbit-docs`), else it stays ✗ for ever", res and res["ok"] is True and "registry --closed work-orbit-docs" in cm_calls(), str(res) + str(cm_calls()[-4:]))
+launch_adds.unlink()
+rows_alive("ledger-api", "atlas-shop", "field-notes")
 # una domanda nuova su ledger-api: la risposta di prima ha tolto il flag, l'hook del dialogo nuovo lo riscrive
 (state_dir / "waiting" / "S-L").write_text(json.dumps({"tool": "AskUserQuestion", "input": {}}))
 relay("push")
 res = send_cmd(CMDS[6])   # allow_all ledger-api
 T.check("R6 allow_all without a «don't ask again» option → ok false with the contract's text", res and res["ok"] is False and res["text"] == "no «don't ask again» option on this question", str(res))
+# R6 (1.10, 15/09, da claude-master-watch): answer con «text:<testo>» e «chat»
+ans = dict(CMDS[0], id="6f1c2d3e-0011-4000-8000-000000000101", arg="text:ship it tonight")
+res = send_cmd(ans)
+T.check("R6 answer text:<text> → `answer work-ledger-api --text <text>`, «answered 3. ship it tonight»", res and res["ok"] is True and res["text"] == "answered 3. ship it tonight" and "answer work-ledger-api --text ship it tonight" in cm_calls(), str(res) + str(cm_calls()[-2:]))
+res = send_cmd(dict(ans, id="6f1c2d3e-0011-4000-8000-000000000102", arg="chat"))
+T.check("R6 answer chat → `answer work-ledger-api --chat`, «answered 4. Chat about this»", res and res["ok"] is True and res["text"] == "answered 4. Chat about this" and "answer work-ledger-api --chat" in cm_calls(), str(res))
+n_a = len([c for c in cm_calls() if c.startswith("answer work-ledger-api") and "--show" not in c])
+res = send_cmd(dict(ans, id="6f1c2d3e-0011-4000-8000-000000000103", arg="text:  "))
+res2 = send_cmd(dict(ans, id="6f1c2d3e-0011-4000-8000-000000000104", arg="maybe"))
+T.check("R6 answer «text:» empty → ok false «empty text»; an arg that is neither a number, text: nor chat → ok false, nothing run, the daemon stays up", res and res["ok"] is False and res["text"] == "empty text" and res2 and res2["ok"] is False and res2["text"] == "answer maybe: expected a number, text:<text> or chat" and len([c for c in cm_calls() if c.startswith("answer work-ledger-api") and "--show" not in c]) == n_a and serve_pid() == pid1, str(res) + str(res2))
 n_ans = len([c for c in cm_calls() if c == "answer work-ledger-api 1"])
 http("PUT", f"/cmd/{CMDS[0]['id']}.json", C.encrypt(CMDS[0], k))
 T.wait_until(lambda: CMDS[0]["id"] not in (STORE.get("cmd") or {}), 8)

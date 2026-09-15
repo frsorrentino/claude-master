@@ -111,23 +111,33 @@ menu3() {  # come menu, ma SENZA le righe di descrizione sotto le opzioni
 
 
 menu() {  # $1 = domanda, poi le opzioni: come AskUserQuestion di Claude Code (catturata il 10/09/2026)
-  local q="$1"; shift; local opts=("$@") sel=0 k k2 i n=${#opts[@]}
+  # «Type something.» e' un campo in riga: col cursore sopra si scrive e la voce mostra il testo; Invio a campo
+  # vuoto non fa nulla. «Chat about this» (indice n) si raggiunge con le frecce (dal vivo il 15/09).
+  local q="$1"; shift; local opts=("$@") sel=0 k k2 i n=${#opts[@]} buf=""
   draw() {
     printf '\033[2J\033[H\n ☐ Colore\n%s\n' "$q"
     for i in "${!opts[@]}"; do
-      if [ "$i" = "$sel" ]; then printf '❯ %d. %s\n' $((i+1)) "${opts[$i]}"; else printf '  %d. %s\n' $((i+1)) "${opts[$i]}"; fi
+      local lab="${opts[$i]}"; [ "$lab" = "Type something." ] && [ -n "$buf" ] && lab="$buf"
+      if [ "$i" = "$sel" ]; then printf '❯ %d. %s\n' $((i+1)) "$lab"; else printf '  %d. %s\n' $((i+1)) "$lab"; fi
       printf '     descrizione %d\n' $((i+1))
     done
-    printf '  %d. Chat about this\n' $((n+1))
+    printf '────────\n'
+    if [ "$sel" = "$n" ]; then printf '❯ %d. Chat about this\n' $((n+1)); else printf '  %d. Chat about this\n' $((n+1)); fi
     printf 'Enter to select · ↑/↓ to navigate · Esc to cancel\n'
   }
   draw
   while IFS= read -rsn1 k; do
     case "$k" in
       $'\x1b') read -rsn2 -t 0.2 k2 2>/dev/null || true
-               case "${k2:-}" in '[B') [ "$sel" -lt $((n-1)) ] && sel=$((sel+1)) ;; '[A') [ "$sel" -gt 0 ] && sel=$((sel-1)) ;; esac
+               case "${k2:-}" in '[B') [ "$sel" -lt "$n" ] && sel=$((sel+1)) ;; '[A') [ "$sel" -gt 0 ] && sel=$((sel-1)) ;; esac
                draw ;;
-      "") printf '\033[2J\033[H  ⎿  · %s → %s\n' "$q" "${opts[$sel]}"; return ;;
+      "") if [ "$sel" = "$n" ]; then printf '\033[2J\033[H  ⎿  · %s → (chat)\n' "$q"; return; fi
+          if [ "${opts[$sel]}" = "Type something." ]; then
+            [ -n "$buf" ] || continue
+            printf '\033[2J\033[H  ⎿  · %s → %s\n' "$q" "$buf"; return
+          fi
+          printf '\033[2J\033[H  ⎿  · %s → %s\n' "$q" "${opts[$sel]}"; return ;;
+      *) [ "${opts[$sel]:-}" = "Type something." ] && { buf="$buf$k"; draw; } ;;
     esac
   done
 }

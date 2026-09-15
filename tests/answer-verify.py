@@ -10,6 +10,7 @@ A5  --notify senza tmux (TMUX_PANE assente): domanda e opzioni dal tool_input de
     nessun «rispondi»; un permesso (tool diverso) → nome del tool e dettaglio
 A4d --closed (dall'hook PostToolUse: domanda risposta altrove) → il messaggio dell'avviso perde i bottoni, la scheda la dimentica
 A6  --notify senza token Telegram → esce 0 senza chiamare l'API
+A10 --text senza numero (campo in riga «Type something.») e --chat; --text senza quella voce o vuoto → rifiutato
 """
 import json
 import os
@@ -73,6 +74,22 @@ with T.PrivateTmux() as tm:
     T.check("A3 no open question: answer refuses, no keys sent", r.returncode == 1 and "nessuna domanda" in r.stdout, r.stdout + r.stderr)
     r = answer(tm, "nessuna", "1")
     T.check("A3 unknown session refused", r.returncode == 1 and "nessuna sessione" in r.stderr, r.stdout + r.stderr)
+    # A10 (15/09, dal polso): le voci fisse in coda si scelgono per nome. «Type something.» e' un campo in riga: il
+    # testo si scrive col cursore sopra e Invio lo conferma (dal vivo; prima Invio e poi testo non arrivava mai)
+    for s_, scen in (("gamma", "question"), ("delta", "question2")):
+        subprocess.run(["tmux", "-L", tm.socket, "new-session", "-d", "-s", s_, "-x", "120", "-y", "40",
+                        "env", f"FAKE_CLAUDE_SCENARIO={scen}", "FAKE_CLAUDE_REGISTER=0", str(FAKE)], env=env(tm), check=True)
+    time.sleep(2)
+    r = answer(tm, "gamma", "--text", "giallo ocra")
+    scr = subprocess.run(["tmux", "-L", tm.socket, "capture-pane", "-p", "-t", "gamma"], capture_output=True, text=True).stdout
+    T.check("A10 --text without a number → cursor to «Type something.», the text typed in the field, Enter → «→ giallo ocra»", r.returncode == 0 and "risposto 4. giallo ocra" in r.stdout and "→ giallo ocra" in scr and "Enter to select" not in scr, r.stdout + r.stderr + scr)
+    r = answer(tm, "delta", "--chat")
+    scr = subprocess.run(["tmux", "-L", tm.socket, "capture-pane", "-p", "-t", "delta"], capture_output=True, text=True).stdout
+    T.check("A10 --chat → «Chat about this» (5, after the separator) chosen; the next question shows", r.returncode == 0 and "risposto 5. Chat about this" in r.stdout and "(chat)" not in r.stdout and "taglia?" in scr, r.stdout + r.stderr + scr)
+    r = answer(tm, "delta", "--text", "XL")
+    T.check("A10 --text on a question without «Type something.» → exit 2, says so, nothing chosen", r.returncode == 2 and "Type something" in r.stdout and "taglia?" in subprocess.run(["tmux", "-L", tm.socket, "capture-pane", "-p", "-t", "delta"], capture_output=True, text=True).stdout, r.stdout + r.stderr)
+    r = answer(tm, "delta", "--text", "  ")
+    T.check("A10 --text with an empty text and no number → usage, exit 2", r.returncode == 2 and "uso:" in r.stderr, r.stdout + r.stderr)
     # A4: una nuova sessione col claude finto ferma sulla domanda; --notify come lo lancerebbe l'hook
     subprocess.run(["tmux", "-L", tm.socket, "new-session", "-d", "-s", "beta", "-x", "120", "-y", "40",
                     "env", "FAKE_CLAUDE_SCENARIO=question", "FAKE_CLAUDE_REGISTER=0", str(FAKE)], env=env(tm), check=True)

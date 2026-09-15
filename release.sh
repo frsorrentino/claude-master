@@ -30,6 +30,11 @@ grep -q "\"version\": \"$VER\"" "$PLUGIN/.claude-plugin/plugin.json" \
   || { echo "FAIL: $PLUGIN/.claude-plugin/plugin.json is not at $VER — bump it first"; exit 1; }
 grep -q "\*\*$VER" CHANGELOG.md \
   || { echo "FAIL: CHANGELOG.md has no **$VER entry"; exit 1; }
+# La riga della voce diventa il titolo della release e il messaggio del tag annotato, che non si corregge
+# (15/09/2026: la 0.4.7 e' uscita «v0.4.7 — unreleased»): data e titolo prima di pubblicare.
+# Un solo grep, niente pipe: con pipefail un SIGPIPE del primo farebbe saltare il controllo in silenzio.
+grep -qiE "^- \*\*${VER//./\\.} — .*unreleased" CHANGELOG.md \
+  && { echo "FAIL: CHANGELOG.md entry $VER is still «unreleased» — give it a date and a title (they become the release title and the tag message)"; exit 1; }
 sed -n 3p README.md | grep -q "version-$VER-blue" \
   || { echo "FAIL: README version badge is not at $VER (line 3: shields.io version-<v>-blue)"; exit 1; }
 git rev-parse "v$VER" >/dev/null 2>&1 \

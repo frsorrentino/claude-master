@@ -50,6 +50,13 @@ OPTION = re.compile(r"^\s*(❯)?\s*(\d+)\.\s+(.*\S)\s*$")
 FOOTER = "Enter to select"
 # le voci fisse in coda al dialogo di AskUserQuestion: non sono opzioni (via master 12/09, screenshot dell'utente)
 FOOT_OPTIONS = ("type something.", "chat about this")
+# ...ma si possono scegliere per nome: `answer NOME --text "..."` (senza numero) e `answer NOME --chat` (15/09, dal polso)
+FOOT_KIND = {"type": "type something", "chat": "chat about this"}
+
+
+def items(text):
+    """Tutte le voci numerate del dialogo, opzioni e pie' di pagina: [(n, label, corrente)]."""
+    return [(int(m.group(2)), m.group(3).strip(), m.group(1) == "❯") for m in map(OPTION.match, text.splitlines()) if m]
 
 
 def tmux(*args):
@@ -109,32 +116,49 @@ def show(name):
     return 0
 
 
-def choose(name, n, text):
-    d = parse(screen(name))
+def choose(name, n, text, foot=""):
+    """Sceglie l'opzione n; con `foot` («type» o «chat») la voce fissa in coda al dialogo, che parse non conta fra
+    le opzioni: «Type something.» con il testo, o «Chat about this» (15/09, dal polso)."""
+    scr = screen(name)
+    d = parse(scr)
     if not d:
         print(M("answer.no_question", name=name))
         return 1
     _, question, options, _ = d
-    numbers = [o[0] for o in options]
-    if n not in numbers:
-        print(M("answer.no_option", n=n, options=", ".join(str(x) for x in numbers)))
-        return 2
-    current = next((o[0] for o in options if o[2]), numbers[0])
+    if foot:
+        want = FOOT_KIND[foot]
+        n = next((x[0] for x in items(scr) if x[1].lower().rstrip(".") == want), 0)
+        if not n:
+            print(M("answer.no_foot", label=want.capitalize()))
+            return 2
+    else:
+        numbers = [o[0] for o in options]
+        if n not in numbers:
+            print(M("answer.no_option", n=n, options=", ".join(str(x) for x in numbers)))
+            return 2
+    current = next((x[0] for x in items(scr) if x[2]), n)
     step = "Down" if n > current else "Up"
     for _ in range(abs(n - current)):
         tmux("send-keys", "-t", name, step)
         time.sleep(0.15)
     time.sleep(0.3)
-    d2 = parse(screen(name))
-    if not d2 or not any(o[0] == n and o[2] for o in d2[2]):
+    scr2 = screen(name)
+    if not parse(scr2) or not any(x[0] == n and x[2] for x in items(scr2)):
         print(M("answer.cursor_lost", n=n))
         return 3
-    label = next(o[1] for o in d2[2] if o[0] == n)
-    tmux("send-keys", "-t", name, "Enter")
+    label = next(x[1] for x in items(scr2) if x[0] == n)
     if text and re.search(r"(?i)type something", label):
-        time.sleep(0.5)
+        # «Type something.» e' un campo in riga: col cursore sopra si scrive e Invio conferma il testo (dal vivo il
+        # 15/09: «❯ 3. verde»). Prima si mandava Invio e poi il testo: il testo non arrivava mai alla domanda.
+        text = " ".join(text.split())   # un a capo confermerebbe a meta'
         tmux("send-keys", "-t", name, "-l", text)
-        tmux("send-keys", "-t", name, "Enter")
+        time.sleep(0.4)
+        typed = next((x[1] for x in items(screen(name)) if x[0] == n and x[2]), "")
+        if not typed or not text.startswith(typed[:20].rstrip("…").strip()):
+            print(M("answer.cursor_lost", n=n))
+            return 3
+        label = text
+    tmux("send-keys", "-t", name, "Enter")
     time.sleep(1.0)
     print(M("answer.chosen", name=name, n=n, label=label, question=question or "-"))
     return 0
@@ -343,16 +367,29 @@ def main(argv):
         return show(name)
     text = ""
     picks = []
+    chat = False
     rest = argv[1:]
     i = 0
     while i < len(rest):
         if rest[i] == "--text" and i + 1 < len(rest):
             text = rest[i + 1]; i += 2
+        elif rest[i] == "--chat":
+            chat = True; i += 1
         elif rest[i].isdigit():
             picks.append(int(rest[i])); i += 1
         else:
             print(M("answer.usage"), file=sys.stderr)
             return 2
+    if not picks:
+        # senza numero: la voce fissa in coda, «Chat about this» o «Type something.» + il testo
+        if not chat and not text.strip():
+            print(M("answer.usage"), file=sys.stderr)
+            return 2
+        rc = choose(name, 0, "" if chat else text, "chat" if chat else "type")
+        if rc:
+            return rc
+        time.sleep(0.8)
+        picks = []
     for n in picks:
         rc = choose(name, n, text)
         if rc:

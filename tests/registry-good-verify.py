@@ -69,6 +69,7 @@ with T.PrivateTmux() as tm:
     time.sleep(2)
     run("cm-registry.sh")
     T.check("G1 registry and snapshot both hold the 5", names(reg) == sorted(NAMES) and names(good) == sorted(NAMES), f"{names(reg)} {names(good)}")
+    T.check("G1 every snapshot entry carries its conversation id (session_id, for `reopen` once the session is gone)", all(s.get("session_id") for s in json.loads(good.read_text())["sessioni"]), good.read_text()[:300])
     # G2: quattro finestre chiuse a mano, poi il cron
     for n in ("alfa", "beta", "gamma", "master"):
         tm("kill-session", "-t", f"={n}")

@@ -582,6 +582,65 @@ def do_master():
     return (M("bot.launched", dir=root) + "\n" + out) if rc == 0 else (M("bot.launch_failed", dir=root) + "\n" + out)
 
 
+def reopen(name, run=None):
+    """Rilancia una sessione sparita (✗) nella sua cartella, con il suo account e senza finestra (dal telefono o dal
+    polso non serve; 15/09, dall'orologio: una sessione chiusa non si poteva riprendere). La conversazione: `--resume
+    <id>` se la fotografia del registro ha l'id e il suo transcript esiste (con un id inesistente claude apre una
+    conversazione VUOTA senza errore); altrimenti `--continue`, ma solo se nella cartella non c'e' un'altra sessione
+    viva, perche' -c prende l'ultima conversazione della cartella, che puo' essere quella dell'altra. Rifiuta se una
+    sessione viva ha gia' quel nome. Torna (ok, codice, campi): i testi li sceglie chi chiama (bot.reopen_*,
+    relay.cmd_reopen_*). `run` e' il dispatcher di chi chiama: il relay ha il suo (CM_RELAY_CM)."""
+    run = run or run_cm
+
+    def _j(*args, expect):
+        try:
+            rc, out = run(*args)
+            return json.loads(out) if rc == 0 and out.strip().startswith(expect) else None
+        except (ValueError, subprocess.TimeoutExpired):
+            return None
+
+    def _here(r):
+        return r.get("cwd") and os.path.realpath(r["cwd"]) == os.path.realpath(cwd)
+    live = [r for r in (_j("sessions", "--json", expect="[") or []) if r.get("tmux") or r.get("name")]
+    if any((r.get("tmux") or r.get("name")) == name for r in live):
+        return False, "alive", {}
+    s = next((x for x in (_j("registry", "--good", expect="{") or {}).get("sessioni", []) if x.get("nome") == name), None)
+    if not s:
+        return False, "unknown", {}
+    cwd, acct, sid = s.get("cartella") or "", s.get("account") or "", s.get("session_id") or ""
+    if not cwd or not os.path.isdir(cwd):
+        return False, "no_dir", {"path": cwd or "?"}
+    # --window esplicito (15/09, prova dal polso: la sessione ripartiva ma sul desktop non c'era): launch recupera il
+    # display anche da un daemon nato da cron; senza desktop si lancia comunque, senza finestra
+    args = ["launch", cwd, "--window"] + (["--account", acct] if acct else [])
+    if sid and transcript_of({"session_id": sid, "cwd": cwd, "account": acct}):
+        args += ["--resume", sid]; code = "done"
+    else:
+        same = [r for r in live if _here(r)]
+        if same:
+            return False, "ambiguous", {"n": len(same), "path": cwd}
+        args += ["--continue"]; code = "done_last"
+    try:
+        rc, out = run(*args)
+    except subprocess.TimeoutExpired:
+        return False, "failed", {"line": "timeout"}
+    if rc != 0:
+        return False, "failed", {"line": (out.splitlines() or ["launch failed"])[0]}
+    # launch prende il primo nome libero: se non e' il vecchio, il vecchio esce dalla fotografia (restava ✗ per sempre)
+    before = {r.get("tmux") or r.get("name") for r in live}
+    new = [r.get("tmux") or r.get("name") for r in (_j("sessions", "--json", expect="[") or [])
+           if (r.get("tmux") or r.get("name")) not in before and _here(r)]
+    if new and name not in new:
+        run("registry", "--closed", name)
+    return True, code, {"account": acct or "?", "new": new[0] if new else name}
+
+
+def do_reopen(name):
+    ok, code, f = reopen(name)
+    target = f.get("new") or name
+    return {"text": M(f"bot.reopen_{code}", name=label_of(name), **f), "markup": ui.keyboard_back(target, label_of(target))}
+
+
 def do_launch(fragment):
     if not fragment.strip():
         return M("bot.launch_usage")
@@ -910,8 +969,11 @@ def handle(text, cs=None, cq_data=None):
         name = rest.split()[0] if rest.strip() else cs.get("session")
         if not name:
             out["text"] = M("bot.no_current")
+        elif (row := next((r for r in rows_live(with_questions=False) if r.get("tmux") == name), None)) is None \
+                and any(d.get("tmux") == name for d in rows_dead([])):
+            # «continua» su una ✗ (anche un vecchio tasto Continua in chat): a una sparita non si scrive, si riprende
+            out.update(do_reopen(name))
         else:
-            row = next((r for r in rows_live(with_questions=False) if r.get("tmux") == name), None)
             rc, o = run_cm("talk", name, M("bot.prompt_prefix") + " " + str((CFG.get("guard") or {}).get("resume_prompt") or "riprendi da dove eri"), "--no-wait")
             if rc == 0:
                 start_live(cs, name, row, M("bot.resumed", name=label_of(name)))
@@ -919,6 +981,9 @@ def handle(text, cs=None, cq_data=None):
                 out["live"] = name
                 cs.update(level="card", session=name, until=now + STATE_TTL_S)
             out["text"] = ui.join(M("bot.live_sent", name=label_of(name)), M("bot.resumed", name=label_of(name))) if rc == 0 else ui.line(o)
+    elif cmd == "reopen":
+        name = rest.split()[0] if rest.strip() else cs.get("session")
+        out.update(do_reopen(name) if name else {"text": M("bot.no_current")})
     elif cmd == "stop":
         name = rest.split()[0] if rest.strip() else cs.get("session")
         if name:

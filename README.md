@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.4.8-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.4.9-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 ![One master session runs all the others: the root session launches, watches, answers and closes the parallel sessions of every project, from the terminal and from the wrist — beside it, the session list of the Wear OS app (beta coming soon), rendered from the app's code, on the demo set.](assets/readme/card0-hero.png)
 
@@ -164,7 +164,7 @@ verified.
 `relay push` publishes an encrypted `/state` (the v1 contract in
 `tests/fixtures/relay/`) to Firebase RTDB, appends `/events` and wakes the watch
 with FCM; `relay serve` listens on `/cmd` and runs the allow-listed commands
-(answer, prompt, launch, follow, resume, screen, allow_all) through the CLI,
+(answer, prompt, launch, follow, resume, reopen, screen, allow_all, last) through the CLI,
 writing `/result`; `relay pair` shows a six-digit code and agrees the AES key
 with the watch over X25519. Setup: a Firebase project with RTDB and FCM, its
 service account JSON in `~/.claude-master/relay/service-account.json` (0600,

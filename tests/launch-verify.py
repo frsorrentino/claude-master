@@ -186,13 +186,13 @@ with T.PrivateTmux() as tm:
     rt13, x13 = tmp / "runtime13", tmp / "x11-13"
     rt13.mkdir(); x13.mkdir()
 
-    def run13(folder, under_tmux):
+    def run13(folder, under_tmux, *extra):
         (home / "ws" / "personali" / folder).mkdir(exist_ok=True)
-        e = {k: v for k, v in env_base("plain").items() if k not in ("WAYLAND_DISPLAY", "CM_TERMINAL_FAKE_ATTACH")}
+        e = {k: v for k, v in env_base("plain").items() if k not in ("WAYLAND_DISPLAY", "CM_TERMINAL_FAKE_ATTACH", "TMUX")}
         e.update(CLAUDE_MASTER_CONFIG=str(cfg13), CM_TERMINAL_DRY_RUN="1", XDG_RUNTIME_DIR=str(rt13), CM_X11_SOCKET_DIR=str(x13))
         if under_tmux:
             e["TMUX"] = "/tmp/tmux-fake/default,1,0"
-        return subprocess.run([str(T.SCRIPTS / "cm-launch.sh"), str(home / "ws" / "personali" / folder)], capture_output=True, text=True, env=e, timeout=90)
+        return subprocess.run([str(T.SCRIPTS / "cm-launch.sh"), str(home / "ws" / "personali" / folder), *extra], capture_output=True, text=True, env=e, timeout=90)
 
     r = run13("senzasocket", True)
     T.check("L13 under tmux, no display, no socket → cm-terminal skips (T57)", r.returncode == 0 and "skip: headless" in r.stdout and "gnome-terminal" not in r.stdout, r.stdout + r.stderr)
@@ -200,8 +200,12 @@ with T.PrivateTmux() as tm:
     r = run13("consocket", True)
     T.check("L13 under tmux, no display, wayland-0 alive → display recovered, the tab opens", r.returncode == 0 and "gnome-terminal --title consocket" in r.stdout and "skip: headless" not in r.stdout, r.stdout + r.stderr)
     r = run13("dacron", False)
-    srv.close()
     T.check("L13 outside tmux (cron, daemons) the socket is not enough → still skips (T57)", r.returncode == 0 and "skip: headless" in r.stdout and "gnome-terminal" not in r.stdout, r.stdout + r.stderr)
+    r = run13("dacronfinestra", False, "--window")
+    T.check("L13 outside tmux with an EXPLICIT --window (reopen from the watch, 15/09) and wayland-0 alive → display recovered, the tab opens", r.returncode == 0 and "gnome-terminal --title dacronfinestra" in r.stdout and "skip: headless" not in r.stdout, r.stdout + r.stderr)
+    srv.close(); (rt13 / "wayland-0").unlink()   # close non toglie il file del socket: -S lo vedrebbe ancora
+    r = run13("dacronsenza", False, "--window")
+    T.check("L13 explicit --window with no compositor socket → launched anyway, the window skipped (T57)", r.returncode == 0 and "skip: headless" in r.stdout and "gnome-terminal" not in r.stdout, r.stdout + r.stderr)
     # L14 (S09): --agent codex e' una prova spenta di default; accesa, lancia Codex CLI in tmux senza gli argomenti di Claude
     r = run(str(home / "ws" / "personali" / "alfa"), "--agent", "codex", "--no-window")
     T.check("L14 --agent codex with experimental.codex off → exit 2 naming the option", r.returncode == 2 and "experimental.codex" in r.stderr, r.stdout + r.stderr)

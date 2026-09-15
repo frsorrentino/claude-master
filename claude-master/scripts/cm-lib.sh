@@ -36,8 +36,10 @@ cm_recover_display() {  # esporta il display del desktop se manca: 0 = recuperat
   # 14/09/2026: il server tmux ripartito al boot del 12/09 senza DISPLAY/WAYLAND_DISPLAY/XDG_RUNTIME_DIR li nega
   # a ogni sessione e ai suoi figli (restart, launch): cm-terminal saltava la finestra come headless (T57).
   # Solo sotto tmux (TMUX impostata): cron e i daemon restano headless. Solo con il socket del compositor vivo.
+  # Con «force» (una finestra chiesta apposta: `launch --window`, come fa `reopen` dal polso, 15/09) anche fuori
+  # da tmux: il relay nato da cron non ha display, ma chi tocca «Riprendi» vuole vedere la sessione sul desktop.
   # XDG_RUNTIME_DIR anche: senza, un WAYLAND_DISPLAY relativo non trova il socket.
-  [ -z "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ] && [ -n "${TMUX:-}" ] || return 1
+  [ -z "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ] && { [ -n "${TMUX:-}" ] || [ "${1:-}" = force ]; } || return 1
   local rt="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
   [ -S "$rt/wayland-0" ] && export XDG_RUNTIME_DIR="$rt" WAYLAND_DISPLAY=wayland-0
   [ -S "${CM_X11_SOCKET_DIR:-/tmp/.X11-unix}/X0" ] && export DISPLAY=:0

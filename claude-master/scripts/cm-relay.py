@@ -51,7 +51,7 @@ M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
 R = CFG["relay"]
 CM_BIN = os.environ.get("CM_RELAY_CM") or str(HERE / "claude-master")
 BACKOFF = [1, 2, 5, 15, 30]
-OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "screen", "allow_all", "last")
+OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last")
 LAST_MAX = 4000   # 1.4: l'ultimo messaggio per la lettura vocale — oltre, l'ascolto non regge
 
 
@@ -678,19 +678,28 @@ def execute(cmd):
     info = last_sessions().get(session) or {}
     try:
         if op == "answer":
-            n = int(str(arg or "0").strip() or 0)
-            if not n:
-                return False, M("relay.cmd_no_question", name=session)
+            # 1.10 (15/09): arg «n» = l'opzione n; «text:<testo>» = «Type something.» + il testo; «chat» = «Chat about this»
+            a = str(arg or "").strip()
+            if a == "chat":
+                pick = ["--chat"]
+            elif a.startswith("text:"):
+                if not a[5:].strip():
+                    return False, M("relay.cmd_empty_text")
+                pick = ["--text", a[5:].strip()]
+            elif a.isdigit() and int(a):
+                pick = [a]
+            else:
+                return False, M("relay.cmd_bad_answer", arg=a or "?")
             row = next((r for r in (_json_cmd("sessions", "--json") or []) if (r.get("tmux") or r.get("name")) == tm), None)
             if row:
                 checkpoint(row.get("cwd"))
-            rc, out = run_cm("answer", tm, str(n))
+            rc, out = run_cm("answer", tm, *pick)
             if rc != 0:
                 return False, out.splitlines()[0] if out else "answer failed"
             clear_waiting((row or {}).get("session_id"))
             m = re.search(r"risposto\s+(\d+)\.\s+(.*?)\s{2,}", out + "  ") or re.search(r"risposto\s+(\d+)\.\s+(\S.*)$", out.splitlines()[0])
             label = m.group(2).strip() if m else ""
-            return True, M("relay.cmd_answered", n=n, label=label)
+            return True, M("relay.cmd_answered", n=m.group(1) if m else a, label=label)
         if op == "prompt":
             text = str(arg or "").strip()
             if not text:
@@ -705,7 +714,8 @@ def execute(cmd):
             proj = next((p for p in inventory() if os.path.realpath(p["path"]) == os.path.realpath(path)), None) if path else None
             if not proj:
                 return False, M("relay.cmd_no_project", path=path or "?")
-            rc, out = run_cm("launch", proj["path"], "--no-window")
+            # 1.9.2 (15/09, decisione dell'utente): la scheda sul desktop come reopen; senza desktop, senza finestra
+            rc, out = run_cm("launch", proj["path"], "--window")
             if rc != 0:
                 return False, out.splitlines()[0] if out else "launch failed"
             return True, M("relay.cmd_launched", name=proj["name"], account=proj["account"])
@@ -721,6 +731,10 @@ def execute(cmd):
             if rc != 0:
                 return False, out.splitlines()[0] if out else "talk failed"
             return True, M("relay.cmd_resumed", name=session)
+        if op == "reopen":
+            # 1.9 (15/09): una sessione gone rilanciata nella sua cartella (la logica e' una sola, anche per il bot)
+            ok, code, f = _load("cm-bot").reopen(tm, run_cm)
+            return ok, M(f"relay.cmd_reopen_{code}", name=session, **f)
         if op == "last":
             row = next((r for r in (_json_cmd("sessions", "--json") or []) if (r.get("tmux") or r.get("name")) == tm), None)
             text = last_message(row) if row else ""

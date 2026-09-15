@@ -29,7 +29,7 @@ PAROLE = {"sessions": "sessions", "sessioni": "sessions", "s": "sessions",
           "help": "help", "aiuto": "help", "?": "help",
           "list": "list", "elenco": "list", "0": "list",
           "follow": "follow", "segui": "follow", "f": "follow",
-          "resume": "resume", "riprendi": "resume", "t": "resume",
+          "resume": "resume", "riprendi": "resume", "t": "resume", "reopen": "reopen", "riapri": "reopen",
           "recap": "recap", "diary": "recap", "diario": "recap", "r": "recap",
           "start": "start", "screen": "screen", "schermo": "screen", "terminale": "screen", "v": "screen",
           "rollback": "rollback", "annulla": "rollback",
@@ -296,14 +296,17 @@ def keyboard_list(labels, master_alive=True):
 
 
 def keyboard_card(options, following=False, state="idle", has_checkpoint=False, full_question=False, link="", link_mode="app"):
-    """Scheda: le opzioni della domanda, Avvisami/Basta avvisi, Continua (solo su ✓ ferma e ✗ sparita: a una
-    che lavora o che chiede non si dice «continua»), Annulla modifiche (solo se c'e' un checkpoint), Sessioni."""
+    """Scheda: le opzioni della domanda, Avvisami/Basta avvisi, Continua (solo su ✓ ferma: a una che lavora o che
+    chiede non si dice «continua»), Riprendi su ✗ sparita (la rilancia, 15/09), Annulla modifiche (solo se c'e' un
+    checkpoint), Sessioni."""
     rows = [_row(f"{i + 1} {o}", f"opt:{i + 1}") for i, o in enumerate(options)]
     if full_question:
         rows.append(_row("Domanda intera", "q:"))
     rows.append(_row("Basta avvisi" if following else "Avvisami", "follow"))
-    if state in ("idle", "dead"):
+    if state == "idle":
         rows.append(_row("Continua", "resume"))
+    elif state == "dead":
+        rows.append(_row("Riprendi", "reopen"))
     if has_checkpoint:
         rows.append(_row("Annulla modifiche", "rollback"))
     lb = link_button(link, link_mode)
