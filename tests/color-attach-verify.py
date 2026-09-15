@@ -9,6 +9,10 @@ K5  concorrenza: due chiamate parallele per due sessioni nuove → colori divers
 K6  registro nel formato legacy `nome<TAB>indice` (D4: condiviso con colore-sessione)
 K7  CM_* ereditate da un'ALTRA config (14/09: dal server tmux della macchina) non si impongono: cm-color scrive
     nel registro della config indicata, non tocca l'altro; una config modificata si ricarica
+K8  un indice resta della sessione per tutta la sua vita: due vive sullo stesso indice (15/09: claude-master-watch 🟠
+    in scheda, ⚪ al polso) → la piu' vecchia lo tiene, si sposta la piu' nuova
+K9  `list-sessions` che fallisce non pota: le voci restano (senza sapere chi e' viva, nessuna e' morta)
+K10 il lock non si salta: fresco → si aspetta oltre i 5 s e non si rimuove il lock altrui; morto (> 10 s) → si riprende
 A1  attach ephemeral: dopo l'attacco destroy-unattached e' `on` e set-titles-string e' il titolo (T7, T26)
 A2  attach senza modo: destroy-unattached resta `off`
 A3  attach su sessione inesistente → exit 3 con l'elenco
@@ -140,6 +144,43 @@ with T.PrivateTmux() as tm:
     r = run("cm-color.sh", "k7b", extra=inherited)
     T.check("K7 same config file modified after the load → reloaded: the new registry path is used", reg2.exists() and "k7b\t" in reg2.read_text(), r.stdout + r.stderr)
     cfg.write_text(saved)
+    # K8: la collisione del 15/09 riprodotta nel registro — vecchia e nuova vive, tutte e due sull'indice 1
+    tm("new-session", "-d", "-s", "vecchia", "bash", "--norc")
+    time.sleep(1.1)   # session_created ha la risoluzione del secondo
+    tm("new-session", "-d", "-s", "nuova", "bash", "--norc")
+    reg.write_text("vecchia\t1\nnuova\t1\n")
+    c_vecchia = color("vecchia")
+    c_nuova = color("nuova")
+    T.check("K8 on a shared index the older live session keeps it (🟠 = index 1)", c_vecchia.split()[0] == "🟠" and color("vecchia") == c_vecchia,
+            f"{c_vecchia} | {reg.read_text()!r}")
+    T.check("K8 the newer one moves to another colour", c_nuova.split()[0] != "🟠", f"{c_nuova} | {reg.read_text()!r}")
+    # K9: tmux che fallisce per un motivo diverso da «nessun server» (qui un'opzione ignota) → nessuna potatura
+    r = run("cm-color.sh", "vecchia", extra={"CM_TMUX_ARGS": tm.env["CM_TMUX_ARGS"] + " -Z"})
+    T.check("K9 list-sessions failing (not «no server») prunes nothing and keeps the index", "nuova\t" in reg.read_text() and r.stdout.split()[:1] == ["🟠"],
+            r.stdout + r.stderr + repr(reg.read_text()))
+    # K9b: nessun server = nessuna sessione viva → si pota tutto, come prima (il bot lo usa: server privato ancora vuoto)
+    saved_reg = reg.read_text()
+    r = run("cm-color.sh", "k9b", extra={"CM_TMUX_ARGS": "-L cm-nessun-server-k9"})
+    T.check("K9b no tmux server → every other entry pruned (no live session)", reg.read_text() == "k9b\t0\n", r.stdout + r.stderr + repr(reg.read_text()))
+    reg.write_text(saved_reg)
+    # K10: lock fresco tenuto da un altro → si aspetta; lock morto → si riprende
+    lock = Path(str(reg) + ".lock")
+    lock.mkdir()
+    # soglia del lock morto a 30 s: a 9 s il lock e' fresco per definizione (il codice vecchio lo saltava a ~5-7 s)
+    p = subprocess.Popen([str(T.SCRIPTS / "cm-color.sh"), "vecchia"], stdout=subprocess.PIPE, text=True,
+                         env={**env, "CM_COLOR_LOCK_STALE_S": "30"})
+    time.sleep(9)
+    T.check("K10 a fresh lock held by another run is not skipped after 5 s, and not removed", p.poll() is None and lock.is_dir(),
+            f"poll={p.poll()} lock={lock.is_dir()}")
+    lock.rmdir()
+    out = p.communicate(timeout=15)[0].strip()
+    T.check("K10 once the lock is released the waiting run completes", out.split()[:1] == ["🟠"] and not lock.exists(), out)
+    lock.mkdir()
+    os.utime(lock, (time.time() - 60, time.time() - 60))
+    t0 = time.time()
+    r = run("cm-color.sh", "vecchia")
+    T.check("K10 a dead lock (older than 10 s) is taken over at once", r.stdout.split()[:1] == ["🟠"] and time.time() - t0 < 5 and not lock.exists(),
+            f"{r.stdout!r} {time.time() - t0:.1f}s lock={lock.exists()}")
     # A4
     src = (T.SCRIPTS / "cm-terminal.sh").read_text()
     T.check("A4 terminal backends call `attach NAME ephemeral` (no leading dash)", 'attach "$nome"' in src and "attach -t" not in src.split("chromeos)")[1].split("gnome)")[0], "")

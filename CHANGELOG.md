@@ -2,7 +2,10 @@
 
 ## 0.3.x
 
-- **0.4.7 — unreleased.**
+- **0.4.8 — 2026-09-15: a session keeps its colour, in its tab and on the watch.**
+  - A session's tab colour stays its own for the session's whole life (seen on 15/09: claude-master-watch had an orange tab and was grey on the watch). The tab takes its colour once, at attach; the relay rereads it at every push. `cm-color` gave a session's index to another one and then moved the first. Now, when two live sessions of the same shape share an index, the older one keeps it and only the newer one moves, and only when a free index exists. When `tmux list-sessions` fails for any reason other than «no server» (which still means no live session), nothing is pruned: before, every other session lost its entry. The lock is never skipped: before, after 5 s the run went on without it, and its exit trap removed another run's lock. Only a lock older than 10 s (`CM_COLOR_LOCK_STALE_S`), left by a dead run, is taken over. The live sessions are read as `name:created`, because a TAB in a tmux format comes out as `_` when LANG is unset, as under cron and the relay. Tests K8-K10.
+
+- **0.4.7 — 2026-09-15: a Quickstart that works as copied, and the Wear OS app in the README.**
   - The Quickstart works as copied (spec S01 of the September review): `marketplace add frsorrentino/claude-master` registers the marketplace `claude-master-dev`, and the install command now names it — before it installed from `@fsorrentino`, a marketplace that the Quickstart never added and that pins an old version («Plugin not found», rc=1). The public `main` is always the latest release, so the install gets the latest version with no pin to keep up to date.
   - The marketplace's own description says how to add it and install from it, instead of calling itself a development listing that points elsewhere.
   - `doctor` warns when the shim is installed but `~/.local/bin` is not in PATH (the `claude-master` command is not found by name), with the line to add to the shell rc file.

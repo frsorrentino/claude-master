@@ -45,18 +45,37 @@ MAPPA=$(printf '%s' "$MAPPA" | awk -F= '{print length($1) "\t" $0}' | sort -rn |
 
 # Lock con mkdir (T56): due schede aperte nello stesso istante sceglierebbero lo
 # stesso colore leggendo il registro prima che l'altra lo scriva.
-i=0
-while ! mkdir "$LOCK" 2>/dev/null; do
-  i=$((i + 1)); [ "$i" -gt 50 ] && break
+# Il lock non si salta mai (15/09/2026: dopo 5 s si andava avanti senza, e la trap
+# cancellava il lock dell'altro giro): si aspetta. Solo un lock piu' vecchio di
+# CM_COLOR_LOCK_STALE_S secondi e' di un giro morto (la sezione critica dura
+# millisecondi) e si riprende. La trap toglie il lock solo se e' nostro.
+STALE="${CM_COLOR_LOCK_STALE_S:-10}"
+MIO=0
+trap '[ "$MIO" = 1 ] && rmdir "$LOCK" 2>/dev/null' EXIT
+trap 'exit 1' INT TERM
+until mkdir "$LOCK" 2>/dev/null; do
+  m=$(stat -c %Y "$LOCK" 2>/dev/null || stat -f %m "$LOCK" 2>/dev/null) \
+    && [ $(( $(date +%s) - m )) -ge "$STALE" ] && rmdir "$LOCK" 2>/dev/null
   sleep 0.1
 done
-trap 'rmdir "$LOCK" 2>/dev/null' EXIT INT TERM
+MIO=1
 
-VIVE=$(cm_tmux list-sessions -F '#{session_name}' 2>/dev/null)
+# nome:creazione di ogni sessione viva (`:` perche' tmux non lo ammette nei nomi; una
+# TAB nel formato esce `_` quando manca LANG, come da cron e dal relay).
+# Nessun server («no server running» / «error connecting») = nessuna sessione viva: si
+# pota tutto. Qualunque altro errore = non si sa chi e' viva: TMUX_OK=0 e non si pota
+# niente (15/09/2026: una potatura su una lista incompleta toglie la voce a una
+# sessione aperta, e il suo indice va a un'altra).
+OUT=$(cm_tmux list-sessions -F '#{session_name}:#{session_created}' 2>&1); RC=$?
+TMUX_OK=1; VIVE="$OUT"
+if [ "$RC" -ne 0 ]; then
+  VIVE=""
+  case "$OUT" in *"no server running"*|*"error connecting"*) ;; *) TMUX_OK=0 ;; esac
+fi
 [ -f "$REG" ] || : > "$REG"
 
 IDX=$(
-  awk -v nome="$NOME" -v shape="$SHAPE" -v n="$N" -v vive="$VIVE" -v mappa="$MAPPA" '
+  awk -v nome="$NOME" -v shape="$SHAPE" -v n="$N" -v vive="$VIVE" -v tmux_ok="$TMUX_OK" -v mappa="$MAPPA" '
     function shape_of(s,   k, p, i) {
       for (i = 1; i <= nm; i++) {
         p = mp[i]
@@ -67,31 +86,38 @@ IDX=$(
     BEGIN {
       nm = split(mappa, righe, "\n")
       for (i = 1; i <= nm; i++) { split(righe[i], kv, "="); mp[i] = kv[1]; ms[i] = kv[2] }
-      split(vive, v, "\n")
-      for (k in v) if (v[k] != "") viva[v[k]] = 1
+      nv = split(vive, v, "\n")
+      for (k = 1; k <= nv; k++) if (v[k] != "") { split(v[k], f, ":"); viva[f[1]] = 1; nata[f[1]] = f[2] + 0 }
       viva[nome] = 1              # la propria sessione potrebbe non esistere ancora
+      if (!(nome in nata)) nata[nome] = 9999999999   # non ancora nata: la piu nuova
     }
     # registro: nome \t indice
-    { if ($1 in viva) { reg[$1] = $2; if ($1 != nome) {
+    { if (tmux_ok != 1 || ($1 in viva)) { reg[$1] = $2; if ($1 != nome) {
         occupato[$2] = 1
         coppia[shape_of($1) "-" $2] = 1
+        # una sessione piu vecchia, della stessa forma, sullo stesso indice: l indice e suo
+        # (a pari secondo decide il nome, cosi le due non se lo scambiano a ogni giro)
+        if (tmux_ok == 1 && (nata[$1] < nata[nome] || (nata[$1] == nata[nome] && $1 < nome))) prima[shape_of($1) "-" $2] = 1
       } } }
     END {
-      if (nome in reg && !(reg[nome] in occupato)) { print reg[nome]; exit }
+      # un indice resta della sessione per tutta la sua vita (15/09/2026: la scheda lo
+      # fissa all attacco, il relay lo rilegge a ogni push); lo cede solo a una piu vecchia
+      if (nome in reg && (tmux_ok != 1 || !((shape "-" reg[nome]) in prima))) { print reg[nome]; exit }
       for (i = 0; i < n; i++) if (!(i in occupato))            { print i; exit }
       # oltre N sessioni vive il colore si ripete per forza: si riusa quello con la
       # coppia forma+colore ancora libera, cosi restano distinguibili
       for (i = 0; i < n; i++) if (!((shape "-" i) in coppia)) { print i; exit }
+      if (nome in reg) { print reg[nome]; exit }   # nessun posto migliore: tiene il suo
       print length(reg) % n
     }
   ' "$REG"
 )
 
-# riscrive il registro: le vive tranne se stessa, piu' la propria voce
+# riscrive il registro: le vive tranne se stessa, piu' la propria voce (tutte, se tmux non risponde)
 {
-  awk -v nome="$NOME" -v vive="$VIVE" '
-    BEGIN { split(vive, v, "\n"); for (k in v) if (v[k] != "") viva[v[k]] = 1 }
-    $1 != nome && ($1 in viva) { print $1 "\t" $2 }
+  awk -v nome="$NOME" -v vive="$VIVE" -v tmux_ok="$TMUX_OK" '
+    BEGIN { nv = split(vive, v, "\n"); for (k = 1; k <= nv; k++) if (v[k] != "") { split(v[k], f, ":"); viva[f[1]] = 1 } }
+    $1 != nome && (tmux_ok != 1 || ($1 in viva)) { print $1 "\t" $2 }
   ' "$REG"
   printf '%s\t%s\n' "$NOME" "$IDX"
 } > "$REG.tmp.$$" && mv "$REG.tmp.$$" "$REG"
