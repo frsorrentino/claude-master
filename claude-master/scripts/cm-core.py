@@ -164,7 +164,23 @@ WINDOW_1M = 1_000_000
 WINDOW_STD = 200_000
 
 
-def session_runtime(row, tail_bytes=512 * 1024):
+def _identity_in(lines):
+    """L'ULTIMA voce di sistema col modello fra queste righe, o None."""
+    for raw in reversed(lines):
+        if not raw.strip():
+            continue
+        try:
+            d = json.loads(raw)
+        except ValueError:
+            continue
+        if d.get("type") == "attachment":
+            a = d.get("attachment") or {}
+            if a.get("type") == "model" and (a.get("identity") or {}).get("modelId"):
+                return a["identity"]
+    return None
+
+
+def session_runtime(row, tail_bytes=512 * 1024, head_bytes=1024 * 1024):
     """(contratto 1.11, 16/09/2026) Cosa sta usando una sessione, letto dalla sua trascrizione:
     {"model": {"id","label"} | None, "effort": "high" | None, "context": 0-100 | None}.
 
@@ -187,22 +203,32 @@ def session_runtime(row, tail_bytes=512 * 1024):
     lines = data.split(b"\n")
     if size > tail_bytes and lines:
         lines = lines[1:]   # la prima riga della coda e' mozza
-    assistant, identity = None, None
+    assistant = None
     for raw in reversed(lines):
-        if not raw.strip() or (assistant and identity):
+        if not raw.strip():
             continue
         try:
             d = json.loads(raw)
         except ValueError:
             continue
-        if assistant is None and d.get("type") == "assistant" and isinstance(d.get("message"), dict):
+        if d.get("type") == "assistant" and isinstance(d.get("message"), dict):
             assistant = d
-        elif identity is None and d.get("type") == "attachment":
-            a = d.get("attachment") or {}
-            if a.get("type") == "model" and (a.get("identity") or {}).get("modelId"):
-                identity = a["identity"]
+            break
     if assistant is None:
         return out
+    # 1.11.1 (16/09, dall'app: label e context sempre nulli dal vivo): la voce di sistema col modello la scrive
+    # Claude Code all'AVVIO, quindi in una sessione lunga sta ben prima della coda — nella mia, a 221 KB su 4,5 MB.
+    # Si guarda prima la coda (un cambio di modello a meta' sessione ne riscrive una li'), poi la testa. La testa e'
+    # larga 1 MB perche' quella voce non e' la prima riga del file: viene dopo il prompt di sistema, i memo e gli
+    # hook del progetto, e in questa sessione stava a 221 KB — con 128 KB restava fuori e il campo tornava vuoto.
+    identity = _identity_in(lines)
+    if identity is None and size > tail_bytes:
+        try:
+            with open(path, "rb") as f:
+                head = f.read(head_bytes)
+            identity = _identity_in(head.split(b"\n")[:-1])   # l'ultima riga della testa e' mozza
+        except OSError:
+            identity = None
     model_id = str(assistant["message"].get("model") or "")
     if assistant.get("effort"):
         out["effort"] = str(assistant["effort"])
