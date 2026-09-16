@@ -170,7 +170,7 @@ SRC1 = {
     "tools": {"atlas-shop": "Bash pytest -q tests"},
     "tool_notes": {"atlas-shop": "Run the test suite"},
     "icons": {"work-ledger-api": "🟦", "atlas-shop": "🟢", "field-notes": "🟡", "work-orbit-docs": "🟪"},
-    "next_at": {"work-ledger-api": 1789171200, "atlas-shop": 1789171200, "work-orbit-docs": 1789171200},
+    "next_at": {"work-ledger-api": 1789171200, "atlas-shop": 1789171200, "work-orbit-docs": 1789171200}, "choices": {"models": [{"id": "claude-opus-5[1m]", "label": "Opus 5"}, {"id": "claude-fable-5-1", "label": "Fable 5.1"}, {"id": "claude-sonnet-5", "label": "Sonnet 5"}, {"id": "claude-haiku-4-5", "label": "Haiku 4.5"}], "efforts": ["low", "medium", "high", "xhigh", "max"]},
     # 1.11: quello che ogni sessione viva sta usando (la gone non ha trascrizione da rileggere)
     "runtime": {"work-ledger-api": {"model": {"id": "claude-opus-5[1m]", "label": "Opus 5"}, "effort": "high", "context": 62},
                 "atlas-shop": {"model": {"id": "claude-sonnet-5", "label": "Sonnet 5"}, "effort": "medium", "context": 18},
@@ -206,14 +206,14 @@ SRC2 = {"host": "crostini-demo", "root": ROOT_WS, "prefixes": ["work-"],
         "ledger": [{"event": "stop", "session_id": "f61903c0-ea6a-409c-a961-d01126a0f3ad", "ts": iso(1789213900), "last": "x", "esito": "Esito: seeds and admin page reviewed, 42 tests green.", "tail": "Esito: seeds and admin page reviewed, 42 tests green.\nWatch: Seeds and admin page reviewed", "watch": "Watch: Seeds and admin page reviewed"}],
         "questions": {}, "quota": {"personal": {"cinque_ore_pct": 24, "settimana_pct": 38, "reset_settimanale": 1789610400, "reset_cinque_ore": 1789228800, "vecchia": False}, "work": {"cinque_ore_pct": 3, "settimana_pct": 75, "reset_settimanale": 1789444800, "reset_cinque_ore": 1789225200, "vecchia": False}},
         "projects": [{"path": ROOT_WS + "/personal/atlas-shop", "name": "atlas-shop", "account": "personal"}], "night": {"queued": 0, "running": None}, "recap": {"date": "2026-09-12", "items": []},
-        "follow": set(), "awaiting": set(), "next": {"atlas-shop": "Test deploy on staging"}, "tools": {}, "icons": {"atlas-shop": "🟢"}, "next_at": {"atlas-shop": 1789171200},
+        "follow": set(), "awaiting": set(), "next": {"atlas-shop": "Test deploy on staging"}, "tools": {}, "icons": {"atlas-shop": "🟢"}, "next_at": {"atlas-shop": 1789171200}, "choices": {"models": [{"id": "claude-opus-5[1m]", "label": "Opus 5"}, {"id": "claude-fable-5-1", "label": "Fable 5.1"}, {"id": "claude-sonnet-5", "label": "Sonnet 5"}, {"id": "claude-haiku-4-5", "label": "Haiku 4.5"}], "efforts": ["low", "medium", "high", "xhigh", "max"]},
         "runtime": {"atlas-shop": {"model": {"id": "claude-sonnet-5", "label": "Sonnet 5"}, "effort": "medium", "context": 18}}}
 SRC2["account_kinds"] = KINDS
 st2 = S.build_state(SRC2, 1789214400)
 T.check("R2 build_state(src) == state-2-idle.json", st2 == F2, diff(st2, F2) or "equal")
 SRC3 = {"host": "crostini-demo", "root": ROOT_WS, "prefixes": [], "rows": [], "ledger": [], "questions": {},
         "quota": {"personal": {"cinque_ore_pct": 0, "settimana_pct": 36, "reset_settimanale": 1789610400, "reset_cinque_ore": 1789228800, "vecchia": True}, "work": {"cinque_ore_pct": None, "settimana_pct": 75, "reset_settimanale": 1789444800, "reset_cinque_ore": 1789225200, "vecchia": True}},
-        "projects": [], "night": {"queued": 0, "running": None}, "recap": {"date": "2026-09-12", "items": []}, "follow": set(), "awaiting": set(), "next": {}, "tools": {}}
+        "projects": [], "night": {"queued": 0, "running": None}, "recap": {"date": "2026-09-12", "items": []}, "follow": set(), "awaiting": set(), "next": {}, "tools": {}, "choices": {"models": [{"id": "claude-opus-5[1m]", "label": "Opus 5"}, {"id": "claude-fable-5-1", "label": "Fable 5.1"}, {"id": "claude-sonnet-5", "label": "Sonnet 5"}, {"id": "claude-haiku-4-5", "label": "Haiku 4.5"}], "efforts": ["low", "medium", "high", "xhigh", "max"]}}
 SRC3["account_kinds"] = KINDS
 st3 = S.build_state(SRC3, 1789200000)
 T.check("R2 build_state(src) == state-3-stale.json", st3 == F3, diff(st3, F3) or "equal")
@@ -291,6 +291,8 @@ case "$1" in
   answer) if [ "$3" = "--show" ]; then if [ "$2" = "work-ledger-api" ]; then echo "«$2» chiede — Deploy: Deploy ready, waiting for the client ok. Deploy now?"; echo "  ❯ 1. yes"; echo "    2. no"; else echo "nessuna domanda aperta sullo schermo"; exit 1; fi; else case "$3" in 1|2) echo "«$2»: risposto $3. yes  (Deploy now?)" ;; --text) echo "«$2»: risposto 3. $4  (Deploy now?)" ;; --chat) echo "«$2»: risposto 4. Chat about this  (Deploy now?)" ;; *) echo "opzione $3 inesistente" >&2; exit 2 ;; esac; fi ;;
   screen) i=1; while [ $i -le 30 ]; do echo "riga $i dello schermo"; i=$((i+1)); done ;;
   talk) echo "consegnato" ;;
+  model) echo "$2: model Sonnet 5, this session only" ;;
+  effort) if [ "$2" = "atlas-shop" ]; then echo "atlas-shop is working: try again when it is idle"; exit 3; else echo "$2: effort $3, this session only"; fi ;;
   launch) echo "sessione avviata"; echo "  link: https://claude.ai/code/session_01NEW"; if [ -f "{launch_adds}" ]; then cp "{launch_adds}" "{alive}"; fi ;;
 esac
 """)
@@ -554,6 +556,18 @@ relay("push")
 res = send_cmd(CMDS[6])   # allow_all ledger-api
 T.check("R6 allow_all without a «don't ask again» option → ok false with the contract's text", res and res["ok"] is False and res["text"] == "no «don't ask again» option on this question", str(res))
 # R6 (1.10, 15/09, da claude-master-watch): answer con «text:<testo>» e «chat»
+# R10 (contratto 1.12, 16/09): modello ed effort dal polso, solo per la sessione, via `claude-master model|effort`;
+# il testo di un rifiuto e' la prima riga del comando, breve, così com'è
+RES = json.loads((FIX / "cmd-result-sample.json").read_text())["result"]
+res = send_cmd(CMDS[9])   # model field-notes claude-sonnet-5
+T.check("R10 (1.12) model → `model field-notes claude-sonnet-5`, /result ok with the command's line (as in the fixture)",
+        res and res["ok"] is True and res["text"] == RES[9]["text"] and "model field-notes claude-sonnet-5" in cm_calls(), str(res) + str(cm_calls()[-3:]))
+res = send_cmd(CMDS[10])   # effort atlas-shop low: occupata
+T.check("R10 (1.12) effort on a busy session → /result ok=false with the short reason, as the watch shows it",
+        res and res["ok"] is False and res["text"] == RES[10]["text"], str(res))
+r = relay("push", "--dry-run"); dry10 = json.loads(r.stdout)
+T.check("R10 (1.12) /state carries choices: full model ids (as in session.model.id) with labels, and the five efforts",
+        dry10.get("choices") == json.loads((FIX / "state-1-question.json").read_text())["choices"], str(dry10.get("choices")))
 ans = dict(CMDS[0], id="6f1c2d3e-0011-4000-8000-000000000101", arg="text:ship it tonight")
 res = send_cmd(ans)
 T.check("R6 answer text:<text> → `answer work-ledger-api --text <text>`, «answered 3. ship it tonight»", res and res["ok"] is True and res["text"] == "answered 3. ship it tonight" and "answer work-ledger-api --text ship it tonight" in cm_calls(), str(res) + str(cm_calls()[-2:]))

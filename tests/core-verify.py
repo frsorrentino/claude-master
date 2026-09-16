@@ -117,6 +117,28 @@ with open(lungo, "a") as f:
 rt = core.session_runtime({"session_id": "S-2", "cwd": str(cwd), "account": "personal"})
 T.check("CO8 the model changed mid-session: the entry in the tail wins over the one in the head (200k window → 25 %)",
         rt["model"] == {"id": "claude-sonnet-5", "label": "Sonnet 5"} and rt["context"] == 25, str(rt))
+# CO9 (1.12, 16/09): un cambio dal selettore vale subito nello stato, finche' la sessione non scrive un turno piu'
+# recente dell'annotazione; poi vince di nuovo la trascrizione
+import datetime as _dt9
+t0 = 1789500000.0
+with open(tdir / "S-3.jsonl", "w") as f:
+    f.write(json.dumps({"type": "attachment", "attachment": {"type": "model", "identity": {"modelId": "claude-opus-5[1m]", "marketingName": "Opus 5 (1M context)"}}}) + "\n")
+    f.write(json.dumps({"type": "assistant", "effort": "high", "timestamp": _dt9.datetime.fromtimestamp(t0, _dt9.timezone.utc).isoformat().replace("+00:00", "Z"),
+                        "message": {"model": "claude-opus-5", "usage": {"input_tokens": 0, "cache_read_input_tokens": 400_000, "cache_creation_input_tokens": 0}}}) + "\n")
+tuned = proj / "tuned.json"
+core._CFG["tune"] = {"file": str(tuned)}
+row3 = {"session_id": "S-3", "cwd": str(cwd), "account": "personal"}
+tuned.write_text(json.dumps({"S-3": {"model": {"id": "claude-sonnet-5", "label": "Sonnet 5"}, "effort": "low", "at": t0 + 30}}))
+rt = core.session_runtime(row3)
+T.check("CO9 a change made from the picker after the last turn wins: new model and effort, context null (the old window is not the new model's)",
+        rt == {"model": {"id": "claude-sonnet-5", "label": "Sonnet 5"}, "effort": "low", "context": None}, str(rt))
+tuned.write_text(json.dumps({"S-3": {"effort": "low", "at": t0 + 30}}))
+rt = core.session_runtime(row3)
+T.check("CO9 an effort-only change keeps the model and its context", rt == {"model": {"id": "claude-opus-5[1m]", "label": "Opus 5"}, "effort": "low", "context": 40}, str(rt))
+tuned.write_text(json.dumps({"S-3": {"model": {"id": "claude-sonnet-5", "label": "Sonnet 5"}, "effort": "low", "at": t0 - 30}}))
+rt = core.session_runtime(row3)
+T.check("CO9 a turn newer than the note: the transcript wins again", rt == {"model": {"id": "claude-opus-5[1m]", "label": "Opus 5"}, "effort": "high", "context": 40}, str(rt))
+core._CFG.pop("tune", None)
 T.check("CO7 no transcript → the three fields are absent, without an error",
         core.session_runtime({"session_id": "nope", "cwd": str(cwd), "account": "personal"}) == {"model": None, "effort": None, "context": None}, "")
 T.finish()

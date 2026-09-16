@@ -181,6 +181,45 @@ def _identity_in(lines):
 
 
 def session_runtime(row, tail_bytes=512 * 1024, head_bytes=1024 * 1024):
+    """Quello che la sessione sta usando: la trascrizione, corretta da un cambio fatto dal selettore (1.12) che la
+    trascrizione non riporta ancora. Vedi _transcript_runtime per la lettura e _tuned per l'annotazione."""
+    out = _transcript_runtime(row, tail_bytes, head_bytes)
+    last_turn = out.pop("_ts", 0.0)
+    return _tuned(row, out, last_turn)
+
+
+def _tuned(row, out, last_turn):
+    """(contratto 1.12, 16/09) `claude-master model|effort` cambia la sessione dal suo selettore, ma la trascrizione
+    lo scrive solo al turno successivo: fino ad allora vale l'annotazione in tune.file. Un turno piu' recente
+    dell'annotazione riporta il valore vero, e da li' vince la trascrizione. Con un modello cambiato il contesto
+    torna null: la finestra del turno vecchio non e' quella del modello nuovo, e il numero non si stima."""
+    sid = (row or {}).get("session_id") or ""
+    f = (_cfg().get("tune") or {}).get("file") or ""
+    if not sid or not f:
+        return out
+    try:
+        entry = (json.loads(Path(cm.expand(f)).read_text()) or {}).get(sid) or {}
+    except (OSError, ValueError, AttributeError):
+        return out
+    if not entry or float(entry.get("at") or 0) <= last_turn:
+        return out
+    if isinstance(entry.get("model"), dict) and entry["model"].get("id"):
+        out["model"] = {"id": entry["model"]["id"], "label": entry["model"].get("label") or None}
+        out["context"] = None
+    if entry.get("effort"):
+        out["effort"] = str(entry["effort"])
+    return out
+
+
+def _turn_epoch(ts):
+    import datetime as _dt
+    try:
+        return _dt.datetime.fromisoformat(str(ts).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def _transcript_runtime(row, tail_bytes, head_bytes):
     """(contratto 1.11, 16/09/2026) Cosa sta usando una sessione, letto dalla sua trascrizione:
     {"model": {"id","label"} | None, "effort": "high" | None, "context": 0-100 | None}.
 
@@ -216,6 +255,7 @@ def session_runtime(row, tail_bytes=512 * 1024, head_bytes=1024 * 1024):
             break
     if assistant is None:
         return out
+    out["_ts"] = _turn_epoch(assistant.get("timestamp"))
     # 1.11.1 (16/09, dall'app: label e context sempre nulli dal vivo): la voce di sistema col modello la scrive
     # Claude Code all'AVVIO, quindi in una sessione lunga sta ben prima della coda — nella mia, a 221 KB su 4,5 MB.
     # Si guarda prima la coda (un cambio di modello a meta' sessione ne riscrive una li'), poi la testa. La testa e'

@@ -58,6 +58,8 @@ case "$cmd" in
   night|notte)            exec python3 "$S/cm-night.py" "$@" ;;
   guard|guardia)          exec python3 "$S/cm-guard.py" "$@" ;;
   answer|rispondi)        exec python3 "$S/cm-answer.py" "$@" ;;
+  model|modello)          exec python3 "$S/cm-tune.py" model "$@" ;;
+  effort)                 exec python3 "$S/cm-tune.py" effort "$@" ;;
   screen|schermo)         exec python3 "$S/cm-screen.py" "$@" ;;
   *)
     python3 "$S/cm-config.py" --msg cli.unknown "cmd=$cmd" >&2

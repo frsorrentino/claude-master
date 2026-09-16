@@ -226,6 +226,39 @@
     "awaiting_max_s": 1800,
     "telegram_fallback_after_s": 600
   },
+  "tune": {
+    "timeout_s": 8,
+    "file": "~/.local/state/claude-master/tuned.json",
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ],
+    "models": [
+      {
+        "id": "claude-opus-5[1m]",
+        "label": "Opus 5",
+        "pick": "Opus (1M context)"
+      },
+      {
+        "id": "claude-fable-5-1",
+        "label": "Fable 5.1",
+        "pick": "Fable"
+      },
+      {
+        "id": "claude-sonnet-5",
+        "label": "Sonnet 5",
+        "pick": "Sonnet"
+      },
+      {
+        "id": "claude-haiku-4-5",
+        "label": "Haiku 4.5",
+        "pick": "Haiku"
+      }
+    ]
+  },
   "hooks": {
     "local_time": {
       "enabled": true,

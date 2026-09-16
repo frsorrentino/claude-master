@@ -146,10 +146,83 @@ case "$SCEN" in
   *,question,*)  menu "colore preferito?" "rosso" "blu" "verde" "Type something." ;;
   *,question3,*) menu3 "Procedo?" "Sì" "No" ;;
 esac
+# 1.12 (16/09/2026): i selettori di /model e /effort come in Claude Code 2.1.273, catturati dal vivo alle 11:30.
+# «s» sceglie SOLO per la sessione; Invio salverebbe il default: lo si annota in FAKE_CLAUDE_DEFAULT_LOG, cosi' un
+# test puo' dire che nessuno l'ha mai premuto.
+model_picker() {
+  local labels=("Default (recommended)" "Opus (1M context)" "Fable" "Sonnet" "Haiku")
+  local names=("Opus 5" "Opus 5" "Fable 5.1" "Sonnet 5" "Haiku 4.5")
+  local descs=("Opus 5 with 1M context · Best for everyday, complex tasks" "Opus 5 with 1M context · Best for everyday, complex tasks" "Fable 5.1 · Most capable for your hardest and longest-running tasks" "Sonnet 5 · Efficient for routine tasks" "Haiku 4.5 · Fastest for quick answers")
+  local sel=1 k k2 i
+  draw() {
+    printf '\033[2J\033[H'
+    printf '   Select model\n   Switch between Claude models. Your pick becomes the default for new sessions.\n'
+    for i in "${!labels[@]}"; do
+      local mark="  " tick=""; [ "$i" = "$sel" ] && mark="❯ "; [ "$i" = 1 ] && tick=" ✔"
+      printf '   %s%d. %-22s %s\n' "$mark" $((i+1)) "${labels[$i]}$tick" "${descs[$i]}"
+    done
+    # riquadro stretto: sotto le 40 colonne la lista scorre e la riga finale resta sotto il bordo (dal vivo, 34x48,
+    # 16/09 11:55); fra 40 e 60 Claude Code va a capo da se' DENTRO la frase
+    if [ "$(tput cols 2>/dev/null || echo 80)" -lt 40 ]; then
+      printf '   ○ High effort                    ↓\n'
+    elif [ "$(tput cols 2>/dev/null || echo 80)" -lt 60 ]; then
+      printf '   ○ High effort ←/→ to adjust\n   Enter to set as default · s to use\n   this session only · Esc to cancel\n'
+    else
+      printf '   ○ High effort ←/→ to adjust\n   Enter to set as default · s to use this session only · Esc to cancel\n'
+    fi
+  }
+  draw
+  while IFS= read -rsn1 k; do
+    case "$k" in
+      $'\x1b') read -rsn2 -t 0.2 k2 2>/dev/null || true
+               case "${k2:-}" in
+                 '[B') [ "$sel" -lt 4 ] && sel=$((sel+1)); draw ;;
+                 '[A') [ "$sel" -gt 0 ] && sel=$((sel-1)); draw ;;
+                 '[C'|'[D') draw ;;
+                 *) printf '\033[2J\033[H  ⎿  Cancelled\n'; return ;;
+               esac ;;
+      s) if [ "$(tput cols 2>/dev/null || echo 80)" -lt 60 ]; then printf '\033[2J\033[H  ⎿  Set model to %s for\n     this session only\n' "${names[$sel]}"
+         else printf '\033[2J\033[H  ⎿  Set model to %s for this session only\n' "${names[$sel]}"; fi; return ;;
+      "") [ -n "${FAKE_CLAUDE_DEFAULT_LOG:-}" ] && echo "model ${names[$sel]}" >> "$FAKE_CLAUDE_DEFAULT_LOG"
+          printf '\033[2J\033[H  ⎿  Set model to %s and saved as your default for new sessions\n' "${names[$sel]}"; return ;;
+    esac
+  done
+}
+effort_picker() {
+  local levels=(low medium high xhigh max ultracode) sel=2 k k2
+  draw() {
+    printf '\033[2J\033[H   Effort\n   low   medium   high   xhigh   max   ultracode\n   now: %s\n' "${levels[$sel]}"
+    if [ "$(tput cols 2>/dev/null || echo 80)" -lt 60 ]; then printf '   ←/→ to adjust · Enter to\n   confirm · s for this session\n   only · Esc to cancel\n'
+    else printf '   ←/→ to adjust · Enter to confirm · s for this session only · Esc to cancel\n'; fi
+  }
+  draw
+  while IFS= read -rsn1 k; do
+    case "$k" in
+      $'\x1b') read -rsn2 -t 0.2 k2 2>/dev/null || true
+               case "${k2:-}" in
+                 '[C') [ "$sel" -lt 5 ] && sel=$((sel+1)); draw ;;
+                 '[D') [ "$sel" -gt 0 ] && sel=$((sel-1)); draw ;;
+                 '[A'|'[B') draw ;;
+                 *) printf '\033[2J\033[H  ⎿  Cancelled\n'; return ;;
+               esac ;;
+      s) if [ "$(tput cols 2>/dev/null || echo 80)" -lt 60 ]; then printf '\033[2J\033[H  ⎿  Set effort level to %s (this\n     session only): fake description\n' "${levels[$sel]}"
+         else printf '\033[2J\033[H  ⎿  Set effort level to %s (this session only): fake description\n' "${levels[$sel]}"; fi; return ;;
+      "") [ -n "${FAKE_CLAUDE_DEFAULT_LOG:-}" ] && echo "effort ${levels[$sel]}" >> "$FAKE_CLAUDE_DEFAULT_LOG"
+          printf '\033[2J\033[H  ⎿  Set effort level to %s (saved as your default for new sessions)\n' "${levels[$sel]}"; return ;;
+    esac
+  done
+}
+case "$SCEN" in *,busy,*) echo "✻ Working… (esc to interrupt)";; esac
 printf '❯ '   # senza newline: il testo digitato resta sulla riga del prompt, come in Claude Code
 # resta vivo finche' non riceve /exit (o un segnale)
 while IFS= read -r line; do
   line="${line//$'\e'/}"   # un ESC arrivato prima del testo (Escape di talk) non e' testo
   case "$line" in /exit|/quit) echo "bye"; exit 0 ;; esac
+  case "$SCEN" in *,nopicker,*) ;; *)
+    case "$line" in
+      /model) model_picker; printf '❯ '; continue ;;
+      /effort) effort_picker; printf '❯ '; continue ;;
+    esac ;;
+  esac
   printf '> %s\n❯ ' "$line"
 done

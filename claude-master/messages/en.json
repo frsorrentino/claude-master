@@ -406,5 +406,20 @@
   "doctor.fix_plugin_disabled": "claude plugin enable claude-master",
   "doctor.plugin_error": "account “{account}”: the plugin reports an error: {error}",
   "doctor.plugin_unknown": "account “{account}”: `claude plugin list --json` unavailable (Claude Code < 2.1.268?): cache version not checked",
-  "relay.fallback_notice": "The watch has not been receiving for {min} minutes, so the notice comes through here:"
+  "relay.fallback_notice": "The watch has not been receiving for {min} minutes, so the notice comes through here:",
+  "tune.usage": "usage: claude-master model <name> <model> | claude-master effort <name> <level>",
+  "tune.no_session": "{name}: no such session",
+  "tune.bad_model": "model not available: {model}",
+  "tune.bad_effort": "effort not available: {effort}",
+  "tune.not_ready_busy": "{name} is working: try again when it is idle",
+  "tune.not_ready_dialog": "{name} has a question open",
+  "tune.not_ready_no_prompt": "{name} is not at its prompt",
+  "tune.not_ready_typed": "{name} has text typed in its prompt",
+  "tune.no_picker": "{what} did not open in {name}",
+  "tune.no_option": "{label} is not in {name}'s picker",
+  "tune.cursor_lost": "{name}'s picker: cursor not on {label}",
+  "tune.no_confirm": "{name}: no confirmation",
+  "tune.effort_other": "{name}: effort {got} instead of {effort}",
+  "tune.model_set": "{name}: model {model}, this session only",
+  "tune.effort_set": "{name}: effort {effort}, this session only"
 }

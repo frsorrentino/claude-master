@@ -71,6 +71,22 @@
       "arg": null,
       "issued": 1789210960,
       "by": "watch-pixel5"
+    },
+    {
+      "id": "6f1c2d3e-0120-4000-8000-000000000120",
+      "op": "model",
+      "session": "field-notes",
+      "arg": "claude-sonnet-5",
+      "issued": 1789210970,
+      "by": "watch-pixel5"
+    },
+    {
+      "id": "6f1c2d3e-0121-4000-8000-000000000121",
+      "op": "effort",
+      "session": "atlas-shop",
+      "arg": "low",
+      "issued": 1789210980,
+      "by": "watch-pixel5"
     }
   ],
   "result": [
@@ -127,6 +143,18 @@
       "ok": true,
       "text": "reopened orbit-docs (work): last conversation in the folder",
       "at": 1789211000
+    },
+    {
+      "id": "6f1c2d3e-0120-4000-8000-000000000120",
+      "ok": true,
+      "text": "field-notes: model Sonnet 5, this session only",
+      "at": 1789210975
+    },
+    {
+      "id": "6f1c2d3e-0121-4000-8000-000000000121",
+      "ok": false,
+      "text": "atlas-shop is working: try again when it is idle",
+      "at": 1789210981
     }
   ]
 }

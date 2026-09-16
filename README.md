@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.4.11-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.4.12-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 ![One master session runs all the others: the root session launches, watches, answers and closes the parallel sessions of every project, from the terminal and from the wrist — beside it, the session list of the Wear OS app (beta coming soon), rendered from the app's code, on the demo set.](assets/readme/card0-hero.png)
 
@@ -165,7 +165,7 @@ whose README has the watch side under «Set up»):
 `relay push` publishes an encrypted `/state` (the v1 contract in
 `tests/fixtures/relay/`) to Firebase RTDB, appends `/events` and wakes the watch
 with FCM; `relay serve` listens on `/cmd` and runs the allow-listed commands
-(answer, prompt, launch, follow, resume, reopen, screen, allow_all, last) through the CLI,
+(answer, prompt, launch, follow, resume, reopen, screen, allow_all, last, model, effort) through the CLI,
 writing `/result`; `relay pair` shows a six-digit code and agrees the AES key
 with the watch over X25519. Setup: a Firebase project with RTDB and FCM, its
 service account JSON in `~/.claude-master/relay/service-account.json` (0600,
@@ -386,6 +386,7 @@ The complete reference. Italian aliases (`lancia`, `chiudi`, `sessioni`,
 | `claude-master restart arm [--clean\|--switch-account [N]]` | restart when the turn ends |
 | `claude-master talk <name> "prompt" [--wait S] [--force]` | a prompt to another session, the reply read from its transcript |
 | `claude-master answer <name> --show` · `answer <name> <n> [--text "…"]` | reads the question another session is stuck on (options numbered) and answers it by number, from any session or from the phone through the root session |
+| `claude-master model <name> <model>` · `claude-master effort <name> <level>` | switches another session's model or effort **for that session only**, through its own picker: the default for new sessions is never touched. Refuses a session that is working, has a question open or has text typed in its prompt; values come from `tune.models` and `tune.efforts` |
 | `claude-master screen <name> [--lines N]` | the last 30 lines of a session's terminal, for the phone («screen NAME» to the root session) |
 | `claude-master wait <name> [--timeout S]` | blocks until that session is idle |
 | `claude-master report <project> <image\|-> "text" [--no-launch]` | screenshot into the project's `docs/segnalazioni/`, prompt delivered |

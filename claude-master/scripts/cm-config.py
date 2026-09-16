@@ -155,6 +155,13 @@ DEFAULTS = {
               "colors": {}, "awaiting_max_s": 1800,
               # scorta su Telegram quando il polso non riceve da tanto (0 = mai): 10 minuti
               "telegram_fallback_after_s": 600},
+    # cambio di modello ed effort di una sessione dal suo selettore, SOLO per quella sessione (16/09/2026, contratto
+    # 1.12): `pick` e' l'etichetta della voce nel selettore di /model, `id` quello che la sessione riporta in model.id
+    "tune": {"timeout_s": 8, "file": "", "efforts": ["low", "medium", "high", "xhigh", "max"],
+             "models": [{"id": "claude-opus-5[1m]", "label": "Opus 5", "pick": "Opus (1M context)"},
+                        {"id": "claude-fable-5-1", "label": "Fable 5.1", "pick": "Fable"},
+                        {"id": "claude-sonnet-5", "label": "Sonnet 5", "pick": "Sonnet"},
+                        {"id": "claude-haiku-4-5", "label": "Haiku 4.5", "pick": "Haiku"}]},
     "hooks": {
         "local_time": {"enabled": True, "format": "%A %Y-%m-%d %H:%M", "prefix": "[local time]"},
         "restart_stop": {"enabled": True},
@@ -200,6 +207,7 @@ STATE_FILES = {
     "registry.good_file": "sessions-good.json",
     "restart.flag_file": "restart.json",
     "restart.log": "restart.log",
+    "tune.file": "tuned.json",
     "bot.log": "bot.log",
     "night.queue_file": "night-queue.jsonl",
     "night.done_file": "night-done.jsonl",

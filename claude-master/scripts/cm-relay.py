@@ -52,7 +52,7 @@ M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
 R = CFG["relay"]
 CM_BIN = os.environ.get("CM_RELAY_CM") or str(HERE / "claude-master")
 BACKOFF = [1, 2, 5, 15, 30]
-OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last")
+OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort")
 LAST_MAX = 4000   # 1.4: l'ultimo messaggio per la lettura vocale — oltre, l'ascolto non regge
 
 
@@ -487,6 +487,9 @@ def collect_sources(now=None):
         "projects": inventory(), "night": night_queue(), "recap": recap_today(now),
         "follow": followed(), "awaiting": aw, "next": nexts, "next_at": nexts_at, "tools": tools,
         "icons": icons, "colors": R.get("colors") or None, "tool_notes": notes, "runtime": runtime,
+        # 1.12: le scelte valide per il polso, dalla config (tune.models / tune.efforts)
+        "choices": {"models": [{"id": m["id"], "label": m.get("label") or m["id"]} for m in ((CFG.get("tune") or {}).get("models") or []) if m.get("id")],
+                    "efforts": list((CFG.get("tune") or {}).get("efforts") or [])},
     }
 
 
@@ -783,6 +786,17 @@ def execute(cmd):
             # 1.9 (15/09): una sessione gone rilanciata nella sua cartella (la logica e' una sola, anche per il bot)
             ok, code, f = core.reopen(tm, run_cm)
             return ok, M(f"relay.cmd_reopen_{code}", name=session, **f)
+        if op in ("model", "effort"):
+            # 1.12 (16/09): dal selettore della sessione, SOLO per quella sessione — mai il default delle sessioni nuove.
+            # Le verifiche (ferma al prompt, valore fra le scelte, conferma nel riquadro) le fa `claude-master model|effort`;
+            # il testo di un rifiuto e' la sua prima riga, breve, e il polso la mostra cosi' com'e'.
+            if info.get("state") == "gone":
+                return False, M("relay.cmd_gone", name=session)
+            rc, out = run_cm(op, tm, str(arg or "").strip())
+            text = (out.splitlines() or [f"{op} failed"])[0]
+            if rc == 0:
+                push_async()   # lo stato riporta subito il valore nuovo (annotato dal comando, cm-core lo usa)
+            return rc == 0, text
         if op == "last":
             row = next((r for r in (_json_cmd("sessions", "--json") or []) if (r.get("tmux") or r.get("name")) == tm), None)
             text = last_message(row) if row else ""

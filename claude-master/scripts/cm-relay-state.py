@@ -273,6 +273,8 @@ def build_state(src, now):
         "projects": projects,
         "night": {"queued": int(night.get("queued") or 0), "running": night.get("running") or None},
         "recap": {"date": recap.get("date") or "", "items": [{"project": i.get("project", ""), "done": i.get("done", ""), "next": i.get("next", "")} for i in (recap.get("items") or [])]},
+        # 1.12: modelli ed effort che il polso puo' chiedere per una sessione; null se il relay non li conosce
+        "choices": src.get("choices") or None
     }
     return fit_state(state, int(src.get("state_max_kb") or 8))
 
