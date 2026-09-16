@@ -294,9 +294,7 @@ def run(argv):
         text = M("night.summary_title", n=len(lines), left=len(remaining)) + "\n" + "\n".join(lines)
         bot = _load("cm-bot")
         if bot.token():
-            for c in sorted(bot.allowed_chats()):
-                bot.reply(c, text)
-            print(M("recap.sent", n=len(bot.allowed_chats())))
+            print(M("recap.sent", n=bot.send(text)))
         else:
             print(M("bot.no_token", path=CFG["bot"]["token_file"]), file=sys.stderr)
     return 0

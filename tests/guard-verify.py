@@ -14,6 +14,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs
@@ -67,6 +68,7 @@ cfg.write_text(json.dumps({
     "quota": {"source": str(qdir)},
     "bot": {"api_base": f"http://127.0.0.1:{srv.server_port}", "token_file": str(tg / ".env"), "access_file": str(tg / "access.json")},
     "guard": {"warn_pct": 95, "cron_minutes": 5},
+    "relay": {"dir": str(tmp / "relay")},
     "night": {"queue_file": str(state / "night-queue.jsonl")},
 }))
 
@@ -101,6 +103,15 @@ r = guard("run")
 T.check("GU2 above the threshold: one Telegram warning with account, % and reset time", r.returncode == 0 and len(CALLS["sendMessage"]) == 1 and "personale" in CALLS["sendMessage"][0]["text"] and "97%" in CALLS["sendMessage"][0]["text"] and "reset" in CALLS["sendMessage"][0]["text"].lower(), r.stdout + r.stderr + str(CALLS))
 r = guard("run", now=NOW + 600)
 T.check("GU2 a second pass in the same window does not repeat it", len(CALLS["sendMessage"]) == 1, str(CALLS))
+# GU2b (16/09, Telegram a senso unico): con l'orologio che riceve, la quota gliela dicono gli eventi del relay
+rdirg = tmp / "relay"; rdirg.mkdir(parents=True, exist_ok=True)
+(rdirg / "devices.json").write_text(json.dumps({"uid-watch": True}))
+(rdirg / "last-state.json").write_text(json.dumps({"pushed_at": time.time()}))
+(state / "guard.json").unlink(missing_ok=True)
+n_before = len(CALLS["sendMessage"])
+r = guard("run")
+T.check("GU2b the watch is receiving → the quota warning does not go to Telegram (the app has the event)", r.returncode == 0 and len(CALLS["sendMessage"]) == n_before, r.stdout + r.stderr + str(CALLS["sendMessage"][n_before:]))
+(rdirg / "devices.json").unlink()
 
 # GU3: registro peer vivo (due sessioni personali, una professionale), ledger con un turno fallito solo per alfa
 (home / ".claude" / "sessions").mkdir(parents=True)

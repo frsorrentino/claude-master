@@ -153,25 +153,12 @@
     "enabled": false,
     "token_file": "~/.claude/channels/telegram/.env",
     "access_file": "~/.claude/channels/telegram/access.json",
-    "pid_file": "~/.claude/channels/telegram/bot.pid",
     "api_base": "https://api.telegram.org",
-    "offset_file": "~/.local/state/claude-master/bot-offset",
-    "state_file": "~/.local/state/claude-master/bot-state.json",
     "log": "~/.local/state/claude-master/bot.log",
-    "cron_minutes": 1,
     "http_timeout_s": 20,
     "command_timeout_s": 120,
-    "max_candidates": 8,
-    "first_run_max_age_s": 180,
-    "serve_timeout_s": 50,
-    "follow_min_turn_s": 30,
-    "card_lines": 20,
-    "links": {},
     "quiet_when_watch": true,
-    "watch_fresh_s": 180,
-    "live_edit_s": 3,
-    "receive_timeout_s": 15,
-    "answer_timeout_s": 1800
+    "watch_fresh_s": 180
   },
   "recap": {
     "cron_time": "20:00",
@@ -236,7 +223,8 @@
     "pair_attempts": 5,
     "serve_timeout_s": 50,
     "colors": {},
-    "awaiting_max_s": 1800
+    "awaiting_max_s": 1800,
+    "telegram_fallback_after_s": 600
   },
   "hooks": {
     "local_time": {

@@ -291,6 +291,10 @@ def notify():
     bot = _load("cm-bot")
     if not bot.token():
         return 0
+    # dal 16/09 (passo 4 del ritiro di Telegram): la domanda la annuncia l'orologio. Telegram parla solo quando il
+    # polso NON sta ricevendo (non accoppiato, oppure relay o rete giu'): li' il telefono e' l'unico canale rimasto.
+    if _load("cm-core").watch_receiving():
+        return 0
     try:
         p = json.load(sys.stdin) if not sys.stdin.isatty() else {}
     except (ValueError, OSError):
@@ -304,58 +308,24 @@ def notify():
         time.sleep(float((CFG["hooks"].get("ask_notify") or {}).get("delay_s") or 0))
         on_screen = parse(screen(name))
     shown = name or Path(p.get("cwd") or "").name or "?"
-    ui = _load("cm-bot-ui")
+    ui = _load("cm-core")   # le funzioni di testo (riga, sintesi della domanda, nome corto)
     lines, labels = notify_lines(p, shown, on_screen, ui)
-    # la domanda integrale, se la sintesi ne ha tagliato un pezzo: il bottone «Domanda intera» la manda
-    q_full = " ".join(str((((p.get("tool_input") or {}).get("questions") or [{}])[0] or {}).get("question") or "").split())
-    if not q_full and on_screen:
-        q_full = " ".join(str(on_screen[1] or "").split())
-    q_cut = bool(q_full) and (len(lines) > 1 and lines[1] != q_full)
     if name:
         lines.append(ui.line(M("answer.notify_hint", n=2 if len(labels) >= 2 else 1, name=name)))
     text = "\n".join(lines)
-    link, mode = "", "app"
-    if name:
-        try:
-            row = next((r for r in sessions.collect(read_screen=False) if r.get("tmux") == name or r.get("name") == name), None)
-            if row:
-                link, mode = row.get("link") or "", bot.link_mode_of(row.get("account"))
-        except Exception:   # il link e' un extra: mai bloccare l'avviso
-            pass
-    markup = ui.keyboard_notice(name, labels, f"{icon_of(name)} {ui.short_name(name)}".strip(), full_question=q_cut, link=link, link_mode=mode) if name else ui.keyboard_back()
-    mids = {}
     for c in chats:
-        mids[c] = bot.reply(c, text, reply_markup=markup)   # notifica NORMALE: una domanda aspetta l'utente
-    if name:
-        bot.remember_question(name, mids, labels, q_full if q_cut else "")
+        reply_id = bot.reply(c, text)   # notifica NORMALE: una domanda aspetta l'utente
+        if reply_id is None:
+            bot.log(f"notify to {c} FAILED")
     hook = _load("cm-hook")
     hook.ledger("ask-notified", p, tool=p.get("tool_name", ""), tmux=name, chats=len(chats))
     bot.log(M("answer.notify_sent", n=len(chats), name=shown))
     return 0
 
 
-def closed():
-    """Dall'hook PostToolUse, staccato, payload su stdin (14/09, dall'app): la domanda della sessione di questo riquadro
-    ha avuto risposta altrove, quindi il messaggio dell'avviso perde i bottoni (cm-bot.close_question). Stesso nome
-    tmux dell'avviso (TMUX_PANE): senza, l'avviso non aveva ricordato niente."""
-    bot = _load("cm-bot")
-    if not bot.token():
-        return 0
-    try:
-        json.load(sys.stdin) if not sys.stdin.isatty() else {}
-    except (ValueError, OSError):
-        pass
-    name = my_tmux_name()
-    if name:
-        bot.close_question(name)
-    return 0
-
-
 def main(argv):
     if argv[:1] == ["--notify"]:
         return notify()
-    if argv[:1] == ["--closed"]:
-        return closed()
     if len(argv) < 2:
         print(M("answer.usage"), file=sys.stderr)
         return 2

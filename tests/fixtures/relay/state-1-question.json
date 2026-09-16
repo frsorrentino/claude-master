@@ -37,6 +37,12 @@
       "outcome": null,
       "next": "Wait for the go",
       "next_at": 1789171200,
+      "model": {
+        "id": "claude-opus-5[1m]",
+        "label": "Opus 5"
+      },
+      "effort": "high",
+      "context": 62,
       "icon": "🟦",
       "color": "#3B82F6"
     },
@@ -62,6 +68,12 @@
       },
       "next": "Review the seeds and the admin page",
       "next_at": 1789171200,
+      "model": {
+        "id": "claude-sonnet-5",
+        "label": "Sonnet 5"
+      },
+      "effort": "medium",
+      "context": 18,
       "icon": "🟢",
       "color": "#2ECC71"
     },
@@ -87,6 +99,12 @@
       },
       "next": null,
       "next_at": null,
+      "model": {
+        "id": "claude-sonnet-5",
+        "label": "Sonnet 5"
+      },
+      "effort": "low",
+      "context": 4,
       "icon": "🟡",
       "color": "#F4D03F"
     },
@@ -108,6 +126,9 @@
       "outcome": null,
       "next": "Pick up the pricing page",
       "next_at": 1789171200,
+      "model": null,
+      "effort": null,
+      "context": null,
       "icon": "🟪",
       "color": "#9B59B6"
     }

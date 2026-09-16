@@ -249,7 +249,7 @@ for i, (n, sh, col, st) in enumerate(DEMO[1:]):
     s += panel(556, y, 230, 64, LINE) + icon(580, y + 32, sh, col, 12) + label(602, y + 39, n, 20, "#ffffff", "700")
     s += label(776, y + 39, STATE_GLYPH[st], 22, STATE_COL[st], "800", anchor="end")   # al bordo destro: il nome non lo tocca
     s += f'<line x1="498" y1="{y + 32}" x2="548" y2="{y + 32}" {arrow}/>'   # dal bordo del riquadro master (490)
-s += watch_shot(960, 360, 140, "sessions.png", "the watch app · beta coming soon")
+s += watch_shot(960, 360, 140, "sessions.png", "the watch app · beta, build it yourself")
 s += foot("launch, list, talk, answer, restart, restore, tile — tmux underneath, your wrist on top")
 cards["card0-hero"] = s + "</svg>"
 
@@ -356,12 +356,12 @@ for i, t in enumerate(["the list: every session, its state and its icon", "tap o
     s += label(70, 220 + i * 40, "•  " + t, 20, INK)
 s += label(94, 446, "and sessions that end", 20, INK)
 s += watch_shot(679, 350, 74, "card.png", "a session's card") + watch_shot(884, 350, 74, "question.png", "a question") + watch_shot(1089, 350, 74, "quota.png", "the quota")   # passo 205: la corona non tocca il cerchio accanto
-s += f'<rect x="690" y="158" width="410" height="50" rx="18" fill="#3b2a0a" stroke="#ffd43b"/>' + label(895, 179, "beta coming soon", 18, "#ffd43b", "700", anchor="middle") + label(895, 199, "bring your own Firebase: the relay runs on your PC", 13, "#f5dfa0", anchor="middle")
+s += f'<rect x="690" y="158" width="410" height="50" rx="18" fill="#3b2a0a" stroke="#ffd43b"/>' + label(895, 179, "beta · github.com/frsorrentino/claude-master-watch", 13, "#ffd43b", "700", anchor="middle") + label(895, 199, "build it with your own Firebase: the relay runs on your PC", 13, "#f5dfa0", anchor="middle")
 s += foot("the native Wear OS app, screens drawn from its real code on the demo set")
 cards["card7-wrist"] = s + "</svg>"
 
 # ---------------------------------------------------------------- 8 guard & night
-s = head("#2a1a10", "#160d08") + title("Guard, diary, digest, night.", "Warned at 95 %, resumed at reset; 20:00, 08:00 and 02:00")
+s = head("#2a1a10", "#160d08") + title("Guard, diary, night.", "Warned at 95 %, resumed at reset; 20:00 and 02:00")
 recap = [("Recap 11/09/2026 · 5 projects ·", "h"), ("1 waiting on a question", "h"), ("", "gap"), ("WAITING ON A QUESTION", "sec"),
          (" · AskUserQuestion", "sess:square:" + BLUE + ":ledger-api"), ("     Deploy now?", "t"), ("", "gap"), ("OPEN", "sec"),
          (": Watch pairs on every card,", "sess:circle:#ff4d4d:master"), ("README rebuilt around them…", "t"), ("", "gap"),
@@ -372,8 +372,8 @@ s += phone_frame(70, 188, recap, scale=0.86, w=320, clip_h=386)
 s += panel(400, 190, 730, 160, "#4a3320") + label(426, 228, "guard, every 5 minutes", 20, "#ffb27a", "700")
 s += label(426, 264, "⚠ quota «work» at 96 % (5 h): reset at 16:00", 17, INK, "500", True) + label(426, 292, "✓ quota «work» back: resumed 2 sessions", 17, GREEN, "500", True)
 s += label(426, 330, "one warning per window; «resume where you were» to those that hit the wall", 15, DIM)
-s += panel(400, 370, 355, 175, "#4a3320") + label(426, 408, "08:00 digest", 20, "#ffb27a", "700")
-s += label(426, 444, "what waits for you:", 16, INK) + label(426, 472, "? ledger-api Deploy now?", 16, INK, "500", True) + label(426, 496, "✓ field-notes 2d  ✗ orbit-docs", 16, INK, "500", True)
+s += panel(400, 370, 355, 175, "#4a3320") + label(426, 408, "Telegram, one way", 20, "#ffb27a", "700")
+s += label(426, 444, "long texts and the wrist's backup:", 16, INK) + label(426, 472, "the diary, the night report,", 16, INK, "500", True) + label(426, 496, "a question the watch missed", 16, INK, "500", True)
 s += panel(775, 370, 355, 175, "#4a3320") + label(801, 408, "02:00 night shift", 20, "#ffb27a", "700")
 s += label(801, 444, '$ claude-master night add atlas-shop \\', 13, "#9ad1ff", "500", True) + label(801, 466, '    "update the changelog, run the tests"', 13, "#9ad1ff", "500", True)
 s += label(801, 496, "one job at a time, while RAM and quota allow", 14, INK) + label(801, 522, "OK atlas-shop (412 s): tests green", 13, GREEN, "500", True)
@@ -382,10 +382,10 @@ cards["card8-guard"] = s + "</svg>"
 
 # ---------------------------------------------------------------- 9 doctor
 CURRENT[0] = "card9-doctor"
-s = head("#1a1033", "#0c0818") + title("Doctor, for both accounts.", "Cache, hooks, poller, cron: each line says what to do")
+s = head("#1a1033", "#0c0818") + title("Doctor, for both accounts.", "Cache, hooks, relay, cron: each line says what to do")
 s += panel(70, 200, 1060, 330, "#4b3a7a") + label(96, 240, "$ claude-master doctor", 22, "#9ad1ff", "700", True)
 rows = [("PASS", "plugin_ok — account «personal»: claude-master 0.3.8 in the cache", GREEN), ("PASS", "plugin_ok — account «work»: claude-master 0.3.8 in the cache", GREEN),
-        ("PASS", "hooks — SessionStart, Stop, PermissionRequest wired in both settings", GREEN), ("PASS", "bot — serve alive (pid 7737), last update 19:20, 0 reconnections", GREEN),
+        ("PASS", "hooks — SessionStart, Stop, PermissionRequest wired in both settings", GREEN), ("PASS", "relay — serve alive (pid 7737), last push 19:20, 0 reconnections", GREEN),
         ("WARN", "cron — registry, guard present; night 02:00 missing → night install", YEL),
         ("PASS", "shell — wrappers for both accounts, no helper needed (T76)", GREEN)]
 for i, (st, t, col) in enumerate(rows):

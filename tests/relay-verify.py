@@ -171,6 +171,10 @@ SRC1 = {
     "tool_notes": {"atlas-shop": "Run the test suite"},
     "icons": {"work-ledger-api": "🟦", "atlas-shop": "🟢", "field-notes": "🟡", "work-orbit-docs": "🟪"},
     "next_at": {"work-ledger-api": 1789171200, "atlas-shop": 1789171200, "work-orbit-docs": 1789171200},
+    # 1.11: quello che ogni sessione viva sta usando (la gone non ha trascrizione da rileggere)
+    "runtime": {"work-ledger-api": {"model": {"id": "claude-opus-5[1m]", "label": "Opus 5"}, "effort": "high", "context": 62},
+                "atlas-shop": {"model": {"id": "claude-sonnet-5", "label": "Sonnet 5"}, "effort": "medium", "context": 18},
+                "field-notes": {"model": {"id": "claude-sonnet-5", "label": "Sonnet 5"}, "effort": "low", "context": 4}},
 }
 KINDS = {"personal": "personal", "work": "work"}   # 1.8: come li calcola il relay dalla config del test
 SRC1["account_kinds"] = KINDS
@@ -202,7 +206,8 @@ SRC2 = {"host": "crostini-demo", "root": ROOT_WS, "prefixes": ["work-"],
         "ledger": [{"event": "stop", "session_id": "f61903c0-ea6a-409c-a961-d01126a0f3ad", "ts": iso(1789213900), "last": "x", "esito": "Esito: seeds and admin page reviewed, 42 tests green.", "tail": "Esito: seeds and admin page reviewed, 42 tests green.\nWatch: Seeds and admin page reviewed", "watch": "Watch: Seeds and admin page reviewed"}],
         "questions": {}, "quota": {"personal": {"cinque_ore_pct": 24, "settimana_pct": 38, "reset_settimanale": 1789610400, "reset_cinque_ore": 1789228800, "vecchia": False}, "work": {"cinque_ore_pct": 3, "settimana_pct": 75, "reset_settimanale": 1789444800, "reset_cinque_ore": 1789225200, "vecchia": False}},
         "projects": [{"path": ROOT_WS + "/personal/atlas-shop", "name": "atlas-shop", "account": "personal"}], "night": {"queued": 0, "running": None}, "recap": {"date": "2026-09-12", "items": []},
-        "follow": set(), "awaiting": set(), "next": {"atlas-shop": "Test deploy on staging"}, "tools": {}, "icons": {"atlas-shop": "🟢"}, "next_at": {"atlas-shop": 1789171200}}
+        "follow": set(), "awaiting": set(), "next": {"atlas-shop": "Test deploy on staging"}, "tools": {}, "icons": {"atlas-shop": "🟢"}, "next_at": {"atlas-shop": 1789171200},
+        "runtime": {"atlas-shop": {"model": {"id": "claude-sonnet-5", "label": "Sonnet 5"}, "effort": "medium", "context": 18}}}
 SRC2["account_kinds"] = KINDS
 st2 = S.build_state(SRC2, 1789214400)
 T.check("R2 build_state(src) == state-2-idle.json", st2 == F2, diff(st2, F2) or "equal")
@@ -309,6 +314,11 @@ ledger.write_text("\n".join(json.dumps(r) for r in [
     {"ts": iso(1789210300), "event": "stop", "session_id": "S-A", "last": "x", "esito": "Esito: migrations 008-011 applied, tests green.", "tail": "Esito: migrations 008-011 applied, tests green.\nRestano da rivedere i seed.\nWatch: Migrazioni applicate, test verdi", "watch": "Watch: Migrazioni applicate, test verdi"},
     {"ts": iso(1789210700), "event": "prompt", "session_id": "S-A"},
 ]) + "\n")
+tgdir = home / ".claude" / "channels" / "telegram"
+tgdir.mkdir(parents=True, exist_ok=True)
+(tgdir / ".env").write_text("TELEGRAM_BOT_TOKEN=123:ABC\n")
+(tgdir / "access.json").write_text(json.dumps({"allowFrom": ["1001"]}))
+TG_API, TG_CALLS, _ = T.fake_telegram()
 rdir2 = tmp / "relay-live"
 C.save_key(rdir2, k)
 cfg = tmp / "config.json"
@@ -318,15 +328,16 @@ def write_cfg(enabled=True, **extra):
     d = {"language": "it", "state_dir": str(state_dir), "default_account": "personal",
          "workspace": {"root": str(ws), "excluded_dirs": [".git"], "project_dirs": ["personal", "work/clients", "work/own"]},
          "folder_map": [{"path": str(ws / "work"), "account": "work"}, {"path": str(ws / "personal"), "account": "personal"}],
+         "bot": {"api_base": TG_API, "token_file": str(tgdir / ".env"), "access_file": str(tgdir / "access.json")},
          "accounts": {"personal": {"config_dir": str(home / ".claude")}, "work": {"config_dir": str(home / ".claude-pixel"), "tmux_prefix": "work-"}},
-         "bot": {"state_file": str(tmp / "bot-state.json")},
          "relay": {"enabled": enabled, "firebase_url": URL, "service_account": str(SA), "token_url": URL + "/token", "fcm_url": URL,
                    "dir": str(rdir2), "host": "crostini-test", "debounce_s": 1, "fcm_topic": "watch", **extra}}
     cfg.write_text(json.dumps(d))
 
 
 write_cfg()
-(tmp / "bot-state.json").write_text(json.dumps({"chats": {"1001": {"follow": ["work-ledger-api"], "awaiting": {}}}}))
+rdir2.mkdir(parents=True, exist_ok=True)
+(rdir2 / "follow.json").write_text(json.dumps(["work-ledger-api"]))
 ENV = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg), "CM_RELAY_CM": str(fake_cm)}
 
 
@@ -651,10 +662,7 @@ time.sleep(2.5)
 T.check("R7 relay.enabled=false: the hook does not push", r.returncode == 0 and state_puts() == n0, "")
 write_cfg()
 os.environ.update({"CLAUDE_MASTER_CONFIG": str(cfg), "HOME": str(home), "CM_RELAY_CM": str(fake_cm)})
-bot = load("cm-bot")
 n0 = state_puts()
-cs7 = {"follow": []}
-txt = bot.toggle_follow(cs7, "atlas-shop")
 (rdir2 / "awaiting.json").write_text(json.dumps({"atlas-shop": int(time.time())}))
 r = relay("push", "--dry-run"); dryaw = json.loads(r.stdout)
 a_aw = next(s_ for s_ in dryaw["sessions"] if s_["name"] == "atlas-shop")
@@ -673,6 +681,40 @@ r = relay("push", "--dry-run"); dry_old = json.loads(r.stdout)
 a_old = next(s_ for s_ in dry_old["sessions"] if s_["name"] == "atlas-shop")
 T.check("R7c an entry older than relay.awaiting_max_s expires as well", a_old["state"] != "awaiting" and json.loads((rdir2 / "awaiting.json").read_text()) == {}, str(a_old["state"]))
 (rdir2 / "awaiting.json").write_text("{}")
-T.check("R7 bot toggle_follow → push (a new PUT of /state)", "atlas-shop" in cs7["follow"] and T.wait_until(lambda: state_puts() > n0, 15), txt)
+
+# R8 (16/09, passo 3 del ritiro di Telegram): il bus non prende → il polso non riceve, e dopo la soglia l'avviso
+# passa da Telegram; quando torna a funzionare la scorta si spegne
+write_cfg(telegram_fallback_after_s=1)
+(rdir2 / "last-state.json").unlink(missing_ok=True)   # senza stato precedente ogni sessione e' un evento «launched»
+(rdir2 / "fallback.json").unlink(missing_ok=True)
+TG_CALLS["sendMessage"].clear()
+failr = tmp / "rtdb-fail-2"; failr.write_text("x")
+os.environ["FAKE_RTDB_FAIL"] = str(failr)   # il finto RTDB gira in QUESTO processo: l'ambiente e' il suo
+r = relay("push")
+down = json.loads((rdir2 / "fallback.json").read_text()) if (rdir2 / "fallback.json").is_file() else {}
+T.check("R8 the bus refuses → fallback.json records since when the watch is not receiving, and the push fails loudly", r.returncode != 0 and float(down.get("since") or 0) > 0, r.stdout + r.stderr + str(down))
+time.sleep(1.2)
+r = relay("push")
+T.check("R8 past relay.telegram_fallback_after_s the notice goes to Telegram, with the minutes and the events", any("ledger-api" in c.get("text", "") for c in TG_CALLS["sendMessage"]), str(TG_CALLS["sendMessage"])[:400])
+failr.unlink(); os.environ.pop("FAKE_RTDB_FAIL", None)
+r = relay("push")
+T.check("R8 the bus works again → fallback.json is gone (the fallback switches off)", r.returncode == 0 and not (rdir2 / "fallback.json").exists(), r.stdout + r.stderr)
+
+
+# R9 (contratto 1.11, 16/09): ogni sessione porta modello, effort e contesto, letti dalla sua trascrizione;
+# senza trascrizione i tre campi ci sono e sono null — mai stimati
+import re as _re9
+tdir9 = home / ".claude" / "projects" / _re9.sub(r"[^A-Za-z0-9]", "-", str((ws / "personal" / "atlas-shop").resolve()))
+tdir9.mkdir(parents=True, exist_ok=True)
+with open(tdir9 / "S-A.jsonl", "w") as f9:
+    f9.write(json.dumps({"type": "attachment", "attachment": {"type": "model", "identity": {"modelId": "claude-opus-5[1m]", "marketingName": "Opus 5 (1M context)"}}}) + "\n")
+    f9.write(json.dumps({"type": "assistant", "effort": "high", "message": {"model": "claude-opus-5", "usage": {"input_tokens": 0, "cache_read_input_tokens": 250_000, "cache_creation_input_tokens": 0}}}) + "\n")
+r = relay("push", "--dry-run"); dry9 = json.loads(r.stdout)
+a9 = next(s_ for s_ in dry9["sessions"] if s_["name"] == "atlas-shop")
+l9 = next(s_ for s_ in dry9["sessions"] if s_["name"] == "ledger-api")
+T.check("R9 (1.11) the session with a transcript carries model {id,label}, effort and context (250k of 1M → 25 %)",
+        a9["model"] == {"id": "claude-opus-5[1m]", "label": "Opus 5"} and a9["effort"] == "high" and a9["context"] == 25, str({k: a9.get(k) for k in ("model", "effort", "context")}))
+T.check("R9 (1.11) a session without a readable transcript has the three fields as null, not missing and not guessed",
+        ("model" in l9 and "effort" in l9 and "context" in l9) and l9["model"] is None and l9["effort"] is None and l9["context"] is None, str({k: l9.get(k) for k in ("model", "effort", "context")}))
 
 T.finish()

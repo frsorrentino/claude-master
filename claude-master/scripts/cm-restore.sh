@@ -105,4 +105,3 @@ if [ -n "$ULTIMA" ]; then
 fi
 cm_msg restore.done; cm_tmux list-sessions -F '  #{session_name}' 2>/dev/null
 # il bot del telefono riparte subito col ripristino, senza aspettare il cron (mandato 11/09 18:30)
-[ "${CM_BOT_ENABLED:-false}" = true ] && python3 "$CM_SCRIPTS/cm-bot.py" ensure >/dev/null 2>&1 || true

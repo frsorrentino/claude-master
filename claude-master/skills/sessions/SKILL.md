@@ -96,44 +96,34 @@ bocca all'utente una decisione che non ha preso, e nel caso peggiore fa premere 
 un'azione che nessuno ha autorizzato. Chiamalo «un suggerimento di Claude Code»; inviare quel
 testo solo se l'utente lo ripete in questa conversazione.
 
-## Dal telefono e dall'orologio: il bot
+## Dall'orologio (e Telegram, a senso unico)
 
-`claude-master bot serve` (daemon in long polling, risposta all'istante; il cron del minuto lo
-rialza con `bot ensure`, `bot status` lo mostra) è l'unico consumatore del bot Telegram dall'11/09 (il
-plugin ufficiale è disattivato: condivideva il token; se riparte, `serve` esce dicendo perché). È fatto per il polso
-(Wear OS): poche righe INTERE per messaggio (12/09: la bolla è larga quanto la riga più lunga, quindi niente a capo
-né tagli a larghezza fissa nel corpo, righe corte unite con « · »; solo le etichette dei bottoni si accorciano), parole
-nude dettabili oltre a `/comando`
-(`sessioni`/`s`, `master`/`m`, `lancia X`/`l X`, `quota`/`q`, `aiuto`/`?`, `avvisami`/`f`,
-`continua`/`t`, `ferma`, `terminale`, `annulla`), tasti contestuali con la regola «imperativo = azione,
-sostantivo = destinazione» (Sessioni, «◀ nome», Avvisami/Basta avvisi, Continua solo su ✓/✗, Annulla modifiche
-solo con un checkpoint, Ferma, Terminale, Leggi tutto, Invia di nuovo). L'elenco è un bottone per sessione
-(❓ ▶ ✓ ✗, poi alfabetico); un numero o il nome dettato apre la scheda; in scheda un numero (o «due si») risponde
-alla domanda via `answer NOME N`, dopo un checkpoint git del workspace che «Annulla modifiche» ripristina;
-in scheda un testo libero è un prompt per quella sessione (`talk` dopo il checkpoint git) col prefisso
-«Dall'utente via Telegram (watch)…» che chiede di chiudere con una riga `Watch: <esito ≤ 60 caratteri>`: chi lo riceve
-risponde nella propria finestra, MAI con SendMessage alla master. Il feedback è quello del desktop (12/09/2026): UN
-messaggio vivo «📤 nome» + eco, editato dal transcript della sessione («▶ nome al lavoro», il tool in corso, le
-ultime righe di testo, «❓ nome aspetta te»), con Ferma (Esc in tmux) e Terminale; «⚠ nome non ha ricevuto» +
-Invia di nuovo se il prompt non compare entro `bot.receive_timeout_s`; a fine turno un messaggio nuovo «✓ nome» +
-la riga Watch: (Leggi tutto per il resto). La risposta è lo Stop con la riga Watch:, o il primo se la sessione era
-ferma all'invio, o il secondo se era occupata (il primo è il turno precedente). «Avvisami» segue (avviso «✓ nome ha
-finito:» a fine di un turno > `bot.follow_min_turn_s`, «✗ nome» se sparisce, «✗ nome errore» su StopFailure).
-`claude-master relay push|pair|serve|status|install|uninstall|off` (0.4.0; comandi dal polso: answer, prompt, launch,
-follow, unfollow, resume, screen, allow_all, last — `last` torna l'ultimo messaggio intero dal transcript per la lettura vocale): il PC sul bus dell'app Wear OS
-(Firebase RTDB + FCM, `/state` cifrato nella forma del contratto v1, comandi dal polso eseguiti via CLI); `relay
-push --dry-run` mostra lo stato in chiaro. Silenzioso tranne domande, esiti, risposte, errori e sparizioni; digest delle 8:00 («cosa aspetta te», un tasto
-Apri per ogni ❓). `terminale NOME`/`schermo NOME`/`v NOME`: le ultime 30 righe del riquadro in un blocco `<pre>`; `claude-master screen
-NOME --join` le riunisce dove tmux le ha mandate a capo (lo usa il relay per l'orologio).
-L'avviso di una domanda: «❓ icona nome», poi la domanda COMPLETA e di senso compiuto (il testo se sta in 88
-caratteri, altrimenti l'ultima frase interrogativa, altrimenti una sintesi col modello `hooks.ask_notify.synth_model`;
-se la sintesi ha tagliato qualcosa, il bottone «Domanda intera» manda il testo integrale),
-poi le opzioni SOLO se dicono qualcosa che i tasti non dicono (hanno una descrizione: «1 etichetta · descrizione», o sono
-più di tre, o non ci sono tasti); al massimo tre bottoni (oltre tre opzioni: le prime due + Apri). «Type something.» e
-«Chat about this» sono piè di pagina del dialogo, non opzioni. Il link della sessione (Remote Control) sta nella scheda
-e nell'avviso come bottone: `bot.links = {account: app|browser}` decide se lo apre l'app Claude (URL https) o Chrome
-(intent; se Telegram rifiuta il bottone, il link «Apri in Chrome» va nel testo). La riga «Esito:» di
-esiti e risposte è una frase sola ≤ 120 caratteri, per la lettura vocale. `/sessions full` dà la tabella intera. Dopo un riavvio della macchina serve il login a mano.
+Il posto da cui si guardano e si comandano le sessioni da fuori è l'app al polso (Wear OS).
+`claude-master relay push|pair|serve|status|install|uninstall|off` mette il PC sul suo bus (Firebase
+RTDB + FCM, `/state` cifrato nella forma del contratto, comandi eseguiti via CLI): dal polso arrivano
+`answer`, `prompt`, `launch`, `follow`, `unfollow`, `resume`, `reopen`, `screen`, `allow_all`, `last`
+(`last` torna l'ultimo messaggio intero dal transcript, per la lettura vocale). `relay push --dry-run`
+mostra lo stato in chiaro senza toccare la rete.
+
+Telegram è rimasto a SENSO UNICO dal 16/09/2026: il PC manda, nessuno risponde. Il bot interattivo
+(comandi a parola nuda, tastiere inline, schede, «Avvisami», il daemon in long polling, il digest
+delle 8:00) è stato ritirato: l'orologio fa le stesse cose in tempo reale, e Telegram duplicava gli
+avvisi. Su Telegram restano i testi lunghi che sul polso non si leggono (il diario delle 20:00,
+il rapporto della notte con `night run --send`), gli avvisi della guardia quota e la scorta per il
+polso quando il relay non risponde. `claude-master bot status` dice token, chat autorizzate e log.
+Il «cosa aspetta te» del mattino si guarda dall'orologio, che mostra senza sosta chi è ferma su una
+domanda.
+
+`terminale NOME`/`schermo NOME`: le ultime 30 righe del riquadro; `claude-master screen NOME --join`
+le riunisce dove tmux le ha mandate a capo (lo usa il relay per l'orologio).
+
+L'avviso di una domanda: «❓ icona nome», poi la domanda COMPLETA e di senso compiuto (il testo se sta
+in 88 caratteri, altrimenti l'ultima frase interrogativa, altrimenti una sintesi col modello
+`hooks.ask_notify.synth_model`), poi le opzioni quando dicono qualcosa in più («1 etichetta ·
+descrizione», o più di tre opzioni, o nessuna sessione tmux da cui leggerle). «Type something.» e
+«Chat about this» sono piè di pagina del dialogo, non opzioni. La riga «Esito:» di esiti e risposte è
+una frase sola ≤ 120 caratteri, per la lettura vocale. Dopo un riavvio della macchina serve il login a
+mano.
 
 ## Rispondere alla domanda di un'altra sessione
 

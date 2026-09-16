@@ -245,15 +245,6 @@ def main(argv):
             return 0
         flag.unlink(missing_ok=True)
         relay_push()
-        # e il messaggio Telegram dell'avviso perde i bottoni (stesso interruttore dell'avviso; staccato: torna subito)
-        if (CFG["hooks"].get("ask_notify") or {}).get("enabled"):
-            try:
-                pr = subprocess.Popen([sys.executable, str(HERE / "cm-answer.py"), "--closed"], stdin=subprocess.PIPE,
-                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-                pr.stdin.write(json.dumps(p).encode())
-                pr.stdin.close()
-            except (OSError, ValueError):
-                pass
     elif ev == "Stop":
         # a fine turno nessun dialogo e' aperto: il flag restava fino al prompt dopo e il relay teneva la sessione
         # «waiting» con la domanda gia' risposta (14/09: answered e outcome partiti 3 minuti tardi)

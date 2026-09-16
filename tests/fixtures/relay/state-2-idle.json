@@ -25,6 +25,12 @@
       },
       "next": "Test deploy on staging",
       "next_at": 1789171200,
+      "model": {
+        "id": "claude-sonnet-5",
+        "label": "Sonnet 5"
+      },
+      "effort": "medium",
+      "context": 18,
       "icon": "🟢",
       "color": "#2ECC71"
     }

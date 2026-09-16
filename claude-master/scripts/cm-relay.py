@@ -46,6 +46,7 @@ def _load(name):
 cm = _load("cm-config")
 S = _load("cm-relay-state")
 C = _load("cm-relay-crypto")
+core = _load("cm-core")   # il cuore condiviso (16/09): ledger, transcript, icona, reopen — niente Telegram
 CFG = cm.load(warn=False)
 M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
 R = CFG["relay"]
@@ -68,6 +69,44 @@ def rdir():
     except OSError:
         pass
     return p
+
+
+def fallback_path():
+    return rdir() / "fallback.json"
+
+
+def fallback_mark(now):
+    """Segna da quando il polso non riceve piu' (push o sveglia FCM fallite) e torna da quanti secondi dura."""
+    d = read_json(fallback_path(), {})
+    since = float(d.get("since") or 0)
+    if not since:
+        since = now
+        write_json(fallback_path(), {"since": since})
+    return max(0.0, now - since)
+
+
+def fallback_clear():
+    """Il polso riceve di nuovo: la scorta si spegne."""
+    try:
+        fallback_path().unlink()
+    except OSError:
+        pass
+
+
+def fallback_notice(events, down_s):
+    """Su Telegram quello che il polso non ha ricevuto, ma solo se il guasto dura da piu' di
+    relay.telegram_fallback_after_s (0 = mai): un errore di rete di un minuto si recupera da solo, e un doppione
+    per ogni singhiozzo era il difetto che il ritiro del bot doveva togliere. Torna le chat raggiunte."""
+    after = float(R.get("telegram_fallback_after_s") or 0)
+    if not after or down_s < after or not events:
+        return 0
+    lines = [M("relay.fallback_notice", min=int(down_s // 60))]
+    lines += [" ".join(str(x) for x in (e.get("title"), e.get("body")) if x) for e in events]
+    try:
+        return _load("cm-bot").send("\n".join(lines), watch_quiet=False)
+    except Exception as ex:   # noqa: BLE001 — la scorta non deve mai far fallire una push
+        log(f"fallback FAILED: {ex}")
+        return 0
 
 
 def log(line):
@@ -253,16 +292,8 @@ def question_of(name, tool):
     return q, opts
 
 
-def bot_state():
-    p = Path(cm.expand(CFG["bot"].get("state_file") or "")) if CFG["bot"].get("state_file") else Path(cm.expand(CFG["state_dir"])) / "bot-state.json"
-    return read_json(p, {})
-
-
 def followed():
-    names = set(read_json(rdir() / "follow.json", []))
-    for cs in (bot_state().get("chats") or {}).values():
-        names |= set(cs.get("follow") or [])
-    return names
+    return set(read_json(rdir() / "follow.json", []))
 
 
 def awaiting(ledger=None, rows=None):
@@ -272,7 +303,7 @@ def awaiting(ledger=None, rows=None):
     p = rdir() / "awaiting.json"
     aw = read_json(p, {})
     if aw:
-        led = ledger if ledger is not None else _load("cm-bot").ledger_rows()
+        led = ledger if ledger is not None else core.ledger_rows()
         ids = {(r.get("tmux") or r.get("name")): (r.get("session_id") or "") for r in (rows or [])}
         cap = float(R.get("awaiting_max_s") or 1800)
         now = time.time()
@@ -289,10 +320,7 @@ def awaiting(ledger=None, rows=None):
         if keep != aw:
             write_json(p, keep)
         aw = keep
-    names = set(aw)
-    for cs in (bot_state().get("chats") or {}).values():
-        names |= set((cs.get("awaiting") or {}).keys())
-    return names
+    return set(aw)
 
 
 def next_dated(cwd):
@@ -348,12 +376,11 @@ def tool_of(row):
     Read/Edit/Write si rendono assoluti rispetto alla cartella della sessione, cosi' chi legge sa quale progetto
     viene toccato."""
     try:
-        bot = _load("cm-bot"); ui = _load("cm-bot-ui")
-        path = bot.transcript_of(row)
+        path = core.transcript_of(row)
         if not path:
             return None, ""
         size = os.path.getsize(path)
-        events, _ = ui.transcript_events(path, max(0, size - 65536))
+        events, _ = core.transcript_events(path, max(0, size - 65536))
         tools = [e for e in events if e[0] == "tool"]
         if not tools:
             return None, ""
@@ -363,14 +390,13 @@ def tool_of(row):
                 v = str(inp.get(k) or "")
                 if v and not v.startswith("/") and row.get("cwd"):
                     inp = dict(inp); inp[k] = os.path.normpath(os.path.join(row["cwd"], v))
-        return ui.tool_line(name, inp), ui.tool_note(inp)
+        return core.tool_line(name, inp), core.tool_note(inp)
     except Exception:   # il transcript e' un extra: mai bloccare la push
         return None, ""
 
 
 def collect_sources(now=None):
     now = now or time.time()
-    bot = _load("cm-bot")
     # senza nome ne' tmux e' un processo claude fuori registro (un `claude -p`, il recap): non e' una sessione da polso
     live = [r for r in (_json_cmd("sessions", "--json") or []) if (r.get("tmux") or r.get("name"))]
     good = _json_cmd("registry", "--good", expect="{") or {}
@@ -381,7 +407,7 @@ def collect_sources(now=None):
             rows.append({"tmux": s["nome"], "name": s["nome"], "status": "dead", "cwd": s.get("cartella", ""), "account": s.get("account", ""),
                          "waiting": False, "session_id": s.get("session_id") or "", "link": "", "attached": False,
                          "visto_ts": S.epoch(s.get("visto", "")) if s.get("visto") else 0})
-    ledger = bot.ledger_rows()
+    ledger = core.ledger_rows()
     aw = awaiting(ledger, rows)
     # 1.1: l'icona della scheda per ogni sessione viva (cm-color: registro stabile), per le sparite l'ultima nota
     last_icons = {s_.get("name"): s_.get("icon") for s_ in (read_json(rdir() / "last-state.json", {}).get("state") or {}).get("sessions", []) if s_.get("icon")}
@@ -394,7 +420,7 @@ def collect_sources(now=None):
         if r.get("status") == "dead":
             ic = last_icons.get(S.short_name(r.get("name") or tm, prefixes()))
         else:
-            ic = bot.icon_of(tm)
+            ic = core.icon_of(tm)
         if ic:
             icons[tm] = ic
         # il flag dell'hook vale anche se `sessions --json` non l'ha ancora visto (stessa regola di cm-sessions)
@@ -442,6 +468,15 @@ def collect_sources(now=None):
                 tools[tm] = t
             if note:
                 notes[tm] = note
+    # 1.11 (16/09): modello, effort e contesto di ogni sessione viva, letti dalla sua trascrizione
+    runtime = {}
+    for r in rows:
+        if r.get("status") == "dead" or not r.get("session_id"):
+            continue
+        try:
+            runtime[r.get("tmux") or r.get("name") or ""] = core.session_runtime(r)
+        except Exception:   # noqa: BLE001 — un extra: mai bloccare la push
+            pass
     return {
         "host": str(R.get("host") or socket.gethostname()),
         "root": cm.expand(CFG["workspace"]["root"]), "prefixes": prefixes(), "high_words": R.get("tier_high") or None,
@@ -451,7 +486,7 @@ def collect_sources(now=None):
         "quota": _json_cmd("quota", "--json", expect="{") or {},
         "projects": inventory(), "night": night_queue(), "recap": recap_today(now),
         "follow": followed(), "awaiting": aw, "next": nexts, "next_at": nexts_at, "tools": tools,
-        "icons": icons, "colors": R.get("colors") or None, "tool_notes": notes,
+        "icons": icons, "colors": R.get("colors") or None, "tool_notes": notes, "runtime": runtime,
     }
 
 
@@ -485,15 +520,29 @@ def _push(dry_run=False, now=None):
     events, seq = S.events_between(last.get("state") or {}, state, now, int(last.get("seq") or 0) + 1,
                                    warn_pct=float((CFG.get("guard") or {}).get("warn_pct") or 95))
     k = key()
-    rtdb("PUT", "state", C.encrypt(state, k), {"print": "silent"})
-    if events:
-        rtdb("PATCH", "events", {e["key"]: C.encrypt(e, k) for e in events}, {"print": "silent"})
+    try:
+        rtdb("PUT", "state", C.encrypt(state, k), {"print": "silent"})
+        if events:
+            rtdb("PATCH", "events", {e["key"]: C.encrypt(e, k) for e in events}, {"print": "silent"})
+    except (urllib.error.URLError, OSError, ValueError) as ex:
+        # il bus non prende: il polso non sta ricevendo. Si segna da quando, e se dura si passa da Telegram
+        down = fallback_mark(now)
+        log(f"push FAILED ({int(down)} s): {ex}")
+        fallback_notice(events, down)
+        raise
     prune_events(now)
+    woken = True
     for e in events:
         try:
             fcm_send({"kind": e["kind"], "session": e["session"], "ts": e["ts"], "key": e["key"]})
         except (urllib.error.URLError, OSError, ValueError) as ex:
+            woken = False
             log(f"fcm FAILED: {ex}")
+    if events and not woken:
+        # lo stato e' sul bus ma la sveglia non parte: l'orologio se ne accorge solo quando lo si guarda
+        fallback_notice(events, fallback_mark(now))
+    else:
+        fallback_clear()
     write_json(last_p, {"state": state, "seq": seq - 1, "pushed_at": now, "names": names})
     log(f"push: {len(state['sessions'])} sessioni, {len(events)} eventi")
     return state
@@ -642,10 +691,9 @@ def last_message(row, cap=LAST_MAX):
     si taglia a fine frase: all'ascolto conta l'inizio). Testo grezzo, markdown compreso: chi legge ripulisce.
     «» se non c'e' transcript o nessun messaggio. Il registro tiene solo 600 caratteri della coda, quindi per il
     testo intero la sorgente e' il transcript (contratto 1.4, per il tasto ▶ del polso, 14/09)."""
-    path = _load("cm-bot").transcript_of(row)
+    path = core.transcript_of(row)
     if not path:
         return ""
-    ui = _load("cm-bot-ui")
     try:
         size = os.path.getsize(path)
     except OSError:
@@ -653,7 +701,7 @@ def last_message(row, cap=LAST_MAX):
     texts = []
     # gli ultimi 512 KB bastano per un turno lungo; se non c'e' nulla si rilegge tutto il file
     for window in (512 * 1024, size):
-        events, _ = ui.transcript_events(path, max(0, size - window))
+        events, _ = core.transcript_events(path, max(0, size - window))
         texts = [e[1] for e in events if e[0] == "text" and str(e[1]).strip()]
         if texts or window >= size:
             break
@@ -733,7 +781,7 @@ def execute(cmd):
             return True, M("relay.cmd_resumed", name=session)
         if op == "reopen":
             # 1.9 (15/09): una sessione gone rilanciata nella sua cartella (la logica e' una sola, anche per il bot)
-            ok, code, f = _load("cm-bot").reopen(tm, run_cm)
+            ok, code, f = core.reopen(tm, run_cm)
             return ok, M(f"relay.cmd_reopen_{code}", name=session, **f)
         if op == "last":
             row = next((r for r in (_json_cmd("sessions", "--json") or []) if (r.get("tmux") or r.get("name")) == tm), None)

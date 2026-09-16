@@ -139,13 +139,16 @@ def failed_since(since_epoch):
 
 
 def notify(text):
+    """Telegram come SCORTA (16/09, passo 3 del ritiro del bot): se l'orologio e' accoppiato e sta ricevendo,
+    la quota gliela dicono gli eventi del relay e qui si tace; altrimenti il telefono resta l'unico canale."""
+    if _load("cm-core").watch_receiving():
+        log("watch attivo: avviso non mandato su Telegram — " + text)
+        return False
     bot = _load("cm-bot")
     if not bot.token():
         log("no telegram token: " + text)
         return False
-    for c in sorted(bot.allowed_chats()):
-        bot.reply(c, text)
-    return True
+    return bot.send(text) > 0
 
 
 def hm(epoch):

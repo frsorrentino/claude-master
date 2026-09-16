@@ -124,16 +124,14 @@ DEFAULTS = {
     # S09 (14/09/2026): prova di un secondo agente, spenta di default — `launch --agent codex` e le sessioni Codex
     # in `sessions` (stato dal rollout di ~/.codex); vedi la nota di prova in docs/
     "experimental": {"codex": False},
-    # bot Telegram a cron: /master, /launch, /sessions dal telefono quando nessuna sessione e' viva;
-    # riusa token e chat autorizzate del plugin `telegram` di Claude Code (scelta dell'utente, 10/09/2026)
+    # Telegram a SENSO UNICO dal 16/09/2026 (ritiro del bot interattivo): solo spedizione — diario, rapporto
+    # della notte, avvisi della guardia, scorta del polso. Token e chat autorizzate restano quelli del plugin
+    # `telegram` di Claude Code (scelta dell'utente, 10/09/2026); niente poller, niente stato per chat
     "bot": {"enabled": False, "token_file": "~/.claude/channels/telegram/.env",
             "access_file": "~/.claude/channels/telegram/access.json",
-            "pid_file": "~/.claude/channels/telegram/bot.pid",
-            "api_base": "https://api.telegram.org", "offset_file": "", "state_file": "", "log": "",
-            "cron_minutes": 1, "http_timeout_s": 20, "command_timeout_s": 120, "max_candidates": 8,
-            "first_run_max_age_s": 180, "serve_timeout_s": 50, "follow_min_turn_s": 30, "card_lines": 20, "links": {},
-            "quiet_when_watch": True, "watch_fresh_s": 180,
-            "live_edit_s": 3, "receive_timeout_s": 15, "answer_timeout_s": 1800},
+            "api_base": "https://api.telegram.org", "log": "",
+            "http_timeout_s": 20, "command_timeout_s": 120,
+            "quiet_when_watch": True, "watch_fresh_s": 180},
     # recap serale dal ledger (N7): ora del cron, citazioni, riassunto col modello, riga del giorno nei progetti
     # last: none | short (solo le ferme su domanda, 60 caratteri) | full; hide_zero_turns: le chiuse
     # senza turni non compaiono
@@ -154,7 +152,9 @@ DEFAULTS = {
               "state_max_kb": 8, "events_days": 7, "dir": "~/.claude-master/relay", "heartbeat_s": 60, "debounce_s": 2,
               "token_url": "https://oauth2.googleapis.com/token", "fcm_url": "https://fcm.googleapis.com", "host": "",
               "log": "", "command_timeout_s": 120, "pair_ttl_s": 300, "pair_attempts": 5, "serve_timeout_s": 50,
-              "colors": {}, "awaiting_max_s": 1800},
+              "colors": {}, "awaiting_max_s": 1800,
+              # scorta su Telegram quando il polso non riceve da tanto (0 = mai): 10 minuti
+              "telegram_fallback_after_s": 600},
     "hooks": {
         "local_time": {"enabled": True, "format": "%A %Y-%m-%d %H:%M", "prefix": "[local time]"},
         "restart_stop": {"enabled": True},
@@ -200,8 +200,6 @@ STATE_FILES = {
     "registry.good_file": "sessions-good.json",
     "restart.flag_file": "restart.json",
     "restart.log": "restart.log",
-    "bot.offset_file": "bot-offset",
-    "bot.state_file": "bot-state.json",
     "bot.log": "bot.log",
     "night.queue_file": "night-queue.jsonl",
     "night.done_file": "night-done.jsonl",

@@ -8,7 +8,6 @@ A4  --notify (payload PermissionRequest su stdin, TMUX_PANE della sessione): mes
     autorizzate con domanda, opzioni numerate dallo schermo e «rispondi N a NOME»; riga nel ledger
 A5  --notify senza tmux (TMUX_PANE assente): domanda e opzioni dal tool_input del payload, nome dalla cartella,
     nessun «rispondi»; un permesso (tool diverso) → nome del tool e dettaglio
-A4d --closed (dall'hook PostToolUse: domanda risposta altrove) → il messaggio dell'avviso perde i bottoni, la scheda la dimentica
 A6  --notify senza token Telegram → esce 0 senza chiamare l'API
 A10 --text senza numero (campo in riga «Type something.») e --chat; --text senza quella voce o vuoto → rifiutato
 """
@@ -31,8 +30,11 @@ tg.mkdir(parents=True)
 (tg / ".env").write_text("TELEGRAM_BOT_TOKEN=123:ABC\n")
 (tg / "access.json").write_text(json.dumps({"dmPolicy": "allowlist", "allowFrom": ["1001", "1002"]}))
 API, CALLS, _ = T.fake_telegram()
+rdir = tmp / "relay"
+rdir.mkdir()
 cfg.write_text(json.dumps({"language": "it", "state_dir": str(tmp / "state"),
                            "bot": {"api_base": API, "token_file": str(tg / ".env"), "access_file": str(tg / "access.json")},
+                           "relay": {"dir": str(rdir)},
                            "hooks": {"ask_notify": {"delay_s": 0.5}}}))
 FAKE = T.ROOT / "tests" / "lib" / "fake-claude.sh"
 
@@ -104,29 +106,15 @@ with T.PrivateTmux() as tm:
     T.check("A4 --notify: one message per allowed chat, exit 0", r.returncode == 0 and len(t) == 2 and {c.get("chat_id") for c in CALLS["sendMessage"]} == {"1001", "1002"}, r.stdout + r.stderr + str(CALLS["sendMessage"]))
     T.check("A4 message: name, question, numbered options from the screen (footers excluded), «n label · descrizione»", t and "beta" in t[0] and "colore preferito?" in t[0] and "1 rosso · descrizione 1" in t[0] and "Type something." not in t[0], t[0] if t else "-")
     T.check("A4 message: how to answer («2 a beta»), cut to the wrist width", t and "2 a beta" in t[0], t[0] if t else "-")
-    # A4b (polso, 11/09 16:36): resa compatta, bottoni con le opzioni (ans:beta:N) + riga fissa, stato del bot in scheda
+    # A4b (polso, 11/09 16:36): resa compatta; dal 16/09 il messaggio e' di solo testo (bot interattivo ritirato)
     m4 = CALLS["sendMessage"][0]
-    kb4 = json.loads(m4.get("reply_markup") or "{}").get("inline_keyboard") or []
     T.check("A4b notice: first line «❓ 🔴 beta · Colore» (icon, name, header: the widest line first), whole lines, no «…», NOT silent", t[0].splitlines()[0].startswith("❓ ") and t[0].splitlines()[0].endswith(" beta · Colore") and "…" not in t[0] and m4.get("disable_notification") != "true", t[0])
-    T.check("A4b option buttons ans:beta:N then «Apri … beta»; 3 real options → all three as buttons (4 rows)", kb4 and any(b.get("callback_data") == "ans:beta:2" for row in kb4 for b in row) and any(b.get("callback_data") == "ans:beta:3" for row in kb4 for b in row) and len(kb4) == 4 and kb4[-1][0]["text"].startswith("Apri ") and kb4[-1][0]["text"].endswith(" beta") and kb4[-1][0]["callback_data"] == "card:beta", str(kb4))
+    T.check("A4b no inline keyboard: Telegram is one-way now, the wrist answers", not m4.get("reply_markup"), str(m4))
     T.check("A4c ❓ name / the question WHOLE / «n label · description» one whole line per option (the text says what the buttons cannot)", len(t[0].splitlines()) >= 3 and t[0].splitlines()[1] == "colore preferito?" and t[0].splitlines()[2] == "1 rosso · descrizione 1" and t[0].splitlines()[4] == "3 verde · descrizione 3", t[0])
-    bs = json.loads((tmp / "state" / "bot-state.json").read_text()) if (tmp / "state" / "bot-state.json").is_file() else {}
-    T.check("A4b bot state: both chats in the card of beta with the notice's message id", bs.get("chats", {}).get("1001", {}).get("session") == "beta" and bs["chats"]["1001"].get("level") == "card" and bs["chats"]["1001"].get("qmsg") == 1 and bs.get("chats", {}).get("1002", {}).get("session") == "beta", str(bs))
     led = (tmp / "state" / "ledger.jsonl")
     T.check("A4 ledger row ask-notified", led.is_file() and '"ask-notified"' in led.read_text() and '"beta"' in led.read_text(), led.read_text() if led.is_file() else "-")
     scr = subprocess.run(["tmux", "-L", tm.socket, "capture-pane", "-p", "-t", "beta"], capture_output=True, text=True).stdout
     T.check("A4 no key sent: the question is still open", "Enter to select" in scr and "❯ 1. rosso" in scr, scr)
-    # A4d (14/09, dall'app): la domanda ha avuto risposta altrove → --closed (dall'hook PostToolUse) toglie i bottoni dal
-    # messaggio dell'avviso in ogni chat e la scheda dimentica la domanda (un «2» dal polso non risponde piu')
-    CALLS.pop("editMessageReplyMarkup", None)
-    e_closed = env(tm); e_closed["TMUX_PANE"] = pane
-    r = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-answer.py"), "--closed"], input=json.dumps({"session_id": "sid-beta", "tool_name": "AskUserQuestion"}),
-                       capture_output=True, text=True, env=e_closed, timeout=60)
-    ed = CALLS.get("editMessageReplyMarkup") or []
-    bs = json.loads((tmp / "state" / "bot-state.json").read_text())
-    T.check("A4d --closed: the notice loses its buttons in both chats (editMessageReplyMarkup, empty keyboard), the card forgets the question",
-            r.returncode == 0 and {c.get("chat_id") for c in ed} == {"1001", "1002"} and all(json.loads(c.get("reply_markup") or "{}").get("inline_keyboard") == [] for c in ed)
-            and bs["chats"]["1001"].get("qmsg") is None and bs["chats"]["1002"].get("qmsg") is None, r.stdout + r.stderr + str(ed))
 # A7 (l'utente 12/09 10:54: la domanda della master arrivava tagliata, non si poteva rispondere): la domanda va mostrata
 # COMPLETA e di senso compiuto — l'ultima frase interrogativa se sta in synth_max_chars, altrimenti sintesi col
 # modello (synth_model, `claude -p`), altrimenti il testo a capo. Il parser dello schermo unisce le righe della domanda.
@@ -172,8 +160,7 @@ with T.PrivateTmux() as tm8:
     r = notify(tm8, {"session_id": "sid-d", "cwd": str(home / "delta"), "tool_name": "AskUserQuestion",
                      "tool_input": {"questions": [{"question": "Procedo?", "header": "Via", "options": [{"label": "Sì"}, {"label": "No"}]}]}}, TMUX_PANE=pane8)
     t8 = texts()[0].splitlines() if texts() else []
-    kb8 = json.loads(CALLS["sendMessage"][0]["reply_markup"])["inline_keyboard"] if CALLS["sendMessage"] else []
-    T.check("A8 two options without description, buttons available → the question only, no option lines; buttons 1 Sì / 2 No / Apri", r.returncode == 0 and t8[1] == "Procedo?" and not any(l.startswith("1 ") or l.startswith("2 ") for l in t8) and [row[0]["text"] for row in kb8][:2] == ["1 Sì", "2 No"], texts()[0] + str(kb8))
+    T.check("A8 two options without description, session on tmux → the question only, no option lines (the wrist has the options)", r.returncode == 0 and t8[1] == "Procedo?" and not any(l.startswith("1 ") or l.startswith("2 ") for l in t8), texts()[0])
     CALLS["sendMessage"].clear()
     r = notify(tm8, {"session_id": "sid-d", "cwd": str(home / "delta"), "tool_name": "AskUserQuestion",
                      "tool_input": {"questions": [{"question": "Procedo?", "header": "Via", "options": [{"label": "Sì", "description": "Parte subito e fa il commit alla fine del lavoro"}, {"label": "No", "description": "Resta fermo"}]}]}}, TMUX_PANE=pane8)
@@ -183,13 +170,17 @@ with T.PrivateTmux() as tm8:
     r = notify(tm8, {"session_id": "sid-d", "cwd": str(home / "delta"), "tool_name": "AskUserQuestion",
                      "tool_input": {"questions": [{"question": ctx_q, "header": "Via", "options": [{"label": "Sì"}, {"label": "No"}]}]}}, TMUX_PANE=pane8)
     t9 = texts()[0].splitlines() if texts() else []
-    kb9 = json.loads(CALLS["sendMessage"][0]["reply_markup"])["inline_keyboard"] if CALLS["sendMessage"] else []
-    bs9 = json.loads((tmp / "state" / "bot-state.json").read_text())
-    T.check("A9 (via master 12/09 11:38) the synthesis dropped the context sentence → a «Domanda intera» button (q:delta) after the options, and the whole question kept in the bot state", r.returncode == 0 and t9[1] == "Procedo con Firebase?" and [row[0]["text"] for row in kb9] == ["1 Sì", "2 No", "Domanda intera", "Apri 🔴 delta"] and kb9[2][0]["callback_data"] == "q:delta" and bs9["chats"]["1001"]["qfull"]["delta"] == ctx_q, texts()[0] + str(kb9) + str(bs9.get("chats", {}).get("1001", {}).get("qfull")))
-    T.check("A9 with a question shown whole (A8 before): no «Domanda intera» button", "Domanda intera" not in str(kb8), str(kb8))
+    T.check("A9 (via master 12/09 11:38) the synthesis keeps the question of the notice short; the context sentence stays on the wrist", r.returncode == 0 and t9[1] == "Procedo con Firebase?" and not CALLS["sendMessage"][0].get("reply_markup"), texts()[0] + str(CALLS["sendMessage"][0]))
     T.check("A8 descriptions from the payload → «1 Sì · description» and «2 No · Resta fermo», one whole line each", r.returncode == 0 and t8b[1] == "Procedo?" and t8b[2] == "1 Sì · Parte subito e fa il commit alla fine del lavoro" and t8b[3] == "2 No · Resta fermo", texts()[0])
 cfg7["hooks"]["ask_notify"].pop("synth_model", None); cfg.write_text(json.dumps(cfg7))
 # A5: senza tmux → dal payload
+CALLS["sendMessage"].clear()
+(rdir / "devices.json").write_text(json.dumps({"uid-watch": True}))
+(rdir / "last-state.json").write_text(json.dumps({"pushed_at": time.time()}))
+r = notify(None, {"session_id": "sid-w", "cwd": str(home / "ws" / "gamma"), "tool_name": "AskUserQuestion",
+                  "tool_input": {"questions": [{"question": "quale taglia?", "options": [{"label": "S"}]}]}})
+T.check("A4e the watch is paired and receiving → no Telegram notice (the app announces the question itself)", r.returncode == 0 and not CALLS["sendMessage"], str(CALLS["sendMessage"]))
+(rdir / "devices.json").unlink()
 CALLS["sendMessage"].clear()
 r = notify(None, {"session_id": "sid-x", "cwd": str(home / "ws" / "gamma"), "tool_name": "AskUserQuestion",
                   "tool_input": {"questions": [{"question": "quale taglia?", "header": "Taglia",

@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.4.9-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.4.10-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 ![One master session runs all the others: the root session launches, watches, answers and closes the parallel sessions of every project, from the terminal and from the wrist — beside it, the session list of the Wear OS app (beta coming soon), rendered from the app's code, on the demo set.](assets/readme/card0-hero.png)
 
@@ -25,8 +25,9 @@ says which.
 - A terminal from the list below. On ChromeOS the window commands also need
   [chrome-bridge](https://github.com/frsorrentino/chrome-bridge), a small
   extension-plus-server that lets scripts move Chrome windows.
-- Optional, for the phone features: Claude Code's own `telegram` plugin,
-  already configured with your bot and your chat.
+- Optional, for notices on your phone: Claude Code's own `telegram` plugin,
+  already configured with your bot and your chat. Telegram is one-way here: the
+  plugin sends, nobody talks back to it.
 
 ## Quickstart
 
@@ -44,8 +45,8 @@ claude-master launch ~/projects/x        # your first session, in its own tab
 on, typing `claude` in a project folder opens that project's session in a
 named, coloured tab instead of an anonymous window. To undo everything:
 `claude plugin uninstall claude-master`, remove that line, and
-`claude-master bot uninstall` / `diary uninstall` / `night uninstall` if you had
-turned those on.
+`claude-master recap uninstall` / `night uninstall` / `guard uninstall` if you
+had turned those on.
 
 ## What you get
 
@@ -123,44 +124,44 @@ layout. The Terminal's start tab is evicted, never left beside a session.
 
 ### From your wrist
 
-![From your wrist: the Wear OS app (beta coming soon) on the demo set — a session's card, a question with its options, the quota — real screens rendered from the app's code.](assets/readme/card7-wrist.png)
+![From your wrist: the Wear OS app (beta) on the demo set — a session's card, a question with its options, the quota — real screens rendered from the app's code.](assets/readme/card7-wrist.png)
 
-A native Wear OS app is on its way (**beta coming soon**; bring your own
-Firebase: the relay runs on your PC). The list shows every session with its
-state and icon; a tap opens its card — state, outcome, next step; a question
-comes with its options, and one tap answers it. A list that is no longer fresh
-says so and never looks live, the watch is paired once with a 6-digit code from
-your PC, and it buzzes for questions, outcomes and sessions that end.
+The native Wear OS app is out in **beta**:
+[github.com/frsorrentino/claude-master-watch](https://github.com/frsorrentino/claude-master-watch).
+Install it by building it with your own Firebase — the relay runs on your PC and
+the steps are in the app's own README, under «Set up». The list shows every
+session with its state and icon; a tap opens its card — state, outcome, next
+step; a question comes with its options, and one tap answers it. A list that is
+no longer fresh says so and never looks live, the watch is paired once with a
+6-digit code from your PC, and it buzzes for questions, outcomes and sessions
+that end.
 
-### From Telegram
+The plugin works without the app: everything above happens in the terminal
+either way. watchOS is not supported. Telegram only sends notices (below).
 
-The Telegram bot is written for a watch: every message is a few whole lines
-(the bubble is as wide as its longest line, so nothing is wrapped or cut at a
-fixed width), every command is a bare, dictable word (`sessioni`,
-`lancia ledger`, `avvisami`, `continua`, `ferma`), and the buttons are
-contextual — verbs for actions (Avvisami, Continua, Ferma, Leggi tutto,
-Annulla modifiche), nouns for destinations (Sessioni, Terminale, «◀ name»).
-The list is one button per session; a tap opens the card (state, last
-outcome, «→ next» from the recap, the open question with its options as
-buttons); a number, «due si» or a tap answers it through `answer`, after a
-git checkpoint of the workspace that «Annulla modifiche» restores. Free text
-in a card is a prompt for that session, and the feedback matches the desktop:
-one live message («📤 name» + your words) that edits itself from the
-session's transcript while it works — «▶ name working», the tool in use, the
-last lines it wrote, «❓ name waits for you» — with Ferma (Esc) and Terminale
-under it, «⚠ name did not receive» + Invia di nuovo when the prompt never
-shows up; then a new message «✓ name» with the one line the session wrote
-for the watch (the prompt asks it to end with `Watch: <outcome ≤ 60 chars>`;
-Leggi tutto for the rest). Silent, except questions, outcomes, answers, errors
-and vanished sessions.
+### Telegram, one-way
 
-Wear OS tested; watchOS via Telegram notifications and dictation, not yet
-verified.
+Telegram sends; nobody answers it. The interactive bot — bare-word commands,
+inline keyboards, session cards, «follow», the long-polling daemon and the 08:00
+digest — was retired on 16/09/2026: the watch does all of it in real time, and
+Telegram had become a second copy of every notice. What goes out now is what a
+watch cannot carry or will not receive:
+
+- the day's diary at 20:00 and the night shift's report, which are long texts;
+- the quota warnings, when no watch is receiving them;
+- a question a session is stuck on, when the watch is not paired, or the relay
+  or the network is down — the phone is then the only channel left.
+
+`claude-master bot status` shows the token, the allowed chats and the log; there
+is no daemon to keep alive any more. The morning «what waits for you» lives on
+the watch, which shows without pause who is waiting on a question and who is
+idle.
 
 ### Relay for the Wear OS app
 
 `claude-master relay` puts the PC on the bus of the native watch app
-(`personali/claude-master-watch`, design in `docs/plans/2026-09-12-app-polso-design.md`):
+([github.com/frsorrentino/claude-master-watch](https://github.com/frsorrentino/claude-master-watch),
+whose README has the watch side under «Set up»):
 `relay push` publishes an encrypted `/state` (the v1 contract in
 `tests/fixtures/relay/`) to Firebase RTDB, appends `/events` and wakes the watch
 with FCM; `relay serve` listens on `/cmd` and runs the allow-listed commands
@@ -182,24 +183,35 @@ watch takes the shape from the account (round for the personal one, square for
 the others) and the colour from here, so a session looks the same on the PC, in
 Telegram and on the wrist. `relay.colors` overrides the emoji-to-hex map.
 
-### Guard, diary, digest, night
+Each session also carries what it is running on: its model (id and short name),
+its effort level and how much of the context window it has used, read from its
+transcript. They are null when they cannot be read, and the percentage is left
+out rather than guessed when the model changed mid-session.
 
-![Guard, diary, digest and night shift: on a phone, the Telegram chat with the 20:00 recap — one sentence per project with its icon, the ones waiting on a question first, the next step under each; beside it the quota warning at 95 percent and the resume at the reset, the 08:00 digest of what waits for you, and the overnight queue.](assets/readme/card8-guard.png)
+When a push cannot reach the bus, or the wake-up fails, the relay notes when the
+outage started and, once it lasts longer than `relay.telegram_fallback_after_s`
+(ten minutes by default), the notices go out on Telegram instead, until a push
+works again.
+
+### Guard, diary, night
+
+![Guard, diary and night shift: on a phone, the Telegram chat with the 20:00 recap — one sentence per project with its icon, the ones waiting on a question first, the next step under each; beside it the quota warning at 95 percent and the resume at the reset, what one-way Telegram still sends, and the overnight queue.](assets/readme/card8-guard.png)
 
 `claude-master guard` warns once per window when an account passes 95 % of
 its quota and, at the reset, sends «resume where you were» to the sessions
 that hit the wall. At 20:00 the recap: one sentence per project on what was
 done and the next step, the ones waiting on a question first, the same line
-appended to the project's `docs/recap.md`. At 08:00 the digest: what waits for
-you. At 02:00 the night queue runs one job at a time, only while free memory
-and quota allow, leaving a report in the project.
+appended to the project's `docs/recap.md`. At 02:00 the night queue runs one
+job at a time, only while free memory and quota allow, leaving a report in the
+project. What waits for you in the morning is on the watch, which never stops
+showing it.
 
 ### Doctor, for both accounts
 
-![Doctor: one PASS, WARN or FAIL line per thing checked — the plugin's cache and version in each account, the hooks, the bot's daemon, the cron lines — each with the command that fixes it.](assets/readme/card9-doctor.png)
+![Doctor: one PASS, WARN or FAIL line per thing checked — the plugin's cache and version in each account, the hooks, the relay's daemon, the cron lines — each with the command that fixes it.](assets/readme/card9-doctor.png)
 
 `claude-master doctor` checks both accounts: the plugin in the cache at the
-right version, the hooks wired in, the bot's daemon alive, the cron lines
+right version, the hooks wired in, the relay's daemon alive, the cron lines
 present; each line says what to do. Run it after every update: hooks run
 from the cache, and a live session keeps its old version until it restarts.
 
@@ -219,7 +231,7 @@ Ten commands cover a normal day; the complete reference is at the end.
 | see everything running | `claude-master sessions` |
 | find what needs you | `claude-master next` |
 | talk to another session | `claude-master talk <name> "…"` |
-| answer the question another session is stuck on | `claude-master answer <name> --show` · `answer <name> 2` (Telegram tells you the options when it stops) |
+| answer the question another session is stuck on | `claude-master answer <name> --show` · `answer <name> 2` (the watch shows you the options when it stops) |
 | see what a session is doing, from the phone | `claude-master screen <name>` |
 | close one | `claude-master close <name>` (refuses one with a tab attached: close the tab instead) |
 | restart this one, keep the conversation | `claude-master restart arm` · `restart list` |
@@ -251,15 +263,15 @@ Three things are worth knowing before you turn them on.
   session on this machine send prompts to that account's sessions. It is
   needed only for `talk` across accounts, and it means: whoever can run
   commands on this machine can talk to those sessions.
-- **The Telegram bot** answers only chats already in the `telegram` plugin's
-  allow list, discards its backlog on the first run so an old message cannot
-  start anything, and takes a git checkpoint of a session's workspace before
-  a «yes» from the watch reaches it (`annulla` restores it).
+- **Telegram is one-way**: the plugin only sends, to the chats already in the
+  `telegram` plugin's allow list, and reads nothing back — no message from
+  anywhere can start, answer or stop a session. What can act on a session is
+  the paired watch, and before a «yes» from the watch reaches a session the
+  plugin takes a git checkpoint of its workspace.
 
 Each session is a Claude Code process (a few hundred MB each); the only
-process the plugin adds is the bot's daemon, a few MB waiting on a socket;
-the diary, the digest and the night queue are scheduled tasks that run for
-seconds.
+process the plugin adds is the relay's daemon, a few MB waiting on a socket;
+the diary and the night queue are scheduled tasks that run for seconds.
 
 ## How it works
 
@@ -304,30 +316,29 @@ longer adds up. A minimal example for two accounts:
 | `session.claude_args` · `session.link_wait_s` | flags every session starts with; how long `launch` waits for the Remote Control link (20 s) |
 | `terminal.backend` | `chromeos`, `gnome`, `kitty`, `iterm2`, `macos-terminal`, `wt`, `none` |
 | `shell.*` · `tmux.keybindings` · `tile.*` | the wrappers and aliases `init --shell` generates, the three keys of the `.tmux.conf` block, the window layout rules |
-| `bot.*` · `recap.*` · `night.*` · `guard.*` | the Telegram bot, the evening diary, the night queue: all off or empty until you turn them on |
+| `bot.*` · `recap.*` · `night.*` · `guard.*` | one-way Telegram, the evening diary, the night queue, the quota guard: all off or empty until you turn them on |
 | `language` | `it` or `en` |
 
 The full list with defaults: [`claude-master/config.example.json`](claude-master/config.example.json).
 
 ## From the phone and from the wrist
 
-`claude-master bot serve` is a small long-polling daemon on the same Telegram
-bot as Claude Code's `telegram` plugin (same token, same allowed chats); the
-once-a-minute task only restarts it if it died. It is the only consumer of
-the bot: keep the plugin's own poller off, or `serve` steps aside and says so.
-`/sessions full` keeps the desktop table; everything else is sized for a
-watch, as the card above shows. `bot digest` at 08:00, `recap` at 20:00 and
-`night` at 02:00 use the same chats.
+The watch is where you act from: the relay puts this PC on its bus, and from
+there a session can be answered, prompted, launched, followed, reopened or read
+aloud. The phone gets what a watch cannot carry — the 20:00 diary, the night
+report — and whatever the watch is not receiving.
 
 ```bash
-# config.json: "bot": {"enabled": true}
-claude-master bot install      # the daemon, its once-a-minute keeper and the 08:00 digest; `bot status` shows who is listening
-claude-master recap install    # the day's diary to the same chats at 20:00 (recap.cron_time)
+# config.json: "bot": {"enabled": true}   — the token and chats of the `telegram` plugin
+claude-master bot status       # token, allowed chats, log; nothing to keep alive
+claude-master recap install    # the day's diary to those chats at 20:00 (recap.cron_time)
 claude-master night install    # the overnight queue at 02:00 (night.cron_time); fill it with `night add`
+claude-master relay pair       # the watch, once: a 6-digit code
+claude-master relay install    # the relay's daemon and its keeper
 ```
 
 Two limits, stated plainly. After a **reboot** nobody is logged in and
-scheduled tasks do not run: the bot covers «sessions closed, machine awake»,
+scheduled tasks do not run: the relay covers «sessions closed, machine awake»,
 not «machine off» — on a Chromebook, set the power options so the machine does
 not sleep while charging. And the diary reports *what happened*, not what it
 cost: costs stay where they are measured (for me, fable-director).
@@ -355,8 +366,8 @@ only sees a monitor that has a window on it: `move` tells you to drag one there.
 - `crossSessionInbound: accept` in an account's settings, only to receive
   `talk` from the other account.
 - chrome-bridge ≥ 1.16.1, only for the window commands on ChromeOS.
-- Claude Code's `telegram` plugin, only for the bot, the diary and the night
-  summary.
+- Claude Code's `telegram` plugin, only to send: the diary, the night summary,
+  the quota warnings and the watch's backup.
 
 ## Commands
 
@@ -387,8 +398,8 @@ The complete reference. Italian aliases (`lancia`, `chiudi`, `sessioni`,
 | `claude-master desk [start\|stop\|status]` | a Remote Control desk in the workspace root (optional, off by default) |
 | `claude-master tile [names] [--rows\|--grid] [--on PLACE] [--dry-run] [--where]` · `claude-master merge` · `claude-master move PLACE` · `claude-master layout save\|restore\|list NAME` | windows side by side, as tabs, on another monitor, or by saved layout (ChromeOS) |
 | `claude-master attach <name>` · `claude-master color <name>` · `claude-master quota` | attach a terminal; the tab's shape and colour; how full each account's quota is |
-| `claude-master guard run` · `install\|uninstall\|status` | quota guard: one Telegram warning per window above `guard.warn_pct` with the reset time; at the reset, the sessions that hit the wall get «resume where you were» and a pending night queue runs | |
-| `claude-master bot serve\|ensure\|poll\|digest\|install\|uninstall\|status` | the Telegram bot for the phone and the watch: the long-polling daemon, its keeper, a manual round, the 08:00 digest |
+| `claude-master guard run` · `install\|uninstall\|status` | quota guard: one warning per window above `guard.warn_pct` with the reset time, on Telegram when no watch is receiving; at the reset, the sessions that hit the wall get «resume where you were» and a pending night queue runs | |
+| `claude-master bot status` | one-way Telegram: the token, the allowed chats and the log of what was sent |
 | `claude-master recap [--date D\|--since H] [--send] [--full]` · `recap install\|uninstall\|status` | the day's diary, per project: waiting on a question first (with a link), then alive, then closed |
 | `claude-master night add <dir> "prompt" [--model M] [--effort E] [--max-turns N]` · `list` · `remove <id>` · `run [--dry-run\|--one] [--send]` · `install\|uninstall\|status` | the overnight queue |
 
@@ -398,7 +409,7 @@ The complete reference. Italian aliases (`lancia`, `chiudi`, `sessioni`,
 for t in tests/*-verify.py; do python3 "$t"; done
 ```
 
-Twenty-eight suites, about 550 cases, none of which touch your real tmux, your real
+Twenty-five suites, about 800 cases, none of which touch your real tmux, your real
 Claude or your browser: a private tmux server, a fake `claude` that draws the
 real dialogs and writes the real registry files, a fake browser that follows
 Chrome's rules, a fake Telegram. Every defect found on the real machine became

@@ -502,9 +502,8 @@ def send(text, as_html):
     if not chats:
         print(M("recap.no_chats"), file=sys.stderr)
         return 1
-    for c in sorted(chats):
-        bot.reply(c, text, parse_mode="HTML" if as_html else None)
-    print(M("recap.sent", n=len(chats)))
+    n = bot.send(text, parse_mode="HTML" if as_html else None)
+    print(M("recap.sent", n=n))
     return 0
 
 

@@ -191,6 +191,7 @@ def build_session(row, src):
         question = {"id": f"q-{asked}-1", "kind": kind, "text": one_line(q.get("text") or ""), "options": options,
                     "tier": tier_of(kind, q.get("tool"), (q.get("text") or "") + " " + str(q.get("detail") or ""), src.get("high_words")),
                     "asked_at": asked}
+    rt = (src.get("runtime") or {}).get(tmux) or {}
     return {
         "id": row.get("session_id") or tmux,
         "name": name,
@@ -213,6 +214,11 @@ def build_session(row, src):
         # 1.2: quando e' stato scritto quel «prossimo» (la data della riga di recap, mezzanotte locale), cosi'
         # chi legge sa se e' di oggi o di tre giorni fa e puo' ordinarlo rispetto a outcome.at
         "next_at": (src.get("next_at") or {}).get(tmux) or None,
+        # 1.11: cosa sta usando la sessione — modello ({id, label}), livello di effort e percentuale di
+        # contesto consumata. Null quando non si leggono in modo affidabile: mai stimati
+        "model": rt.get("model") or None,
+        "effort": rt.get("effort") or None,
+        "context": rt.get("context") if isinstance(rt.get("context"), int) else None,
         # 1.1: icona della scheda (stabile per la vita della sessione) e il suo solo colore
         "icon": (src.get("icons") or {}).get(tmux) or None,
         "color": color_of((src.get("icons") or {}).get(tmux), src.get("colors")),
