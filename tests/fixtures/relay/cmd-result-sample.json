@@ -87,6 +87,15 @@
       "arg": "low",
       "issued": 1789210980,
       "by": "watch-pixel5"
+    },
+    {
+      "id": "6f1c2d3e-0122-4000-8000-000000000122",
+      "op": "launch",
+      "session": null,
+      "arg": "/home/demo/workspaces/personal/field-notes",
+      "text": "check the draft for typos",
+      "issued": 1789210990,
+      "by": "watch-pixel5"
     }
   ],
   "result": [
@@ -155,6 +164,13 @@
       "ok": false,
       "text": "atlas-shop is working: try again when it is idle",
       "at": 1789210981
+    },
+    {
+      "id": "6f1c2d3e-0122-4000-8000-000000000122",
+      "ok": true,
+      "text": "launched field-notes (personal) with the first message",
+      "session": "field-notes-2",
+      "at": 1789211010
     }
   ]
 }

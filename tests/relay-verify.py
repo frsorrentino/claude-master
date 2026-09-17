@@ -162,7 +162,7 @@ SRC1 = {
     "questions": {"work-ledger-api": {"tool": "AskUserQuestion", "text": "Deploy ready, waiting for the client's ok. Deploy now?", "options": ["yes", "no"], "asked_at": 1789210500}},
     "quota": {"personal": {"cinque_ore_pct": 11, "settimana_pct": 36, "reset_settimanale": 1789610400, "reset_cinque_ore": 1789228800, "vecchia": False},
               "work": {"cinque_ore_pct": None, "settimana_pct": 75.2, "reset_settimanale": 1789444800, "reset_cinque_ore": 1789225200, "vecchia": True}},
-    "projects": [{"path": ROOT_WS + "/work/own/orbit-docs", "name": "orbit-docs", "account": "work"}, {"path": ROOT_WS + "/personal/atlas-shop", "name": "atlas-shop", "account": "personal"}, {"path": ROOT_WS + "/work/clients/ledger-api", "name": "ledger-api", "account": "work"}],
+    "projects": [{"path": ROOT_WS + "/work/own/orbit-docs", "name": "orbit-docs", "account": "work", "last_used": 1789203600}, {"path": ROOT_WS + "/personal/atlas-shop", "name": "atlas-shop", "account": "personal", "last_used": 1789210700}, {"path": ROOT_WS + "/work/clients/ledger-api", "name": "ledger-api", "account": "work", "last_used": 1789210500}],
     "night": {"queued": 2, "running": None},
     "recap": {"date": "2026-09-12", "items": [{"project": "atlas-shop", "done": "Migrations 008-011 applied, tests green", "next": "Review the seeds and the admin page"}, {"project": "ledger-api", "done": "Deploy ready", "next": "Wait for the go"}]},
     "follow": {"work-ledger-api"}, "awaiting": set(),
@@ -205,7 +205,7 @@ SRC2 = {"host": "crostini-demo", "root": ROOT_WS, "prefixes": ["work-"],
         "rows": [{"name": "atlas-shop", "tmux": "atlas-shop", "account": "personal", "cwd": ROOT_WS + "/personal/atlas-shop", "status": "idle", "waiting": False, "session_id": "f61903c0-ea6a-409c-a961-d01126a0f3ad", "link": "https://claude.ai/code/session_018CKZ1Pum1Qs7DX5hbRLQ6X", "attached": False, "started_at": 1789214000000}],
         "ledger": [{"event": "stop", "session_id": "f61903c0-ea6a-409c-a961-d01126a0f3ad", "ts": iso(1789213900), "last": "x", "esito": "Esito: seeds and admin page reviewed, 42 tests green.", "tail": "Esito: seeds and admin page reviewed, 42 tests green.\nWatch: Seeds and admin page reviewed", "watch": "Watch: Seeds and admin page reviewed"}],
         "questions": {}, "quota": {"personal": {"cinque_ore_pct": 24, "settimana_pct": 38, "reset_settimanale": 1789610400, "reset_cinque_ore": 1789228800, "vecchia": False}, "work": {"cinque_ore_pct": 3, "settimana_pct": 75, "reset_settimanale": 1789444800, "reset_cinque_ore": 1789225200, "vecchia": False}},
-        "projects": [{"path": ROOT_WS + "/personal/atlas-shop", "name": "atlas-shop", "account": "personal"}], "night": {"queued": 0, "running": None}, "recap": {"date": "2026-09-12", "items": []},
+        "projects": [{"path": ROOT_WS + "/personal/atlas-shop", "name": "atlas-shop", "account": "personal", "last_used": 1789213900}], "night": {"queued": 0, "running": None}, "recap": {"date": "2026-09-12", "items": []},
         "follow": set(), "awaiting": set(), "next": {"atlas-shop": "Test deploy on staging"}, "tools": {}, "icons": {"atlas-shop": "🟢"}, "next_at": {"atlas-shop": 1789171200}, "choices": {"models": [{"id": "claude-opus-5[1m]", "label": "Opus 5"}, {"id": "claude-fable-5-1", "label": "Fable 5.1"}, {"id": "claude-sonnet-5", "label": "Sonnet 5"}, {"id": "claude-haiku-4-5", "label": "Haiku 4.5"}], "efforts": ["low", "medium", "high", "xhigh", "max"]},
         "runtime": {"atlas-shop": {"model": {"id": "claude-sonnet-5", "label": "Sonnet 5"}, "effort": "medium", "context": 18}}}
 SRC2["account_kinds"] = KINDS
@@ -568,6 +568,24 @@ T.check("R10 (1.12) effort on a busy session → /result ok=false with the short
 r = relay("push", "--dry-run"); dry10 = json.loads(r.stdout)
 T.check("R10 (1.12) /state carries choices: full model ids (as in session.model.id) with labels, and the five efforts",
         dry10.get("choices") == json.loads((FIX / "state-1-question.json").read_text())["choices"], str(dry10.get("choices")))
+# R11 (contratto 1.13, 16/09): «Nuova sessione» dal polso col primo messaggio — launch, poi talk sulla sessione NATA
+# (che puo' chiamarsi diversamente dal progetto), e nel /result il suo nome come in sessions[].name
+fn = ws / "personal" / "field-notes"
+launch_adds.write_text(json.dumps(json.loads(alive.read_text()) + [{"pid": 12, "name": "field-notes-2", "tmux": "field-notes-2", "cwd": str(fn), "status": "idle", "waiting": False, "link": "", "account": "personal", "session_id": "S-F2", "attached": False, "started_at": 1789211000000}]))
+n_calls = len(cm_calls())
+res = send_cmd(dict(CMDS[11], arg=str(fn)))
+calls = cm_calls()[n_calls:]
+T.check("R11 (1.13) launch with text → `launch PATH --window`, then `talk` with the watch prefix to the NEW session field-notes-2, --no-wait",
+        any(c.startswith("launch ") and str(fn) in c for c in calls) and any(c.startswith("talk field-notes-2 Dall'utente via polso") and "check the draft for typos" in c and c.endswith("--no-wait") for c in calls), str(calls))
+T.check("R11 (1.13) /result ok with the fixture's text and `session` = field-notes-2, the name the watch will see in sessions[].name",
+        res and res["ok"] is True and res["text"] == RES[11]["text"] and res.get("session") == RES[11]["session"] == "field-notes-2", str(res))
+launch_adds.unlink()
+rows_alive("ledger-api", "atlas-shop", "field-notes")
+r = relay("push", "--dry-run"); dry11 = json.loads(r.stdout)
+p_atlas = next(p_ for p_ in dry11["projects"] if p_["name"] == "atlas-shop")
+newest = int(max(f.stat().st_mtime for f in tdir_a.iterdir() if f.suffix == ".jsonl"))
+T.check("R11 (1.13) projects[].last_used = the newest transcript of that folder (epoch s); null where there is none",
+        p_atlas.get("last_used") == newest and all("last_used" in p_ for p_ in dry11["projects"]) and any(p_["last_used"] is None for p_ in dry11["projects"]), str(dry11["projects"]))
 ans = dict(CMDS[0], id="6f1c2d3e-0011-4000-8000-000000000101", arg="text:ship it tonight")
 res = send_cmd(ans)
 T.check("R6 answer text:<text> → `answer work-ledger-api --text <text>`, «answered 3. ship it tonight»", res and res["ok"] is True and res["text"] == "answered 3. ship it tonight" and "answer work-ledger-api --text ship it tonight" in cm_calls(), str(res) + str(cm_calls()[-2:]))

@@ -139,6 +139,32 @@ tuned.write_text(json.dumps({"S-3": {"model": {"id": "claude-sonnet-5", "label":
 rt = core.session_runtime(row3)
 T.check("CO9 a turn newer than the note: the transcript wins again", rt == {"model": {"id": "claude-opus-5[1m]", "label": "Opus 5"}, "effort": "high", "context": 40}, str(rt))
 core._CFG.pop("tune", None)
+# CO10 (1.13.1, 17/09, dall'app: master su Fable 5.1 al 100 % col terminale al 59 %): l'id di Fable non dice la finestra
+def fable(tokens, sid="S-4"):
+    with open(tdir / f"{sid}.jsonl", "w") as f:
+        f.write(json.dumps({"type": "attachment", "attachment": {"type": "model", "identity": {"modelId": "claude-fable-5-1", "marketingName": "Fable 5.1"}}}) + "\n")
+        f.write(json.dumps({"type": "assistant", "effort": "high", "message": {"model": "claude-fable-5-1", "usage": {"input_tokens": 2, "cache_read_input_tokens": tokens - 2, "cache_creation_input_tokens": 0}}}) + "\n")
+    return core.session_runtime({"session_id": sid, "cwd": str(cwd), "account": "personal"})
+hints = proj / "hints"; hints.mkdir()
+core._CFG["relay"] = {"dir": str(proj / "relay"), "window_unmarked": ["claude-fable-5-1"], "window_hint_dir": str(hints)}
+rt = fable(585_566)
+T.check("CO10 more tokens than the standard window and no [1m] in the id → the window is 1M (585k → 59 %, not 100)", rt["context"] == 59 and rt["model"] == {"id": "claude-fable-5-1", "label": "Fable 5.1"}, str(rt))
+rt = fable(120_000)
+T.check("CO10 an id that does not tell its window, under 200k tokens and no hint → context null, never a guess", rt["context"] is None and rt["effort"] == "high", str(rt))
+(hints / "S-4.json").write_text(json.dumps({"session_id": "S-4", "model": "claude-fable-5-1", "ctx_size": 1000000}))
+rt = fable(120_000)
+T.check("CO10 the window Claude Code declared to the statusline, saved per session → 120k of 1M = 12 %", rt["context"] == 12, str(rt))
+(hints / "S-4.json").write_text(json.dumps({"session_id": "S-4", "model": "claude-opus-5", "ctx_size": 1000000}))
+rt = fable(120_000)
+T.check("CO10 a hint taken under another model is not used", rt["context"] is None, str(rt))
+core._CFG["relay"] = {"dir": str(proj / "relay")}
+# CO11 (17/09, dal vivo): un turno «<synthetic>» in coda (errore dell'API) non e' il modello della sessione
+scrivi("claude-sonnet-5", "claude-sonnet-5", "medium", (0, 40_000, 10_000))
+with open(tpath, "a") as f:
+    f.write(json.dumps({"type": "assistant", "message": {"model": "<synthetic>", "usage": {"input_tokens": 0}}}) + "\n")
+rt = core.session_runtime(row)
+T.check("CO11 a trailing «<synthetic>» turn is skipped: the last real turn gives model, effort and context",
+        rt == {"model": {"id": "claude-sonnet-5", "label": "Sonnet 5"}, "effort": "medium", "context": 25}, str(rt))
 T.check("CO7 no transcript → the three fields are absent, without an error",
         core.session_runtime({"session_id": "nope", "cwd": str(cwd), "account": "personal"}) == {"model": None, "effort": None, "context": None}, "")
 T.finish()

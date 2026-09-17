@@ -57,7 +57,8 @@
     {
       "path": "/home/demo/workspaces/personal/atlas-shop",
       "name": "atlas-shop",
-      "account": "personal"
+      "account": "personal",
+      "last_used": 1789213900
     }
   ],
   "night": {

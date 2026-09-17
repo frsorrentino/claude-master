@@ -261,7 +261,10 @@ def build_quota(quota, kinds=None):
 
 def build_state(src, now):
     sessions = order_sessions([build_session(r, src) for r in (src.get("rows") or [])])
-    projects = sorted(({"path": p.get("path", ""), "name": p.get("name", ""), "account": p.get("account", "")} for p in (src.get("projects") or [])), key=lambda p: p["name"])
+    # 1.13: last_used = l'ultima trascrizione di quella cartella (epoch s) o null; l'ordine resta per nome
+    projects = sorted(({"path": p.get("path", ""), "name": p.get("name", ""), "account": p.get("account", ""),
+                        "last_used": p.get("last_used") if isinstance(p.get("last_used"), int) else None}
+                       for p in (src.get("projects") or [])), key=lambda p: p["name"])
     night = src.get("night") or {}
     recap = src.get("recap") or {}
     state = {

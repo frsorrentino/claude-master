@@ -421,5 +421,7 @@
   "tune.no_confirm": "{name}: conferma non arrivata",
   "tune.effort_other": "{name}: effort {got} invece di {effort}",
   "tune.model_set": "{name}: modello {model}, solo questa sessione",
-  "tune.effort_set": "{name}: effort {effort}, solo questa sessione"
+  "tune.effort_set": "{name}: effort {effort}, solo questa sessione",
+  "relay.cmd_launched_prompt": "launched {name} ({account}) with the first message",
+  "relay.cmd_launch_no_prompt": "launched {name} ({account}), but the first message was not delivered: {line}"
 }

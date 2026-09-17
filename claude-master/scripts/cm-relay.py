@@ -232,12 +232,25 @@ def inventory():
         for d in sorted(base.iterdir()):
             if not d.is_dir() or d.name in excluded or d.name.startswith("."):
                 continue
-            out.append({"path": str(d), "name": d.name, "account": account_for_path(d)})
+            out.append({"path": str(d), "name": d.name, "account": account_for_path(d), "last_used": last_used_of(d, account_for_path(d))})
             if pd in (".", ""):
                 for dd in sorted(d.iterdir()):
                     if dd.is_dir() and dd.name not in excluded and not dd.name.startswith("."):
-                        out.append({"path": str(dd), "name": dd.name, "account": account_for_path(dd)})
+                        out.append({"path": str(dd), "name": dd.name, "account": account_for_path(dd), "last_used": last_used_of(dd, account_for_path(dd))})
     return out
+
+
+def last_used_of(path, account):
+    """(1.13) Quando la cartella e' stata usata l'ultima volta: la trascrizione piu' recente di Claude Code per quel
+    percorso, nel config dell'account (epoch s), o None. Una lettura di cartella per progetto: l'app ordina i progetti
+    dal piu' recente invece che per nome."""
+    acc = (CFG.get("accounts") or {}).get(account or "") or {}
+    d = Path(cm.expand(acc.get("config_dir") or "~/.claude")) / "projects" / re.sub(r"[^A-Za-z0-9]", "-", os.path.realpath(str(path)))
+    try:
+        times = [f.stat().st_mtime for f in d.iterdir() if f.suffix == ".jsonl"]
+    except OSError:
+        return None
+    return int(max(times)) if times else None
 
 
 def _json_cmd(*args, expect="["):
@@ -765,11 +778,30 @@ def execute(cmd):
             proj = next((p for p in inventory() if os.path.realpath(p["path"]) == os.path.realpath(path)), None) if path else None
             if not proj:
                 return False, M("relay.cmd_no_project", path=path or "?")
+            # 1.13 (16/09, dall'utente): «Nuova sessione» dal polso con il primo messaggio, nel campo `text` del comando. Un relay
+            # che non conosce `text` lo ignora e lancia senza messaggio: mai un prompt a meta'
+            prompt = " ".join(str(cmd.get("text") or "").split())
+            here = os.path.realpath(proj["path"])
+            before = {r.get("tmux") or r.get("name") for r in (_json_cmd("sessions", "--json") or [])}
             # 1.9.2 (15/09, decisione dell'utente): la scheda sul desktop come reopen; senza desktop, senza finestra
             rc, out = run_cm("launch", proj["path"], "--window")
             if rc != 0:
                 return False, out.splitlines()[0] if out else "launch failed"
-            return True, M("relay.cmd_launched", name=proj["name"], account=proj["account"])
+            # il nome vero della sessione nata (launch prende il primo libero: «orbit-docs-2»), cosi' il polso apre la
+            # Scheda giusta senza indovinare; e' lo stesso nome corto di sessions[].name
+            new = [r.get("tmux") or r.get("name") for r in (_json_cmd("sessions", "--json") or [])
+                   if (r.get("tmux") or r.get("name")) not in before and r.get("cwd") and os.path.realpath(r["cwd"]) == here]
+            extra = {"session": S.short_name(new[0], prefixes())} if new else {}
+            if not prompt:
+                return True, M("relay.cmd_launched", name=proj["name"], account=proj["account"]), extra
+            if not new:
+                return False, M("relay.cmd_launch_no_prompt", name=proj["name"], account=proj["account"], line="session not found"), extra
+            rc, out = run_cm("talk", new[0], M("relay.prompt_prefix") + " " + prompt, "--no-wait")
+            if rc != 0:
+                return False, M("relay.cmd_launch_no_prompt", name=proj["name"], account=proj["account"],
+                                line=(out.splitlines() or ["talk failed"])[0]), extra
+            aw = read_json(rdir() / "awaiting.json", {}); aw[new[0]] = int(time.time()); write_json(rdir() / "awaiting.json", aw)
+            return True, M("relay.cmd_launched_prompt", name=proj["name"], account=proj["account"]), extra
         if op in ("follow", "unfollow"):
             fl = set(read_json(rdir() / "follow.json", []))
             (fl.add if op == "follow" else fl.discard)(tm)
@@ -927,14 +959,16 @@ def handle_cmd(cid, doc, done):
             pass
         done.append(cid); return True
     cmd.setdefault("id", cid)
-    ok, text = execute(cmd)
+    res = execute(cmd)
+    ok, text = res[0], res[1]
+    extra = res[2] if len(res) > 2 and isinstance(res[2], dict) else {}   # 1.13: {"session": nome} dopo un launch
     by = str(cmd.get("by") or "?")
     log(f"cmd {cid}: {cmd.get('op')} {cmd.get('session') or ''} da {by} → {'ok' if ok else 'ERR'} {str(text)[:80]}")
     row = last_sessions().get(str(cmd.get("session") or "")) or {}
     ledger_write("watch-cmd", op=str(cmd.get("op") or ""), name=str(cmd.get("session") or ""), by=by, ok=bool(ok),
                  text=str(text)[:200], session_id=row.get("id") or "", account=row.get("account") or "")
     try:
-        rtdb("PUT", f"result/{cid}", C.encrypt({"id": cid, "ok": bool(ok), "text": str(text), "at": int(time.time())}, k), {"print": "silent"})
+        rtdb("PUT", f"result/{cid}", C.encrypt({"id": cid, "ok": bool(ok), "text": str(text), **extra, "at": int(time.time())}, k), {"print": "silent"})
         rtdb("DELETE", f"cmd/{cid}")
     except (urllib.error.URLError, OSError, ValueError) as e:
         log(f"cmd {cid}: result non scritto ({e})")

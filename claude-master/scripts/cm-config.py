@@ -154,7 +154,10 @@ DEFAULTS = {
               "log": "", "command_timeout_s": 120, "pair_ttl_s": 300, "pair_attempts": 5, "serve_timeout_s": 50,
               "colors": {}, "awaiting_max_s": 1800,
               # scorta su Telegram quando il polso non riceve da tanto (0 = mai): 10 minuti
-              "telegram_fallback_after_s": 600},
+              "telegram_fallback_after_s": 600,
+              # contesto di una sessione (1.13.1): dove una statusline salva la finestra dichiarata da Claude Code, e i
+              # modelli il cui id non dice se la finestra e' da 1M o standard (sotto i 200k token il contesto resta null)
+              "window_hint_dir": "~/.claude/fable-director/sessions", "window_unmarked": ["claude-fable-5-1"]},
     # cambio di modello ed effort di una sessione dal suo selettore, SOLO per quella sessione (16/09/2026, contratto
     # 1.12): `pick` e' l'etichetta della voce nel selettore di /model, `id` quello che la sessione riporta in model.id
     "tune": {"timeout_s": 8, "file": "", "efforts": ["low", "medium", "high", "xhigh", "max"],

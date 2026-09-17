@@ -155,17 +155,20 @@
     {
       "path": "/home/demo/workspaces/personal/atlas-shop",
       "name": "atlas-shop",
-      "account": "personal"
+      "account": "personal",
+      "last_used": 1789210700
     },
     {
       "path": "/home/demo/workspaces/work/clients/ledger-api",
       "name": "ledger-api",
-      "account": "work"
+      "account": "work",
+      "last_used": 1789210500
     },
     {
       "path": "/home/demo/workspaces/work/own/orbit-docs",
       "name": "orbit-docs",
-      "account": "work"
+      "account": "work",
+      "last_used": 1789203600
     }
   ],
   "night": {

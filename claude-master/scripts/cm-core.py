@@ -180,6 +180,39 @@ def _identity_in(lines):
     return None
 
 
+def _window_of(row, full_id, model_id, tokens):
+    """La finestra di contesto della sessione, o None se non si sa (e allora `context` resta null: mai stimato).
+
+    1.13.1 (17/09/2026, dall'app: master su Fable 5.1 risultava al 100 %, il terminale diceva 59 %). Il suffisso
+    `[1m]` nell'id e' certo quando c'e', ma non tutti i modelli da 1M lo portano: la voce di sistema di Fable 5.1 e'
+    «claude-fable-5-1» sia con la finestra da 1M sia con quella da 200k. In ordine di certezza:
+    1. `[1m]` nell'id;
+    2. la finestra che Claude Code stesso dichiara alla statusline (`context_window_size`), se un programma di
+       statusline la salva per sessione in relay.window_hint_dir (fable-director lo fa: <session_id>.json con
+       `ctx_size` e `model`) e il modello di quella fotografia e' quello dell'ultimo turno;
+    3. piu' token della finestra standard: e' da 1M per forza, nessuna sessione ne tiene piu' della sua finestra;
+    4. un id di relay.window_unmarked (modelli che non dicono la finestra): non si sa → None;
+    5. altrimenti la finestra standard."""
+    if "[1m]" in full_id:
+        return WINDOW_1M
+    R = _cfg().get("relay") or {}
+    hint_dir = R.get("window_hint_dir")
+    sid = (row or {}).get("session_id") or ""
+    if hint_dir and sid:
+        try:
+            snap = json.loads((Path(cm.expand(hint_dir)) / f"{sid}.json").read_text())
+            size = int(snap.get("ctx_size") or 0)
+            if size >= WINDOW_STD and str(snap.get("model") or "").split("[")[0] == model_id:
+                return size
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+    if tokens > WINDOW_STD:
+        return WINDOW_1M
+    if model_id in (R.get("window_unmarked") or []):
+        return None
+    return WINDOW_STD
+
+
 def session_runtime(row, tail_bytes=512 * 1024, head_bytes=1024 * 1024):
     """Quello che la sessione sta usando: la trascrizione, corretta da un cambio fatto dal selettore (1.12) che la
     trascrizione non riporta ancora. Vedi _transcript_runtime per la lettura e _tuned per l'annotazione."""
@@ -251,6 +284,10 @@ def _transcript_runtime(row, tail_bytes, head_bytes):
         except ValueError:
             continue
         if d.get("type") == "assistant" and isinstance(d.get("message"), dict):
+            # «<synthetic>» e' un turno che Claude Code scrive da se' (un errore dell'API, un'interruzione): non ha
+            # ne' modello ne' token veri. Si risale all'ultimo turno vero (visto dal vivo il 17/09).
+            if str(d["message"].get("model") or "").startswith("<"):
+                continue
             assistant = d
             break
     if assistant is None:
@@ -279,8 +316,8 @@ def _transcript_runtime(row, tail_bytes, head_bytes):
         out["model"] = {"id": full_id, "label": label or None}
         usage = assistant["message"].get("usage") or {}
         tokens = sum(int(usage.get(k) or 0) for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
-        window = WINDOW_1M if "[1m]" in full_id else WINDOW_STD
-        if tokens:
+        window = _window_of(row, full_id, model_id, tokens)
+        if tokens and window:
             out["context"] = max(0, min(100, round(tokens * 100 / window)))
     elif model_id:
         # modello cambiato a meta' sessione (o voce di sistema assente): l'id si sa, la finestra no
