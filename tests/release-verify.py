@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifica release.sh --check (RL1–RL3): preflight fermo su versione/badge incoerenti, suite
+"""Verifica release.sh --check (RL1–RL5): preflight fermo su versione/badge incoerenti, suite
 eseguita quando tutto combacia. Nessun push, nessun tag: --check si ferma prima. Gira su una
 copia del repo in tmp con una suite finta al posto di quella vera (che altrimenti girerebbe
 dentro sé stessa)."""
@@ -59,5 +59,19 @@ cl.write_text(dated.replace(head, head + "\n\n- **9.9.8 — unreleased.**", 1))
 r = run(ver)
 T.check("RL4 an «unreleased» entry of ANOTHER version does not block: preflight passes, CHECK OK",
         r.returncode == 0 and marker.exists() and "CHECK OK" in r.stdout, r.stdout[-600:] + r.stderr[-300:])
+# RL5 (17/09/2026): lo zip impacchetta la cartella del plugin dal disco — un file non tracciato li' dentro uscirebbe
+# nel pacchetto pubblico (un docs/recap.md scritto per errore sotto scripts/, visto per caso prima della 0.4.13)
+marker.unlink(missing_ok=True)
+stray = copy / "claude-master" / "scripts" / "docs" / "recap.md"
+stray.parent.mkdir(parents=True)
+stray.write_text("privato\n")
+r = run(ver)
+T.check("RL5 an untracked file under the plugin folder → FAIL naming it, suite not run",
+        r.returncode != 0 and "untracked" in r.stdout and "scripts/docs/recap.md" in r.stdout and not marker.exists(), r.stdout[-400:] + r.stderr[-200:])
+shutil.rmtree(stray.parent)
+(copy / "note-fuori-dal-plugin.txt").write_text("x\n")
+r = run(ver)
+T.check("RL5 an untracked file OUTSIDE the plugin folder does not block (it never ships): CHECK OK",
+        r.returncode == 0 and "CHECK OK" in r.stdout, r.stdout[-400:] + r.stderr[-200:])
 shutil.rmtree(tmp)
 T.finish()

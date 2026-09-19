@@ -174,6 +174,26 @@ T.check("DI5 status: cron yes, ledger rows", "yes" in r.stdout and "16" in r.std
 r = recap("uninstall")
 T.check("DI5 uninstall", r.returncode == 0 and "recap" not in cron.read_text(), r.stdout + cron.read_text())
 
+# DI6 (17/09/2026): una sessione che si sposta con `cd` resta del progetto in cui e' nata. La sessione della radice
+# aveva lavorato con la shell in una sottocartella: il recap la prendeva per un progetto e ci scriveva docs/recap.md
+sub = ws / "personali" / "alfa" / "scripts"
+sub.mkdir(parents=True, exist_ok=True)
+with open(state / "ledger.jsonl", "a") as f:
+    for r_ in [
+        {"ts": "2026-09-10T08:00:00", "event": "start", "session_id": "M", "cwd": str(ws / "personali" / "alfa"), "account": "personale", "pid": 9, "source": "startup"},
+        {"ts": "2026-09-11T09:00:00", "event": "prompt", "session_id": "M", "cwd": str(sub), "account": "personale", "pid": 9},
+        {"ts": "2026-09-11T09:05:00", "event": "stop", "session_id": "M", "cwd": str(sub), "account": "personale", "pid": 9, "last": "lavoro fatto dalla sottocartella"},
+        {"ts": "2026-09-11T09:06:00", "event": "stop", "session_id": "M", "cwd": str(sub), "account": "personale", "pid": 9, "last": "secondo turno"},
+        {"ts": "2026-09-11T09:07:00", "event": "stop", "session_id": "M", "cwd": str(sub), "account": "personale", "pid": 9, "last": "terzo turno, tutto verde"},
+    ]:
+        f.write(json.dumps(r_, ensure_ascii=False) + "\n")
+r = recap("--date", "2026-09-11")
+T.check("DI6 a session that moved with `cd` stays in the project where it started (start event of the day before): «alfa», not «scripts»",
+        r.returncode == 0 and "alfa" in r.stdout and "scripts" not in r.stdout, r.stdout + r.stderr)
+T.check("DI6 the project log goes to the project's own docs/recap.md, and nothing is written under the subfolder",
+        (ws / "personali" / "alfa" / "docs" / "recap.md").is_file() and "2026-09-11" in (ws / "personali" / "alfa" / "docs" / "recap.md").read_text() and not (sub / "docs").exists(),
+        str(list(sub.iterdir())))
+
 srv.shutdown()
 T.rm(tmp)
 T.finish()

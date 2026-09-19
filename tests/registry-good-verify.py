@@ -88,7 +88,10 @@ with T.PrivateTmux() as tm:
     T.check("G4 zeta and eta in the snapshot", names(good) == sorted(NAMES + ("zeta", "eta")), str(names(good)))
     pane = tm("display-message", "-p", "-t", "zeta", "#{pane_id}").stdout.strip()
     hook("SessionEnd", {"session_id": "x", "cwd": str(home / "ws" / "zeta"), "reason": "prompt_input_exit"}, TMUX_PANE=pane)
-    tm("kill-session", "-t", "=zeta"); time.sleep(1.5)
+    tm("kill-session", "-t", "=zeta")
+    # l'hook stacca `registry --closed` in un processo a parte: sotto carico 1,5 s fissi non bastavano (la release
+    # 0.4.11 si e' fermata qui il 16/09, e di nuovo il 17/09 con un carico di 13). Si aspetta l'esito, fino a 15 s.
+    T.wait_until(lambda: names(good) == sorted(NAMES + ("eta",)), 15)
     T.check("G4 /exit removes zeta from the snapshot", names(good) == sorted(NAMES + ("eta",)), str(names(good)))
     pane = tm("display-message", "-p", "-t", "eta", "#{pane_id}").stdout.strip()
     hook("SessionEnd", {"session_id": "y", "cwd": str(home / "ws" / "eta"), "reason": "other"}, TMUX_PANE=pane)

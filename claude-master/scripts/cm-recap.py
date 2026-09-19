@@ -56,18 +56,29 @@ def read_events(since=None, day=None):
     if not p.is_file():
         return []
     out = []
+    homes = {}
     for line in p.read_text().splitlines():
         try:
             e = json.loads(line)
             ts = dt.datetime.fromisoformat(e["ts"])
         except (ValueError, KeyError, TypeError):
             continue
+        # la cartella di una sessione e' quella in cui NASCE (l'evento start), anche fuori dall'intervallo: gli hook
+        # registrano la cartella corrente del momento, e una sessione che si sposta con `cd` sembrava un altro progetto
+        if e.get("event") == "start" and e.get("session_id") and e.get("cwd"):
+            homes[e["session_id"]] = e["cwd"]
         if day is not None and ts.date() != day:
             continue
         if since is not None and ts < since:
             continue
         e["_ts"] = ts
         out.append(e)
+    # 17/09/2026: la sessione della radice aveva lavorato dodici turni con la shell in <plugin>/scripts; il recap l'ha
+    # presa per un progetto «scripts» e ci ha scritto docs/recap.md — dentro la cartella che la release impacchetta
+    for e in out:
+        home = homes.get(e.get("session_id") or "")
+        if home and e.get("cwd") != home:
+            e["cwd_seen"], e["cwd"] = e.get("cwd"), home
     return out
 
 

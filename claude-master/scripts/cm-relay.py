@@ -612,6 +612,29 @@ def devices_path():
     return rdir() / "devices.json"
 
 
+def sweep_stale_pairs():
+    """Toglie da /pair i codici di ieri: quelli scaduti e quelli rimasti con la sola conferma `ok`
+    dopo un accoppiamento riuscito. Silenziosa: se la rete non c'e', il pairing parte lo stesso."""
+    try:
+        nodes = rtdb("GET", "pair")
+    except (urllib.error.URLError, OSError, ValueError, RelayError):
+        return
+    if not isinstance(nodes, dict):
+        return
+    now = time.time()
+    for code, node in nodes.items():
+        if not isinstance(node, dict):
+            continue
+        exp = node.get("exp")
+        stale = (isinstance(exp, (int, float)) and exp < now) or (set(node) <= {"ok"})
+        if stale:
+            try:
+                rtdb("DELETE", f"pair/{code}")
+                log(f"pair: spazzato il codice {code} (scaduto o gia' confermato)")
+            except (urllib.error.URLError, OSError, ValueError, RelayError):
+                pass
+
+
 def pair(timeout=None):
     """Codice a 6 cifre sullo schermo; /pair/<code> = {pc_pub, host, exp}; l'orologio risponde in /pair/<code>/watch
     con {watch_pub, uid, name, check}; la chiave e' HKDF(X25519); `check` (HMAC della chiave sul codice) prova che
@@ -623,6 +646,8 @@ def pair(timeout=None):
     ttl = float(timeout or R.get("pair_ttl_s") or 300)
     max_attempts = int(R.get("pair_attempts") or 5)
     code = f"{_secrets.randbelow(10 ** 6):06d}"
+    sweep_stale_pairs()
+    paired = False
     priv, pub = C.pair_keys()
     exp = int(time.time() + ttl)
     host = str(R.get("host") or socket.gethostname())
@@ -652,11 +677,17 @@ def pair(timeout=None):
                             rtdb("DELETE", stale)
                         except (urllib.error.URLError, OSError, ValueError):
                             pass
-                    rtdb("PUT", f"pair/{code}/ok", {"host": host, "check": C.check_code(k, code + ":pc")}, {"print": "silent"})
-                    time.sleep(1)
-                    rtdb("DELETE", f"pair/{code}")
+                    rtdb("PUT", f"pair/{code}", {"ok": {"host": host, "check": C.check_code(k, code + ":pc")}}, {"print": "silent"})
                     print(M("relay.pair_ok", name=name, uid=uid, path=str(C.key_path(rdir()))))
                     log(f"pair: ok {name} ({uid})")
+                    # La conferma deve restare leggibile finche' l'orologio non la prende: lui interroga
+                    # /pair/<code>/ok una volta al secondo (FirebaseTransport.pollMs) e un solo secondo di
+                    # vita bastava a farlo arrivare tardi — PC accoppiato, orologio fermo su «Code not
+                    # accepted» (19/09). Quindi: si tolgono subito le chiavi del giro, cosi' sullo stesso
+                    # codice non si puo' iniziare un'altra stretta di mano (la PUT qui sopra riscrive il
+                    # nodo intero: via pc_pub, watch, host, exp), e resta solo `ok`, che il prossimo
+                    # `pair` spazza via (vedi sweep_stale_pairs).
+                    paired = True
                     return 0
                 attempts += 1
                 log(f"pair: check sbagliato ({attempts}/{max_attempts})")
@@ -666,10 +697,11 @@ def pair(timeout=None):
             time.sleep(1)
         print(M("relay.pair_timeout", s=int(ttl))); return 3
     finally:
-        try:
-            rtdb("DELETE", f"pair/{code}")
-        except (urllib.error.URLError, OSError, ValueError, RelayError):
-            pass
+        if not paired:   # accoppiato: /pair/<code>/ok resta per l'orologio, lo spazza il pair successivo
+            try:
+                rtdb("DELETE", f"pair/{code}")
+            except (urllib.error.URLError, OSError, ValueError, RelayError):
+                pass
 
 
 # ------------------------------------------------------------------ esecuzione dei comandi (allow-list)

@@ -39,9 +39,14 @@ sed -n 3p README.md | grep -q "version-$VER-blue" \
   || { echo "FAIL: README version badge is not at $VER (line 3: shields.io version-<v>-blue)"; exit 1; }
 git rev-parse "v$VER" >/dev/null 2>&1 \
   && { echo "FAIL: tag v$VER already exists"; exit 1; }
+# Lo zip del passo 3 impacchetta $PLUGIN dal DISCO, non da git: un file non tracciato li' dentro finisce nel pacchetto
+# pubblico. 17/09/2026: un docs/recap.md scritto per errore sotto scripts/, con testo privato, visto per caso.
+STRAY="$(git status --porcelain --untracked-files=all -- "$PLUGIN" | grep '^??' || true)"
+[ -z "$STRAY" ] \
+  || { echo "FAIL: untracked files under $PLUGIN would ship in the zip — move them out or track them:"; echo "$STRAY"; exit 1; }
 python3 tools-privacy-check.py --quiet \
   || { echo "FAIL: privacy check (docs/privacy-blocklist.txt) — neutralize before publishing"; exit 1; }
-echo "preflight ok: $VER in plugin.json, CHANGELOG, README; tag v$VER free; privacy ok"
+echo "preflight ok: $VER in plugin.json, CHANGELOG, README; tag v$VER free; nothing untracked in $PLUGIN; privacy ok"
 
 echo "== 2/6 test suites (must be green BEFORE the commit) =="
 for t in tests/*-verify.py; do
