@@ -146,13 +146,14 @@ case "$SCEN" in
   *,question,*)  menu "colore preferito?" "rosso" "blu" "verde" "Type something." ;;
   *,question3,*) menu3 "Procedo?" "Sì" "No" ;;
 esac
-# 1.12 (16/09/2026): i selettori di /model e /effort come in Claude Code 2.1.273, catturati dal vivo alle 11:30.
+# 1.12 (16/09/2026): i selettori di /model e /effort come in Claude Code 2.1.273, catturati dal vivo alle 11:30;
+# voci di /model aggiornate alla 2.1.280 (22/09/2026, 19:05): stesse etichette, Opus 5.5 al posto di Opus 5.
 # «s» sceglie SOLO per la sessione; Invio salverebbe il default: lo si annota in FAKE_CLAUDE_DEFAULT_LOG, cosi' un
 # test puo' dire che nessuno l'ha mai premuto.
 model_picker() {
   local labels=("Default (recommended)" "Opus (1M context)" "Fable" "Sonnet" "Haiku")
-  local names=("Opus 5" "Opus 5" "Fable 5.1" "Sonnet 5" "Haiku 4.5")
-  local descs=("Opus 5 with 1M context · Best for everyday, complex tasks" "Opus 5 with 1M context · Best for everyday, complex tasks" "Fable 5.1 · Most capable for your hardest and longest-running tasks" "Sonnet 5 · Efficient for routine tasks" "Haiku 4.5 · Fastest for quick answers")
+  local names=("Opus 5.5" "Opus 5.5" "Fable 5.1" "Sonnet 5" "Haiku 4.5")
+  local descs=("Opus 5.5 with 1M context · Best for everyday, complex tasks" "Opus 5.5 with 1M context · Best for everyday, complex tasks" "Fable 5.1 · Most capable for your hardest and longest-running tasks" "Sonnet 5 · Efficient for routine tasks" "Haiku 4.5 · Fastest for quick answers")
   local sel=1 k k2 i
   draw() {
     printf '\033[2J\033[H'

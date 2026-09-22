@@ -242,8 +242,8 @@
     ],
     "models": [
       {
-        "id": "claude-opus-5[1m]",
-        "label": "Opus 5",
+        "id": "claude-opus-5-5[1m]",
+        "label": "Opus 5.5",
         "pick": "Opus (1M context)"
       },
       {

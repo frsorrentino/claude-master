@@ -83,6 +83,15 @@ scrivi("claude-opus-5[1m]", "claude-opus-5", "high", (100, 299_900, 0))
 rt = core.session_runtime(row)
 T.check("CO7 model with its window and label, effort, context over the 1M window (300k tokens → 30 %)",
         rt["model"] == {"id": "claude-opus-5[1m]", "label": "Opus 5"} and rt["effort"] == "high" and rt["context"] == 30, str(rt))
+# Opus 5.5 (2.1.280, 22/09/2026): voce di sistema e turno come nel transcript vero di quel giorno
+with open(tpath, "w") as f:
+    f.write(json.dumps({"type": "attachment", "attachment": {"type": "model", "identity": {
+        "modelId": "claude-opus-5-5[1m]", "marketingName": "Opus 5.5 (1M context)"}}}) + "\n")
+    f.write(json.dumps({"type": "assistant", "effort": "xhigh", "message": {"model": "claude-opus-5-5", "usage": {
+        "input_tokens": 100, "cache_read_input_tokens": 299_900, "cache_creation_input_tokens": 0}}}) + "\n")
+rt = core.session_runtime(row)
+T.check("CO7 Opus 5.5: claude-opus-5-5[1m] is read as the 1M window (300k tokens → 30 %), label «Opus 5.5»",
+        rt["model"] == {"id": "claude-opus-5-5[1m]", "label": "Opus 5.5"} and rt["effort"] == "xhigh" and rt["context"] == 30, str(rt))
 scrivi("claude-sonnet-5", "claude-sonnet-5", "medium", (0, 40_000, 10_000))
 rt = core.session_runtime(row)
 T.check("CO7 standard window: 50k of 200k → 25 %; the label comes from the system entry",

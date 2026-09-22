@@ -29,6 +29,13 @@ voce sta nel registro che il MIO account legge (stessa cartella, anche via
 symlink: E1); `talk` altrimenti. E' la regola di precedenza della skill, fatta
 dai dati e non a intuito.
 
+VERSIONE (22/09/2026): quella che il processo ESEGUE, dal nome del binario in
+`/proc/<pid>/exe` (`~/.local/share/claude/versions/2.1.280`); se non si legge,
+quella del registro, scritta all'avvio. Un `*` marca le sessioni piu' vecchie
+della versione su disco (dove punta `claude` nel PATH): `claude update` e
+`claude --version` guardano il disco, e il 22/09 dicevano 2.1.280 mentre le
+quattro sessioni vive giravano sulla 2.1.278.
+
 Uso: cm-sessions.py [--json] [--watch [SECONDI]] [--no-screen]
 """
 import glob
@@ -36,6 +43,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -51,6 +59,7 @@ TMUX = ["tmux"] + (os.environ.get("CM_TMUX_ARGS", "").split()
                    or (["-L", CFG["tmux"]["socket"]] if CFG["tmux"].get("socket") else []))
 CLAUDE_CMD = re.compile(r"(^|/)claude( |$)")
 CODEX_CMD = re.compile(r"(^|/)codex( |$)")   # S09: prova, solo con experimental.codex
+VERSION = re.compile(r"\d+(?:\.\d+)+")
 
 
 def tmux(*args):
@@ -122,6 +131,30 @@ def codex_state(cwd):
                 return "busy"
         return "idle"
     return "idle"
+
+
+def version_of(path):
+    """«2.1.280» se il file (risolti i link) si chiama come una versione, altrimenti ""."""
+    name = os.path.basename(os.path.realpath(path).removesuffix(" (deleted)")) if path else ""
+    return name if VERSION.fullmatch(name) else ""
+
+
+def proc_version(pid, registered=""):
+    """La versione che il processo esegue (/proc/<pid>/exe); se non si legge, quella del registro."""
+    try:
+        exe = os.readlink(f"/proc/{pid}/exe")
+    except OSError:
+        exe = ""
+    return version_of(exe) or (registered if isinstance(registered, str) and VERSION.fullmatch(registered) else "")
+
+
+def disk_version():
+    """La versione che una sessione nuova avrebbe: dove punta `claude` nel PATH (CM_CLAUDE_BIN nei test)."""
+    return version_of(os.environ.get("CM_CLAUDE_BIN") or shutil.which("claude") or "")
+
+
+def older(v, than):
+    return bool(v and than) and tuple(map(int, v.split("."))) < tuple(map(int, than.split(".")))
 
 
 def proc_cwd(pid):
@@ -280,6 +313,7 @@ def collect(read_screen=True):
     my_registry = os.path.realpath(os.path.join(mine, "sessions"))
     rows = []
     seen_pids = set()
+    disk = disk_version()
     for d in registry_entries():
         pid = d["pid"]
         seen_pids.add(pid)
@@ -297,6 +331,7 @@ def collect(read_screen=True):
             "started_at": d.get("startedAt"),
             "socket": d.get("messagingSocketPath") or "",
             "registry": d["_registry"],
+            "version": proc_version(pid, d.get("version")),
         }
         row["attached"] = attached.get(tm) if tm else None
         # «aspetta una risposta»: prima il registro (status `waiting`, visto dal vivo il 09/09/2026
@@ -336,7 +371,10 @@ def collect(read_screen=True):
             "registry": "", "attached": attached.get(tm) if tm else None,
             "waiting": waits_on_screen(tm) if read_screen else False,
             "channel": "(questa)" if is_ancestor(pid) else "talk",
+            "version": proc_version(pid),
         })
+    for r in rows:
+        r["outdated"] = older(r.get("version", ""), disk)
     # chi aspetta senza nessuno davanti va per primo: e' lavoro fermo, non in corso
     rows.sort(key=lambda r: (not (r["waiting"] and not r["attached"]), r["account"], r["tmux"] or r["name"]))
     return rows
@@ -373,7 +411,7 @@ def render(rows):
     lines = []
     # S03 (14/09/2026): intestazione, canali e stato nella lingua della config (prima fissi in italiano). Nel JSON
     # `channel` resta «(questa)»/«nativo»/«talk»: talk, next e park lo confrontano.
-    hdr = " ".join(f"{c:<{w}}" for c, w in zip(m("sessions.columns").split(), (8, 13, 22, 6, 24, 9, 9, 9)))
+    hdr = " ".join(f"{c:<{w}}" for c, w in zip(m("sessions.columns").split(), (8, 13, 22, 6, 24, 9, 9, 9, 9)))
     channel = {"(questa)": m("sessions.channel_self"), "nativo": m("sessions.channel_native")}
     lines.append(hdr)
     lines.append("-" * len(hdr))
@@ -404,11 +442,14 @@ def render(rows):
         if r["waiting"]:
             state = m("sessions.state_waiting")
         lines.append(f"{r['pid']:<8} {r['account'][:13]:<13} {shown[:22]:<22} {state[:6]:<6} "
-                     f"{short_cwd(r['cwd'])[:24]:<24} {vista:<9} {channel.get(r['channel'], r['channel']):<9} {etime(r['started_at']):<9}{note}")
+                     f"{short_cwd(r['cwd'])[:24]:<24} {vista:<9} {channel.get(r['channel'], r['channel']):<9} {etime(r['started_at']):<9} "
+                     f"{(r.get('version') or '-') + ('*' if r.get('outdated') else ''):<9}{note}")
     if not rows:
         lines.append("  " + m("sessions.none"))
     if abandoned:
         lines += ["", "  " + m("sessions.abandoned_hint", n=abandoned)]
+    if any(r.get("outdated") for r in rows):
+        lines += ["", "  " + m("sessions.outdated", version=disk_version())]
     if tmux("list-sessions") is None:
         lines += ["", "  " + m("sessions.tmux_dead")]
     # 2.3 quota a soglia: consiglio, mai automatismo

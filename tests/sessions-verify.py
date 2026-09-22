@@ -25,6 +25,8 @@ S20 il server tmux (primo argomento «tmux», `…/claude` nella riga di comando
     processo claude vero di S4 resta
 S21 (S09, prova) experimental.codex acceso: il riquadro Codex (argv0 «codex») ha una riga con nome, cartella e stato dal
     rollout (task_started → busy, task_complete → idle); spento → nessuna riga
+S22 VERSIONE: quella del binario in /proc/<pid>/exe vince sul registro; senza un exe che si chiami come una versione,
+    quella del registro; le piu' vecchie della versione su disco (CM_CLAUDE_BIN) hanno `*` e la riga che lo spiega
 """
 import json
 import os
@@ -241,8 +243,38 @@ with T.PrivateTmux() as tm:
     T.check("S21 task_complete → idle; the table shows it by name, not as «(unregistered)»", cx and cx[0]["status"] == "idle" and any(l.split()[2:3] == ["cxs"] and "idle" in l for l in table.splitlines()), str(cx) + table[:600])
     T.check("S21 experimental.codex off (default): no Codex row", codex_rows(en_cfg) == [], "")
 
-    # S9: cartella condivisa via symlink
+    # S22: un processo che esegue davvero un binario chiamato «2.1.278» (come ~/.local/share/claude/versions/2.1.278)
+    # mentre il registro dice 2.1.280, e uno col solo registro (2.1.279); su disco c'e' la 2.1.280
     import shutil
+    vdir = Path(tmp) / "versions"
+    vdir.mkdir()
+    shutil.copy(shutil.which("sleep"), vdir / "2.1.278")
+    (vdir / "2.1.280").write_text("")
+    pv = subprocess.Popen([str(vdir / "2.1.278"), "300"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    procs.append(pv)
+    pr = spawn()
+    time.sleep(0.2)
+    for pid, name, ver in ((pv.pid, "vecchia-exe", "2.1.280"), (pr, "vecchia-reg", "2.1.279")):
+        entry(home / ".claude" / "sessions", pid, name, str(home), name)
+        d = json.loads((home / ".claude" / "sessions" / f"{pid}.json").read_text()); d["version"] = ver
+        (home / ".claude" / "sessions" / f"{pid}.json").write_text(json.dumps(d))
+    disk = {"CM_CLAUDE_BIN": str(vdir / "2.1.280")}
+    by = {x["name"]: x for x in json.loads(run("--json", "--no-screen", extra=disk).stdout)}
+    T.check("S22 the version comes from /proc/<pid>/exe and wins over the registry: 2.1.278, older than the 2.1.280 on disk",
+            by.get("vecchia-exe", {}).get("version") == "2.1.278" and by["vecchia-exe"].get("outdated") is True, str(by.get("vecchia-exe")))
+    T.check("S22 an exe not named like a version: the registry's version, still older than the disk",
+            by.get("vecchia-reg", {}).get("version") == "2.1.279" and by["vecchia-reg"].get("outdated") is True, str(by.get("vecchia-reg")))
+    T.check("S22 a session without any version is not marked", by.get("alfa", {}).get("version") == "" and by["alfa"].get("outdated") is False, str(by.get("alfa")))
+    table = run("--no-screen", extra=disk).stdout
+    line = next((l for l in table.splitlines() if l.split()[2:3] == ["vecchia-exe"]), "")
+    T.check("S22 the table: VERSIONE column, `2.1.278*` on the row, the line that explains the mark with the disk's version",
+            "VERSIONE" in table.splitlines()[0] and "2.1.278*" in line and "2.1.280 su disco" in table, table[:1200])
+    same = run("--no-screen", extra={"CM_CLAUDE_BIN": str(vdir / "2.1.278")}).stdout
+    T.check("S22 nothing older than the disk: no mark, no explanation", "*" not in same.split("\n\n")[0] and "su disco" not in same, same[:1200])
+    for pid in (pv.pid, pr):
+        (home / ".claude" / "sessions" / f"{pid}.json").unlink()
+
+    # S9: cartella condivisa via symlink
     shutil.rmtree(home / ".claude-pixel" / "sessions")
     os.symlink(home / ".claude" / "sessions", home / ".claude-pixel" / "sessions")
     entry(home / ".claude" / "sessions", p2, "pix-beta", str(home / "ws" / "pix" / "beta"), "pix-beta")

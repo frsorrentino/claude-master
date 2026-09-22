@@ -333,7 +333,11 @@ def write_cfg(enabled=True, **extra):
          "bot": {"api_base": TG_API, "token_file": str(tgdir / ".env"), "access_file": str(tgdir / "access.json")},
          "accounts": {"personal": {"config_dir": str(home / ".claude")}, "work": {"config_dir": str(home / ".claude-pixel"), "tmux_prefix": "work-"}},
          "relay": {"enabled": enabled, "firebase_url": URL, "service_account": str(SA), "token_url": URL + "/token", "fcm_url": URL,
-                   "dir": str(rdir2), "host": "crostini-test", "debounce_s": 1, "fcm_topic": "watch", **extra}}
+                   "dir": str(rdir2), "host": "crostini-test", "debounce_s": 1, "fcm_topic": "watch", **extra},
+         # i modelli delle fixture del contratto (Opus 5, 1.12): dal 22/09 il default e' Opus 5.5 (2.1.280), e le fixture
+         # restano identiche a quelle dell'app (R0), che si aggiornano dal suo lato
+         "tune": {"models": [{"id": m["id"], "label": m["label"], "pick": m["label"]}
+                             for m in json.loads((FIX / "state-1-question.json").read_text())["choices"]["models"]]}}
     cfg.write_text(json.dumps(d))
 
 

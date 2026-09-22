@@ -2,7 +2,7 @@
 """Verifica cm-tune.py (claude-master model / effort, contratto 1.12) con il claude finto e un tmux privato.
 
 TU1  model: dal selettore di /model, «s» → «Set model to Sonnet 5 for this session only», uscita 0
-TU2  model per id, spostandosi verso l'alto (Sonnet → Fable)
+TU2  model per id, spostandosi verso l'alto (Sonnet → Fable); Opus 5.5 per id sulla voce «Opus (1M context)» (2.1.280)
 TU3  effort: cursore tutto a sinistra e poi avanti, «s» → «(this session only)», per low e per max
 TU4  valori fuori dalle scelte (modello sconosciuto, ultracode) → uscita 2, nessun tasto mandato
 TU5  sessione al lavoro («esc to interrupt») → uscita 3, niente selettore aperto
@@ -62,6 +62,11 @@ with T.PrivateTmux() as tm:
     T.check("TU1 the pane shows the session-only confirmation", "Set model to Sonnet 5 for this session only" in pane(tm, "alfa"), pane(tm, "alfa"))
     r = tune(tm, "model", "alfa", "claude-fable-5-1")
     T.check("TU2 model by id, moving up from the current entry: Fable 5.1", r.returncode == 0 and "Fable 5.1" in r.stdout, r.stdout + r.stderr)
+    r = tune(tm, "model", "alfa", "claude-opus-5-5[1m]")
+    T.check("TU2 Opus 5.5 by id: the «Opus (1M context)» entry of the 2.1.280 picker", r.returncode == 0 and "Opus 5.5" in r.stdout
+            and "Set model to Opus 5.5 for this session only" in pane(tm, "alfa"), r.stdout + r.stderr + pane(tm, "alfa"))
+    r = tune(tm, "model", "alfa", "claude-opus-5[1m]")
+    T.check("TU4 Opus 5 is no longer a choice (no picker entry since 2.1.280) → exit 2", r.returncode == 2, r.stdout + r.stderr)
     r = tune(tm, "effort", "alfa", "low")
     T.check("TU3 effort low: cursor to the left end, «s» → «(this session only)»",
             r.returncode == 0 and "effort low" in r.stdout and "Set effort level to low (this session only)" in pane(tm, "alfa"), r.stdout + r.stderr + pane(tm, "alfa"))

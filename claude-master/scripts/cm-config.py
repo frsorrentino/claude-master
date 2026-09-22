@@ -159,9 +159,11 @@ DEFAULTS = {
               # modelli il cui id non dice se la finestra e' da 1M o standard (sotto i 200k token il contesto resta null)
               "window_hint_dir": "~/.claude/fable-director/sessions", "window_unmarked": ["claude-fable-5-1"]},
     # cambio di modello ed effort di una sessione dal suo selettore, SOLO per quella sessione (16/09/2026, contratto
-    # 1.12): `pick` e' l'etichetta della voce nel selettore di /model, `id` quello che la sessione riporta in model.id
+    # 1.12): `pick` e' l'etichetta della voce nel selettore di /model, `id` quello che la sessione riporta in model.id.
+    # Dalla 2.1.280 (catturato il 22/09/2026) «Opus (1M context)» e' Opus 5.5 e Opus 5 non ha piu' una voce: tenere
+    # claude-opus-5[1m] su quell'etichetta avrebbe scelto Opus 5.5 senza errore
     "tune": {"timeout_s": 8, "file": "", "efforts": ["low", "medium", "high", "xhigh", "max"],
-             "models": [{"id": "claude-opus-5[1m]", "label": "Opus 5", "pick": "Opus (1M context)"},
+             "models": [{"id": "claude-opus-5-5[1m]", "label": "Opus 5.5", "pick": "Opus (1M context)"},
                         {"id": "claude-fable-5-1", "label": "Fable 5.1", "pick": "Fable"},
                         {"id": "claude-sonnet-5", "label": "Sonnet 5", "pick": "Sonnet"},
                         {"id": "claude-haiku-4-5", "label": "Haiku 4.5", "pick": "Haiku"}]},

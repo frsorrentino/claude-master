@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.4.14-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.4.15-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 ![One master session runs all the others: the root session launches, watches, answers and closes the parallel sessions of every project, from the terminal and from the wrist — beside it, the session list of the Wear OS app (beta coming soon), rendered from the app's code, on the demo set.](assets/readme/card0-hero.png)
 
@@ -105,7 +105,8 @@ what would come back, with the source and the date of each.
 
 `claude-master restart arm` restarts the current session when its turn ends
 and resumes where it was, because hooks, settings and plugins are read at
-startup only. One flag per session, so eight sessions can arm in the same
+startup only. It keeps the model too: a new default model reaches a resumed
+session only through `/model`, while `launch` starts on it. One flag per session, so eight sessions can arm in the same
 minute; `restart list` shows them. `--clean` starts fresh with the memory
 intact, `--switch-account` continues the same conversation on the other
 account. A kill from inside a tool would land mid-turn: the hook is the only

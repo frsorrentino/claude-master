@@ -2,6 +2,12 @@
 
 ## 0.3.x
 
+- **0.4.15 — 2026-09-22: Opus 5.5, and which Claude Code version each session runs.**
+  - `model`: Opus 5.5 replaces Opus 5 among the choices. Since Claude Code 2.1.280 the `/model` picker's «Opus (1M context)» entry is Opus 5.5 and Opus 5 has no entry at all (read from the live picker on 22/09), so the old choice `claude-opus-5[1m]` would have switched a session to Opus 5.5 without any error; it is now refused like any unknown model. The relay's `choices` carries `claude-opus-5-5[1m]` «Opus 5.5» accordingly. If your config file lists `tune.models`, update the Opus entry the same way.
+  - `sessions` has a VERSION column (and `version`, `outdated` in `--json`): the version each session's process actually executes, read from `/proc/<pid>/exe` (the registry's as fallback). Sessions older than the `claude` on your PATH are marked with `*` and one line explaining it: `claude update` and `claude --version` look at the disk, and a live session keeps its old version until it restarts — on 22/09 they said 2.1.280 while four live sessions ran 2.1.278.
+  - README: a restart keeps the model as well as the conversation; a session started with `launch` gets the new default.
+  - Tests: Opus 5.5 is read as the 1M window (CO7), picked by id from the 2.1.280 picker (TU2, TU4), version column (S22); the fake picker follows 2.1.280.
+
 - **0.4.14 — 2026-09-19: the watch can read the pairing confirmation.**
   - Relay. On a successful pairing the PC used to write `/pair/<code>/ok` and delete the whole node one second later, while the watch polls that path once a second: the confirmation regularly vanished before the watch read it, so the PC logged «paired» and the watch stayed on «Code not accepted». The success path now rewrites `/pair/<code>` as `{ok: …}` in one write — `pc_pub`, `watch`, `host` and `exp` go in the same write, so no second handshake can start on that code — and leaves the node for the watch. Expired or already-confirmed nodes are swept at the start of the next `pair`.
   - The evening recap files a session under the folder where it started, not where its shell happened to be (seen on 17/09: the root session had worked a dozen turns with its shell in the plugin's `scripts/` folder; the hooks record the current folder of each turn, so the recap took «scripts» for a project and wrote a `docs/recap.md` inside it). The folder of a session is now the one of its `start` event, looked up in the whole ledger and not only in the day being summarised. Test DI6.
