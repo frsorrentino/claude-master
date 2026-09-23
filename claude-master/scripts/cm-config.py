@@ -167,10 +167,8 @@ DEFAULTS = {
                         {"id": "claude-fable-5-1", "label": "Fable 5.1", "pick": "Fable"},
                         {"id": "claude-sonnet-5", "label": "Sonnet 5", "pick": "Sonnet"},
                         {"id": "claude-haiku-4-5", "label": "Haiku 4.5", "pick": "Haiku"}]},
-    # coda degli ok e casella persistente (23/09/2026, docs/plans/2026-09-23-approvazioni-casella-registro-design.md):
-    # canali con cui l'utente approva (tty = terminale vero, prompt = l'ultimo prompt scritto contiene l'id, watch = il
-    # polso via relay); scadenza degli ok e dei messaggi in attesa
-    "approvals": {"channels": ["tty", "prompt", "watch"], "expires_h": 12},
+    # casella persistente (23/09/2026, docs/plans/2026-09-23-approvazioni-casella-registro-design.md): scadenza dei
+    # messaggi in attesa. La coda degli ok e' stata tolta la sera stessa (decisione dell'utente, 22:39)
     "inbox": {"expires_h": 48},
     "hooks": {
         "local_time": {"enabled": True, "format": "%A %Y-%m-%d %H:%M", "prefix": "[local time]"},

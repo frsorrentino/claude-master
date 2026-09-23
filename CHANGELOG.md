@@ -2,6 +2,10 @@
 
 ## 0.3.x
 
+- **0.4.19 — 2026-09-23: the approval queue is removed; the durable inbox stays.**
+  - The approval queue of 0.4.18 (`claude-master ask-ok`, `ok`, `oks`, standing authorizations, the check in `release.sh`) is removed, by the user's decision after trying it: repeating a code on top of «go ahead» was worse than the plain final approval. For publications, pushes and releases a session now asks for a final approval saying what goes out and where; an «ok» or «go ahead» is enough. `release.sh` asks only its usual checks again.
+  - The durable inbox stays (`talk` writes before delivering, delivery at the next start or at the end of the turn, `claude-master inbox`, `talk --status`), and the recap's «between sessions» keeps the messages not delivered yet.
+
 - **0.4.18 — 2026-09-23: an approval queue for the user's oks, a durable inbox between sessions, and the day's «between sessions».**
   - Approval queue (`claude-master ask-ok`, `ok`, `oks`). A session that reaches a step needing the user's ok (push, release, public repo, deploy, payment, install) asks for it and ends its turn; the outcome reaches it on its own. Only the user decides: from a real terminal (commands run by Claude have no tty), or by writing «ok CODE» in the session — an answer to a question from the model or a message from another session never counts. A standing authorization from the user's first instruction (an action word and the repo named, «publish claude-master») covers that kind of action on that target until the end of the day; it is listed and revocable. Requests expire after 12 h; the approved commit is pinned, and `release.sh` run by a session stops after the preflight unless an ok covers its commit. `sessions` marks a session waiting for an ok. Every step is in the ledger with its proof.
   - Durable inbox (`claude-master inbox`, `talk --status ID`). `talk` writes each message to disk before delivering it: a known session that was closed receives it when it starts again, a busy one at the end of its turn; the same tmux name in another folder does not get the old mail; messages expire after 48 h. Kernel rule 4: use `talk` for recipients that may close.

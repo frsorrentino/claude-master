@@ -360,38 +360,18 @@ def span(g):
 
 
 def between_sessions(events):
-    """23/09 (fase 4 del design approvazioni-casella-registro): cosa e' successo FRA le sessioni, dal diario — gli ok
-    chiesti con esito, canale e attesa; le azioni coperte da un'autorizzazione iniziale; i messaggi non consegnati."""
-    asked, decided, covered, sent, delivered = {}, {}, 0, {}, set()
+    """23/09 (fase 4 del design approvazioni-casella-registro): cosa e' successo FRA le sessioni, dal diario — i
+    messaggi mandati con talk e non ancora consegnati (la coda degli ok e' stata tolta la sera stessa)."""
+    sent, delivered = {}, set()
     for e in events or []:
-        ev = e.get("event")
-        if ev == "ok-request":
-            asked[e.get("id")] = e
-        elif ev in ("ok-decision", "ok-expired"):
-            decided[e.get("id")] = e
-        elif ev == "ok-covered":
-            covered += 1
-        elif ev == "talk":
+        if e.get("event") == "talk":
             sent[e.get("id")] = e
-        elif ev == "delivered":
+        elif e.get("event") == "delivered":
             delivered.add(e.get("id"))
-    out = []
-    for rid, e in asked.items():
-        d = decided.get(rid)
-        if d is None:
-            state = M("recap.ok_pending")
-        elif d.get("event") == "ok-expired":
-            state = M("recap.ok_expired")
-        else:
-            mins = max(0, round((d["_ts"] - e["_ts"]).total_seconds() / 60))
-            state = M("recap.ok_decided", decision=d.get("decision") or "?", channel=d.get("channel") or "?", at=hm(d["_ts"]), mins=mins)
-        out.append(f"{rid} {e.get('what') or ''} ({e.get('session') or '?'}): {state}")
-    if covered:
-        out.append(M("recap.ok_covered", n=covered))
     lost = [e for i, e in sent.items() if i not in delivered]
-    if lost:
-        out.append(M("recap.undelivered", n=len(lost), list=", ".join(f"{e.get('sender') or '?'} → {e.get('to') or '?'}" for e in lost[:5])))
-    return out
+    if not lost:
+        return []
+    return [M("recap.undelivered", n=len(lost), list=", ".join(f"{e.get('sender') or '?'} → {e.get('to') or '?'}" for e in lost[:5]))]
 
 
 def render_short(groups, label, as_html=False, between=None):

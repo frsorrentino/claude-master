@@ -194,25 +194,20 @@ T.check("DI6 the project log goes to the project's own docs/recap.md, and nothin
         (ws / "personali" / "alfa" / "docs" / "recap.md").is_file() and "2026-09-11" in (ws / "personali" / "alfa" / "docs" / "recap.md").read_text() and not (sub / "docs").exists(),
         str(list(sub.iterdir())))
 
-# DI7 (23/09/2026): «Tra le sessioni» — ok chiesti con esito, canale e attesa; azioni coperte; messaggi non consegnati
+# DI7 (23/09/2026): «Tra le sessioni» — i messaggi mandati con talk e non ancora consegnati
 with open(state / "ledger.jsonl", "a") as f:
     for r_ in [
-        {"ts": "2026-09-12T20:30:00", "event": "ok-request", "id": "a7f3", "what": "release claude-master 0.4.18", "session": "claude-master"},
-        {"ts": "2026-09-12T20:41:00", "event": "ok-decision", "id": "a7f3", "decision": "approved", "channel": "watch"},
-        {"ts": "2026-09-12T21:00:00", "event": "ok-request", "id": "b2c4", "what": "push chrome-bridge", "session": "chrome-bridge"},
-        {"ts": "2026-09-12T21:05:00", "event": "ok-covered", "what": "release fable-director"},
         {"ts": "2026-09-12T21:10:00", "event": "talk", "id": "m1", "sender": "master", "to": "claude-master", "text": "fatto?"},
         {"ts": "2026-09-12T21:11:00", "event": "delivered", "id": "m1", "to": "claude-master"},
         {"ts": "2026-09-12T21:20:00", "event": "talk", "id": "m2", "sender": "master", "to": "pix-med", "text": "risposta"},
     ]:
         f.write(json.dumps(r_, ensure_ascii=False) + "\n")
 r = recap("--date", "2026-09-12")
-T.check("DI7 «Tra le sessioni»: each ok with outcome, channel and wait; one still pending; covered actions; undelivered messages only",
-        r.returncode == 0 and "Tra le sessioni" in r.stdout and "a7f3 release claude-master 0.4.18 (claude-master): approved (watch, 20:41, dopo 11 min)" in r.stdout
-        and "b2c4 push chrome-bridge (chrome-bridge): in attesa del tuo ok" in r.stdout and "1 azioni coperte" in r.stdout
-        and "1 messaggi non ancora consegnati: master → pix-med" in r.stdout, r.stdout[-700:] + r.stderr)
+T.check("DI7 «Tra le sessioni»: only the messages not delivered yet",
+        r.returncode == 0 and "Tra le sessioni" in r.stdout and "1 messaggi non ancora consegnati: master → pix-med" in r.stdout
+        and "claude-master" not in r.stdout.split("Tra le sessioni")[1].split("\n\n")[1], r.stdout[-500:] + r.stderr)
 r = recap("--date", "2026-09-11")
-T.check("DI7 a day without ok or messages has no «Tra le sessioni» section", "Tra le sessioni" not in r.stdout, r.stdout[-300:])
+T.check("DI7 a day without undelivered messages has no «Tra le sessioni» section", "Tra le sessioni" not in r.stdout, r.stdout[-300:])
 
 srv.shutdown()
 T.rm(tmp)
