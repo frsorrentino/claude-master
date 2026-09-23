@@ -42,7 +42,7 @@
   "doctor.config_bad": "configuration unreadable: {error}",
   "cli.unported": "claude-master {cmd}: not ported yet (phase {phase} of the plan). Today: {legacy}",
   "cli.unknown": "claude-master: unknown subcommand “{cmd}”",
-  "cli.usage": "usage: claude-master <init|doctor|config|version|help|launch|close|restart|sessions|talk|report|registry|restore|tile|merge|move|attach|color|quota|bot|recap|night|guard|answer|screen> [...]",
+  "cli.usage": "usage: claude-master <init|doctor|config|version|help|launch|close|restart|sessions|talk|report|registry|restore|tile|merge|move|attach|color|quota|bot|recap|night|guard|answer|screen|observe> [...]",
   "shim.unresolved": "claude-master: plugin root not found. Set CLAUDE_MASTER_ROOT, or plugin_root in the configuration, or install the plugin (claude plugin install claude-master@...)",
   "sessions.open": "open",
   "sessions.detached": "DETACHED",

@@ -4,6 +4,7 @@ eseguita quando tutto combacia. Nessun push, nessun tag: --check si ferma prima.
 copia del repo in tmp con una suite finta al posto di quella vera (che altrimenti girerebbe
 dentro sé stessa)."""
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -29,7 +30,9 @@ ver = json.loads(pj.read_text())["version"]
 
 
 def run(v):
-    return subprocess.run(["bash", "release.sh", v, "--check"], cwd=copy, capture_output=True, text=True, timeout=120)
+    # la copia del repo sta in una cartella temporanea: la fonte di claude-observe e' quella accanto al repo vero
+    return subprocess.run(["bash", "release.sh", v, "--check"], cwd=copy, capture_output=True, text=True, timeout=120,
+                          env={**os.environ, "CLAUDE_OBSERVE_SRC": str(root.parent / "claude-observe")})
 
 
 r = run("9.9.9")

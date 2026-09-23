@@ -61,6 +61,7 @@ case "$cmd" in
   model|modello)          exec python3 "$S/cm-tune.py" model "$@" ;;
   effort)                 exec python3 "$S/cm-tune.py" effort "$@" ;;
   screen|schermo)         exec python3 "$S/cm-screen.py" "$@" ;;
+  observe|osserva)        exec python3 "$S/../observe/observe.py" "$@" ;;   # copia di claude-observe (sync.py)
   *)
     python3 "$S/cm-config.py" --msg cli.unknown "cmd=$cmd" >&2
     python3 "$S/cm-config.py" --msg cli.usage >&2

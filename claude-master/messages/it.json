@@ -42,7 +42,7 @@
   "doctor.config_bad": "configurazione illeggibile: {error}",
   "cli.unported": "claude-master {cmd}: non ancora portato (fase {phase} del piano). Oggi: {legacy}",
   "cli.unknown": "claude-master: sottocomando sconosciuto «{cmd}»",
-  "cli.usage": "uso: claude-master <init|doctor|config|version|help|launch|close|restart|sessions|talk|report|registry|restore|tile|merge|move|attach|color|quota|bot|recap|night|guard|answer|screen> [...]",
+  "cli.usage": "uso: claude-master <init|doctor|config|version|help|launch|close|restart|sessions|talk|report|registry|restore|tile|merge|move|attach|color|quota|bot|recap|night|guard|answer|screen|observe> [...]",
   "shim.unresolved": "claude-master: radice del plugin non trovata. Imposta CLAUDE_MASTER_ROOT, o plugin_root nella configurazione, o installa il plugin (claude plugin install claude-master@...)",
   "sessions.open": "aperta",
   "sessions.detached": "STACCATA",

@@ -263,7 +263,7 @@ def build_quota(quota, kinds=None):
     return out
 
 
-def build_state(src, now):
+def build_state(src, now, fit=True):
     sessions = order_sessions([build_session(r, src) for r in (src.get("rows") or [])])
     # 1.13: last_used = l'ultima trascrizione di quella cartella (epoch s) o null; l'ordine resta per nome
     projects = sorted(({"path": p.get("path", ""), "name": p.get("name", ""), "account": p.get("account", ""),
@@ -283,7 +283,9 @@ def build_state(src, now):
         # 1.12: modelli ed effort che il polso puo' chiedere per una sessione; null se il relay non li conosce
         "choices": src.get("choices") or None
     }
-    return fit_state(state, int(src.get("state_max_kb") or 8))
+    # fit=False: lo stato intero, su cui il relay calcola gli eventi (23/09: gli eventi sullo stato tagliato davano
+    # «Session closed» al polso per sessioni vive che fit_state aveva tolto per la dimensione)
+    return fit_state(state, int(src.get("state_max_kb") or 8)) if fit else state
 
 
 def size_of(state):
@@ -334,6 +336,16 @@ def fit_state(state, max_kb=8):
                 o["full"] = cut_at_word(o["full"], n) if n else o["short"]
         if fits():
             return state
+    # 23/09: prima di togliere una sessione viva, i campi facoltativi delle sessioni ferme (nulli per contratto quando
+    # non si sanno) e i progetti oltre i primi cinque
+    for s in state["sessions"]:
+        if s.get("state") not in ("busy", "awaiting", "waiting"):
+            s["tool_note"], s["next"], s["next_at"] = None, None, None
+    if fits():
+        return state
+    state["projects"] = state["projects"][:5]
+    if fits():
+        return state
     while not fits() and len(items) > 1:
         items.pop()
     while not fits() and state["sessions"]:

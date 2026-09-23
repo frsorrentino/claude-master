@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.4.16-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.4.17-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 ![One master session runs all the others: the root session launches, watches, answers and closes the parallel sessions of every project, from the terminal and from the wrist — beside it, the session list of the Wear OS app (beta coming soon), rendered from the app's code, on the demo set.](assets/readme/card0-hero.png)
 
@@ -249,7 +249,7 @@ session.
 
 ## What you are trusting
 
-Three things are worth knowing before you turn them on.
+Four things are worth knowing before you turn them on.
 
 - **Sessions start with `--dangerously-skip-permissions`** if `init` sees that
   your existing sessions use it (it says so, with the source). Without it,
@@ -269,6 +269,22 @@ Three things are worth knowing before you turn them on.
   anywhere can start, answer or stop a session. What can act on a session is
   the paired watch, and before a «yes» from the watch reaches a session the
   plugin takes a git checkpoint of its workspace.
+- **Errors of claude-master's own commands are recorded, locally.** A
+  `PostToolUseFailure` hook ([claude-observe](https://github.com/frsorrentino/claude-observe),
+  in `claude-master/observe/`) writes each failed `claude-master` command
+  (except the exit codes documented as normal, like a refused restart) and
+  each watch command the relay could not carry out to
+  `~/.local/state/claude-observe/claude-master.jsonl` (or under
+  `$XDG_STATE_HOME`), a 0600 file on this computer; the same error again is
+  one line with a count. Of a command only its name, subcommand and option
+  names are kept: arguments become `<ARG>`, error texts are cleaned of the
+  home path, emails, URL queries and secrets, and no parameter value is ever
+  stored. Nothing leaves the computer on its own: the only way out is a
+  GitHub issue, which Claude offers once a few errors have piled up, shows
+  you anonymized, and sends only after your yes (with `gh`, or as a
+  prefilled link you open). Turn it
+  off with `{"enabled": false}` in `~/.config/claude-observe/config.json`;
+  `{"propose": false}` keeps the file and stops the offers.
 
 Each session is a Claude Code process (a few hundred MB each); the only
 process the plugin adds is the relay's daemon, a few MB waiting on a socket;
@@ -403,6 +419,7 @@ The complete reference. Italian aliases (`lancia`, `chiudi`, `sessioni`,
 | `claude-master guard run` · `install\|uninstall\|status` | quota guard: one warning per window above `guard.warn_pct` with the reset time, on Telegram when no watch is receiving; at the reset, the sessions that hit the wall get «resume where you were» and a pending night queue runs | |
 | `claude-master bot status` | one-way Telegram: the token, the allowed chats and the log of what was sent |
 | `claude-master recap [--date D\|--since H] [--send] [--full]` · `recap install\|uninstall\|status` | the day's diary, per project: waiting on a question first (with a link), then alive, then closed |
+| `claude-master observe add\|list\|show\|mark\|export\|report` | the local record of claude-master's own errors (see «What you are trusting»): add a workaround or a verdict, triage, or send them as one anonymized issue |
 | `claude-master night add <dir> "prompt" [--model M] [--effort E] [--max-turns N]` · `list` · `remove <id>` · `run [--dry-run\|--one] [--send]` · `install\|uninstall\|status` | the overnight queue |
 
 ## Tests

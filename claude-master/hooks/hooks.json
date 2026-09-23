@@ -1,25 +1,102 @@
 {
   "hooks": {
     "SessionStart": [
-      {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" SessionStart", "timeout": 10}]}
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" SessionStart",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/observe/observe.py\" session-start",
+            "timeout": 10
+          }
+        ]
+      }
     ],
     "SessionEnd": [
-      {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" SessionEnd", "timeout": 10}]}
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" SessionEnd",
+            "timeout": 10
+          }
+        ]
+      }
     ],
     "UserPromptSubmit": [
-      {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" UserPromptSubmit", "timeout": 5}]}
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" UserPromptSubmit",
+            "timeout": 5
+          }
+        ]
+      }
     ],
     "PermissionRequest": [
-      {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" PermissionRequest", "timeout": 5}]}
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" PermissionRequest",
+            "timeout": 5
+          }
+        ]
+      }
     ],
     "PostToolUse": [
-      {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" PostToolUse", "timeout": 5}]}
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" PostToolUse",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/observe/observe.py\" hook",
+            "timeout": 5
+          }
+        ]
+      }
     ],
     "Stop": [
-      {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" Stop", "timeout": 20}]}
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" Stop",
+            "timeout": 20
+          }
+        ]
+      }
     ],
     "StopFailure": [
-      {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" StopFailure", "timeout": 10}]}
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" StopFailure",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

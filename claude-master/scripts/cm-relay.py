@@ -20,6 +20,7 @@ Prove: CM_RELAY_CM (dispatcher da usare per sessions/registry/quota/answer/talk/
 relay.token_url e relay.fcm_url sul Firebase finto (tests/lib/cm_test.fake_rtdb).
 """
 import fcntl
+import copy
 import importlib.util
 import json
 import os
@@ -423,7 +424,8 @@ def collect_sources(now=None):
     ledger = core.ledger_rows()
     aw = awaiting(ledger, rows)
     # 1.1: l'icona della scheda per ogni sessione viva (cm-color: registro stabile), per le sparite l'ultima nota
-    last_icons = {s_.get("name"): s_.get("icon") for s_ in (read_json(rdir() / "last-state.json", {}).get("state") or {}).get("sessions", []) if s_.get("icon")}
+    _last = read_json(rdir() / "last-state.json", {})
+    last_icons = {s_.get("name"): s_.get("icon") for s_ in (_last.get("full") or _last.get("state") or {}).get("sessions", []) if s_.get("icon")}
     # il primo avvistamento di una domanda senza evento waiting nel ledger: l'asked_at della push precedente
     last_asked = {n: (s_.get("question") or {}).get("asked_at") for n, s_ in last_sessions().items() if s_.get("question")}
     icons = {}
@@ -529,14 +531,17 @@ def push(dry_run=False, now=None):
 def _push(dry_run=False, now=None):
     now = now or time.time()
     src = collect_sources(now)
-    state = S.build_state(src, now)
+    # gli eventi si calcolano sullo stato INTERO; il taglio per la dimensione tocca solo cio' che si pubblica (23/09:
+    # una sessione viva tolta da fit_state diventava «gone» e il polso diceva «Session closed»)
+    full = S.build_state(src, now, fit=False)
+    state = S.fit_state(copy.deepcopy(full), int(src.get("state_max_kb") or 8))
     names = {S.short_name(r.get("name") or r.get("tmux") or "?", src["prefixes"]): (r.get("tmux") or r.get("name")) for r in src["rows"]}
     if dry_run:
         print(json.dumps(state, ensure_ascii=False, indent=1))
         return state
     last_p = rdir() / "last-state.json"
     last = read_json(last_p, {})
-    events, seq = S.events_between(last.get("state") or {}, state, now, int(last.get("seq") or 0) + 1,
+    events, seq = S.events_between(last.get("full") or last.get("state") or {}, full, now, int(last.get("seq") or 0) + 1,
                                    warn_pct=float((CFG.get("guard") or {}).get("warn_pct") or 95))
     k = key()
     try:
@@ -562,7 +567,7 @@ def _push(dry_run=False, now=None):
         fallback_notice(events, fallback_mark(now))
     else:
         fallback_clear()
-    write_json(last_p, {"state": state, "seq": seq - 1, "pushed_at": now, "names": names})
+    write_json(last_p, {"state": state, "full": full, "seq": seq - 1, "pushed_at": now, "names": names})
     log(f"push: {len(state['sessions'])} sessioni, {len(events)} eventi")
     return state
 
@@ -734,7 +739,8 @@ def turn_status(ledger, sid):
 
 
 def last_sessions():
-    return {s["name"]: s for s in (read_json(rdir() / "last-state.json", {}).get("state") or {}).get("sessions", [])}
+    last = read_json(rdir() / "last-state.json", {})
+    return {s["name"]: s for s in (last.get("full") or last.get("state") or {}).get("sessions", [])}
 
 
 def last_message(row, cap=LAST_MAX):
@@ -1002,6 +1008,14 @@ def handle_cmd(cid, doc, done):
     row = last_sessions().get(str(cmd.get("session") or "")) or {}
     ledger_write("watch-cmd", op=str(cmd.get("op") or ""), name=str(cmd.get("session") or ""), by=by, ok=bool(ok),
                  text=str(text)[:200], session_id=row.get("id") or "", account=row.get("account") or "")
+    if not ok:   # osservazioni (23/09): un comando del polso fallito finisce nella casella di claude-master (claude-observe)
+        try:
+            spec = importlib.util.spec_from_file_location("cm_observe", HERE.parent / "observe" / "observe.py")
+            obs = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(obs)
+            obs.record_external("relay", f"relay {cmd.get('op') or ''}", str(text), str(cmd.get("session") or ""))
+        except Exception:   # noqa: BLE001 — un'informazione in piu': mai far cadere il comando
+            pass
     try:
         rtdb("PUT", f"result/{cid}", C.encrypt({"id": cid, "ok": bool(ok), "text": str(text), **extra, "at": int(time.time())}, k), {"print": "silent"})
         rtdb("DELETE", f"cmd/{cid}")

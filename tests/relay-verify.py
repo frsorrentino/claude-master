@@ -247,6 +247,29 @@ T.check("R2 (1.7) the recap is no longer the first thing to go: with ten gone se
         S.size_of(str_) <= 8192 and len(str_["recap"]["items"]) >= 1 and all(len(i["done"]) <= S.RECAP_CUT and len(i["next"]) <= S.RECAP_CUT for i in str_["recap"]["items"]), f"{S.size_of(str_)} items={len(str_['recap']['items'])}")
 import copy
 tiny = S.fit_state(copy.deepcopy(dict(S.build_state(dict(live, recap=recap_long), 1789210800))), max_kb=2)
+# 23/09 (dal polso: «Session closed» per sessioni vive e ferme): fit_state toglieva sessioni VIVE dal fondo quando lo
+# stato sfiorava gli 8 KB, e gli eventi calcolati sullo stato tagliato davano «gone»
+crowd = S.build_state(live, 1789210800, fit=False)
+for i in range(3):   # un caso in cui i tagli leggeri bastano; oltre (13 sessioni da ~600 byte) una sessione deve cadere
+    crowd["sessions"].append(dict(copy.deepcopy(crowd["sessions"][0]), name=f"viva-{i}", state="idle", question=None,
+                                  tool_note="nota " * 20, next="prossimo passo " * 8))
+crowd["projects"] = crowd["projects"] * 3
+cut = S.fit_state(copy.deepcopy(crowd), max_kb=8)
+live_names = {x["name"] for x in crowd["sessions"] if x["state"] != "gone"}
+T.check("R2 (23/09) a state over the cap: the lighter cuts (idle sessions' tool_note/next, projects to five) keep every live session",
+        S.size_of(crowd) > 8192 and live_names <= {x["name"] for x in cut["sessions"]} and S.size_of(cut) <= 8192,
+        f"{S.size_of(crowd)} → {S.size_of(cut)} {sorted(live_names - {x['name'] for x in cut['sessions']})}")
+tight = S.fit_state(copy.deepcopy(crowd), max_kb=3)
+ev_full, _ = S.events_between(crowd, crowd, 1789210900, 1)
+dropped = live_names - {x["name"] for x in tight["sessions"]}
+ev_cut, _ = S.events_between(crowd, tight, 1789210900, 1)
+T.check("R2 (23/09) events come from the full state: a live session trimmed from the published state is not «gone» (the relay diffs the full states)",
+        dropped and not [e for e in ev_full if e["kind"] == "gone"] and [e for e in ev_cut if e["kind"] == "gone"],
+        f"dropped={sorted(dropped)} gone_full={[e['session'] for e in ev_full if e['kind'] == 'gone']}")
+relay_src = (T.SCRIPTS / "cm-relay.py").read_text()
+T.check("R2 (23/09) _push diffs full states and keeps the full one in last-state.json",
+        "full = S.build_state(src, now, fit=False)" in relay_src and 'last.get("full") or last.get("state")' in relay_src
+        and '"full": full' in relay_src, "")
 T.check("R2 (1.7) even under a tiny cap one recap item stays, cut to RECAP_CUT at a word (items go from the end, never the last)",
         len(tiny["recap"]["items"]) == 1 and tiny["recap"]["items"][0]["project"] == "progetto-00" and len(tiny["recap"]["items"][0]["done"]) <= S.RECAP_CUT, str(tiny["recap"]))
 T.check("R2 (1.6) short = the whole Watch line up to 200, cut at a word, no «…»", works[0]["outcome"]["short"] == "paused at a clean point; resume steps are in the plan and the tests are green on both suites" and S.short_of("parola " * 40, S.SHORT_MAX) == ("parola " * 40)[:200].rsplit(" ", 1)[0].rstrip() and "…" not in S.short_of("parola " * 40, S.SHORT_MAX), works[0]["outcome"]["short"])

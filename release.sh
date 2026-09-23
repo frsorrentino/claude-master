@@ -44,6 +44,11 @@ git rev-parse "v$VER" >/dev/null 2>&1 \
 STRAY="$(git status --porcelain --untracked-files=all -- "$PLUGIN" | grep '^??' || true)"
 [ -z "$STRAY" ] \
   || { echo "FAIL: untracked files under $PLUGIN would ship in the zip — move them out or track them:"; echo "$STRAY"; exit 1; }
+# claude-observe (23/09/2026): la copia in $PLUGIN/observe/ deve coincidere con la fonte (repo accanto, o CLAUDE_OBSERVE_SRC)
+OBS_SRC="${CLAUDE_OBSERVE_SRC:-../claude-observe}"
+[ -f "$OBS_SRC/check.sh" ] || { echo "FAIL: claude-observe source not found at $OBS_SRC (clone it next to this repo or set CLAUDE_OBSERVE_SRC)"; exit 1; }
+bash "$OBS_SRC/check.sh" "$PLUGIN" \
+  || { echo "FAIL: the claude-observe copy differs from its source — python3 $OBS_SRC/sync.py $PLUGIN"; exit 1; }
 python3 tools-privacy-check.py --quiet \
   || { echo "FAIL: privacy check (docs/privacy-blocklist.txt) — neutralize before publishing"; exit 1; }
 echo "preflight ok: $VER in plugin.json, CHANGELOG, README; tag v$VER free; nothing untracked in $PLUGIN; privacy ok"
