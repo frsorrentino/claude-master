@@ -325,6 +325,77 @@ def _transcript_runtime(row, tail_bytes, head_bytes):
     return out
 
 
+FALLBACK_MARK = b'"subtype":"model_refusal_fallback"'
+
+
+def _base_model(model_id):
+    return str(model_id or "").split("[")[0]
+
+
+def model_fallback(row, tail_bytes=512 * 1024):
+    """La sessione e' passata a un altro modello perche' le salvaguardie hanno segnalato un messaggio? (22/09/2026)
+    {"from", "to", "category", "at"} oppure None. Definizione comune con fable-director (hook PostModelSwitch).
+
+    Da Opus 5.5 (Claude Code 2.1.280) un messaggio segnalato (bio, cyber) sposta la sessione su un modello piu'
+    vecchio senza fermarla, e un avviso a schermo lo dice una volta sola. Claude Code scrive nella trascrizione una
+    riga {"type":"system","subtype":"model_refusal_fallback", ...} con originalModel, fallbackModel, direction
+    (retry | revert | sticky), scope (session | local; assente nelle versioni vecchie = session) e
+    apiRefusalCategory, e la rilegge alla ripresa (letto nel binario 2.1.280: schema SDK e codice di resume; mai
+    provocato un messaggio segnalato per vederla). E' ripiegata se l'ultima riga che non sia `local` non e' un
+    `revert` e l'ultimo turno vero e' ancora sul suo fallbackModel: chi torna indietro con /model o
+    `claude-master model` scrive turni sul modello di prima, e il segno sparisce da se'. Un cambio fatto da
+    `claude-master model` dopo la riga, non ancora scritto in un turno, lo spegne subito (tune.file)."""
+    import mmap
+    path = transcript_of(row)
+    if not path:
+        return None
+    try:
+        with open(path, "rb") as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+            # la riga si cerca in tutto il file: il messaggio segnalato puo' essere di ore fa, ben prima della coda
+            end, entry = len(mm), None
+            while entry is None:
+                i = mm.rfind(FALLBACK_MARK, 0, end)
+                if i < 0:
+                    return None
+                a = mm.rfind(b"\n", 0, i) + 1
+                b = mm.find(b"\n", i)
+                end = a
+                try:
+                    d = json.loads(mm[a:b if b >= 0 else len(mm)])
+                except ValueError:
+                    continue
+                if d.get("type") == "system" and d.get("subtype") == "model_refusal_fallback" and d.get("scope") != "local":
+                    entry = d
+            last = None
+            for raw in reversed(mm[max(0, len(mm) - tail_bytes):].split(b"\n")):
+                if b'"type":"assistant"' not in raw:
+                    continue
+                try:
+                    m = str((json.loads(raw).get("message") or {}).get("model") or "")
+                except (ValueError, AttributeError):
+                    continue
+                if m and not m.startswith("<"):
+                    last = m
+                    break
+    except (OSError, ValueError):   # file vuoto: mmap rifiuta la lunghezza 0
+        return None
+    to = str(entry.get("fallbackModel") or "")
+    if entry.get("direction") == "revert" or not to or _base_model(last) != _base_model(to):
+        return None
+    at = int(_turn_epoch(entry.get("timestamp"))) or None
+    sid = (row or {}).get("session_id") or ""
+    f = (_cfg().get("tune") or {}).get("file") or ""
+    if sid and f and at:
+        try:
+            tuned = (json.loads(Path(cm.expand(f)).read_text()) or {}).get(sid) or {}
+        except (OSError, ValueError, AttributeError):
+            tuned = {}
+        if float(tuned.get("at") or 0) > at and (tuned.get("model") or {}).get("id"):
+            return None
+    return {"from": str(entry.get("originalModel") or "") or None, "to": to,
+            "category": str(entry.get("apiRefusalCategory") or "") or None, "at": at}
+
+
 # ------------------------------------------------------------------ il polso riceve? (scorta su Telegram)
 def relay_dir():
     return Path(cm.expand((_cfg().get("relay") or {}).get("dir") or "~/.claude-master/relay"))

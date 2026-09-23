@@ -174,7 +174,9 @@ SRC1 = {
     # 1.11: quello che ogni sessione viva sta usando (la gone non ha trascrizione da rileggere)
     "runtime": {"work-ledger-api": {"model": {"id": "claude-opus-5[1m]", "label": "Opus 5"}, "effort": "high", "context": 62},
                 "atlas-shop": {"model": {"id": "claude-sonnet-5", "label": "Sonnet 5"}, "effort": "medium", "context": 18},
-                "field-notes": {"model": {"id": "claude-sonnet-5", "label": "Sonnet 5"}, "effort": "low", "context": 4}},
+                # 1.14: field-notes e' passata da sola a Sonnet 5 dopo un messaggio segnalato
+                "field-notes": {"model": {"id": "claude-sonnet-5", "label": "Sonnet 5"}, "effort": "low", "context": 4,
+                                "fallback": {"from": "claude-opus-5-5", "to": "claude-sonnet-5", "category": "cyber", "at": 1789210300}}},
 }
 KINDS = {"personal": "personal", "work": "work"}   # 1.8: come li calcola il relay dalla config del test
 SRC1["account_kinds"] = KINDS
@@ -375,7 +377,7 @@ T.check("R4 push --dry-run: clear JSON on stdout, no HTTP; sessions ordered ❓ 
 T.check("R4 (1.1) every live session carries icon (from cm-color's registry, stable) and color «#RRGGBB»; the gone one has none on the first push", all(x["icon"] and re.match(r"^#[0-9A-F]{6}$", x["color"] or "") for x in dry["sessions"] if x["state"] != "gone") and dry["sessions"][3]["icon"] is None, str([(x["name"], x["icon"], x["color"]) for x in dry["sessions"]]))
 r = relay("push")
 T.check("R4 push: exit 0, /state on the bus is {v:1, enc} and decrypts to the same document as the dry-run (but ts)", r.returncode == 0 and set(STORE.get("state", {})) == {"v", "enc"} and STORE["state"]["v"] == 1 and {kk: v for kk, v in C.decrypt(STORE["state"], k).items() if kk != "ts"} == {kk: v for kk, v in dry.items() if kk != "ts"}, r.stdout + r.stderr + str(STORE.get("state"))[:100])
-evs = {kk: C.decrypt(v, k) for kk, v in (STORE.get("events") or {}).items()}
+evs = {kk: C.decrypt(v, k) for kk, v in list((STORE.get("events") or {}).items())}
 T.check("R4 first push: /events has launched ×3 and the question (encrypted, key <ts>_<seq>); FCM sent one data message per event with kind and session; last-state.json written", sorted(e["kind"] for e in evs.values()) == ["launched", "launched", "launched", "question"] and all(kk == evs[kk]["key"] for kk in evs) and len(CALLS["fcm"]) == 4 and any(m["message"]["data"]["kind"] == "question" and m["message"]["data"]["session"] == "ledger-api" and m["message"]["topic"] == "watch" for m in CALLS["fcm"]) and (rdir2 / "last-state.json").is_file(), str(evs) + str(CALLS["fcm"])[:300])
 n_fcm, n_ev = len(CALLS["fcm"]), len(STORE["events"])
 ts1 = C.decrypt(STORE["state"], k)["ts"]
@@ -386,7 +388,7 @@ T.check("R4 second push without changes: new ts, no new event, no FCM", r.return
 rows_alive("atlas-shop", "field-notes", **{"atlas-shop": {"status": "idle"}})
 (state_dir / "waiting" / "S-L").unlink()
 r = relay("push")
-evs = {kk: C.decrypt(v, k) for kk, v in STORE["events"].items()}
+evs = {kk: C.decrypt(v, k) for kk, v in list(STORE["events"].items())}
 new = [e for e in evs.values() if e["key"] not in [] and e["ts"] >= ts1]
 T.check("R4 third push: ledger-api vanished → gone; the FCM for it", any(e["kind"] == "gone" and e["session"] == "ledger-api" for e in evs.values()) and CALLS["fcm"][-1]["message"]["data"]["kind"] == "gone", str([(e["kind"], e["session"]) for e in evs.values()]))
 # async con debounce: due richieste in mezzo secondo → una sola scrittura di /state
@@ -667,8 +669,10 @@ hook("SessionEnd", {"session_id": "S-F", "cwd": str(ws / "personal" / "field-not
 T.check("R7 SessionEnd → push", T.wait_until(lambda: state_puts() > n0, 15), "")
 # PostToolUse (14/09, dall'app): la domanda risposta da tastiera o telefono deve sparire anche dall'orologio in
 # background, che si sveglia solo con FCM, cioe' con un evento: il push dopo l'hook ha lo stato senza domanda → answered
+# il finto bus scrive STORE da un altro thread mentre il test lo scorre: si scorre una copia (22-23/09: la release
+# si e' fermata due volte su «dictionary changed size during iteration»)
 def answered_count(name):
-    return sum(1 for v in (STORE.get("events") or {}).values() if (lambda e: e.get("kind") == "answered" and e.get("session") == name)(C.decrypt(v, k) or {}))
+    return sum(1 for v in list((STORE.get("events") or {}).values()) if (lambda e: e.get("kind") == "answered" and e.get("session") == name)(C.decrypt(v, k) or {}))
 
 
 (state_dir / "waiting" / "S-A").write_text(json.dumps({"tool": "Bash", "input": {"command": "make test"}}))

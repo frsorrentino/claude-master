@@ -40,6 +40,31 @@ json_get() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); v=d.ge
 my_tmux() { cm_tmux display-message -p -t "${TMUX_PANE:-}" '#S' 2>/dev/null; }
 
 # ---------------------------------------------------------------- arm
+switch_asked() {  # $1 = config dir dell'account di adesso, $2 = id della conversazione
+  python3 - "$1" "$2" <<'PY'
+import glob, json, re, sys
+conf, sid = sys.argv[1:]
+paths = glob.glob(f"{glob.escape(conf)}/projects/*/{glob.escape(sid)}.jsonl")
+last = None
+for path in paths[:1]:
+    for raw in open(path, errors="replace"):
+        try:
+            d = json.loads(raw)
+        except ValueError:
+            continue
+        if d.get("type") != "user" or d.get("isMeta") or d.get("isSidechain"):
+            continue
+        c = (d.get("message") or {}).get("content")
+        if isinstance(c, list):
+            if any(isinstance(x, dict) and x.get("type") == "tool_result" for x in c):
+                continue   # l'esito di un tool, e le risposte a AskUserQuestion: non sono parole dell'utente
+            c = " ".join(str(x.get("text") or "") for x in c if isinstance(x, dict))
+        if isinstance(c, str) and c.strip() and not c.lstrip().startswith(("<cross-session-message", "<task-notification", "<system-reminder")):
+            last = c
+sys.exit(0 if last and re.search(r"\baccount\b|switch-account|altro-account", last, re.I) else 1)
+PY
+}
+
 arm() {
   [ -n "${TMUX:-}" ] || { cm_msg restart.not_in_tmux >&2; exit 3; }
   local info nome pid cartella
@@ -62,7 +87,13 @@ arm() {
           for a in $CM_ACCOUNTS_KEYS; do [ "$a" != "$acc_da" ] && { [ -n "$acc_a" ] && acc_a="?" || acc_a="$a"; }; done
           [ "$acc_a" = "?" ] && { cm_msg restart.which_account "known=$CM_ACCOUNTS_KEYS" >&2; exit 3; }
         fi
-        conf_a="$(cm_get "$acc_a" CONFIG_DIR)"; [ -n "$conf_a" ] || { cm_msg launch.unknown_account "account=$acc_a" "known=$CM_ACCOUNTS_KEYS" >&2; exit 3; } ;;
+        conf_a="$(cm_get "$acc_a" CONFIG_DIR)"; [ -n "$conf_a" ] || { cm_msg launch.unknown_account "account=$acc_a" "known=$CM_ACCOUNTS_KEYS" >&2; exit 3; }
+        # 23/09/2026: il cambio di account manda la conversazione all'altra organizzazione, quindi lo chiede SOLO
+        # l'utente, con parole sue. Il 22/09 alle 23:18 il modello l'ha proposto in una domanda («Professionale
+        # (Consigliato)»), l'utente ha risposto pensando alla qualita' del lavoro, e la sessione e' ripartita
+        # sull'altro account. Vale solo l'ultimo prompt SCRITTO (non una risposta a una domanda, non un messaggio
+        # di un'altra sessione, non l'espansione di una skill) che nomina l'account o l'opzione.
+        switch_asked "$conf_da" "$sid" || { cm_msg restart.switch_not_asked >&2; exit 4; } ;;
       *) cm_msg restart.unknown_option "opt=$1" >&2; exit 2 ;;
     esac
     shift
@@ -75,7 +106,7 @@ json.dump({"tmux": nome, "pid": int(pid), "cartella": cartella, "armato": time.s
            "sessione": sid, "account_a": acc_a}, open(f, "w"))
 PY
   cm_msg restart.armed "name=$nome" "pid=$pid" "dir=$cartella"
-  [ -n "$conf_a" ] && cm_msg restart.armed_switch "account=$acc_a" "sid=$sid"
+  [ -n "$conf_a" ] && cm_msg restart.armed_switch "account=$(cm_get "$acc_a" LABEL || true)" "sid=$sid"
   [ "$clean" = true ] && cm_msg restart.armed_clean
   cm_msg restart.armed_when "log=$LOG"
 }

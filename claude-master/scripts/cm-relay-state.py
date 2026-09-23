@@ -219,6 +219,10 @@ def build_session(row, src):
         "model": rt.get("model") or None,
         "effort": rt.get("effort") or None,
         "context": rt.get("context") if isinstance(rt.get("context"), int) else None,
+        # 1.14 (22/09/2026): la sessione e' passata da sola a un modello piu' vecchio perche' le salvaguardie hanno
+        # segnalato un messaggio (Opus 5.5): {from, to, category, at} finche' resta li', altrimenti null. Si torna con
+        # l'op `model` o con /model; il segno sparisce al primo turno sul modello di prima
+        "fallback": _fallback(rt.get("fallback")),
         # 1.1: icona della scheda (stabile per la vita della sessione) e il suo solo colore
         "icon": (src.get("icons") or {}).get(tmux) or None,
         "color": color_of((src.get("icons") or {}).get(tmux), src.get("colors")),
@@ -384,3 +388,11 @@ def events_between(prev, cur, now, seq=1, warn_pct=95):
                 add("quota", None, f"⚠ {v} % {acc}", f"reset {_hm(q.get('reset_w7'))}")
                 out[-1]["account"] = acc
     return out, seq
+
+
+def _fallback(fb):
+    if not isinstance(fb, dict) or not fb.get("to"):
+        return None
+    at = fb.get("at")
+    return {"from": fb.get("from") or None, "to": str(fb["to"]), "category": fb.get("category") or None,
+            "at": int(at) if isinstance(at, (int, float)) and at else None}

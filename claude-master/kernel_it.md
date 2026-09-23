@@ -4,7 +4,7 @@ CLAUDE-MASTER (sessioni parallele; comandi `claude-master sessions|launch|close|
 3. Nessun orologio: leggi `[ora locale]` prima di «ieri», «stanotte», «poco fa»; preferisci l'ora assoluta.
 4. Altra sessione: se è in `ListAgents` → `SendMessage`; altrimenti `claude-master talk NOME "prompt"`. «Failed to send» può mentire: verifica prima di rimandare.
 5. tmux: `has-session`/`kill-session` con `-t =NOME` (senza `=` uccide `NOME-2` per prefisso); `capture-pane`/`send-keys`/`set-option` col nome nudo. Chiudi con `claude-master close` (rifiuta le attaccate); mai chiudere sé stessi: `claude-master restart arm` a fine turno.
-6. Finestra chiusa = sessione finita; senza finestra sopravvive. Account dedotto dalla cartella: default con avviso, mai divieto.
+6. Finestra chiusa = sessione finita; senza finestra sopravvive. Account dedotto dalla cartella: default con avviso, mai divieto. Mai proporre o consigliare un cambio di account (manda il contesto all'altra organizzazione): solo se l'utente lo scrive; nominalo col proprietario, non con «personale/professionale».
 7. `--resume` con id inesistente apre una conversazione VUOTA senza errore: con due sessioni sulla stessa cartella usa `--resume <id>`, non `--continue`.
 8. Percorsi parziali: risolvili tu, chiedi se ambiguo; mai creare una cartella per un refuso (`--create` solo su richiesta esplicita).
 9. Chiudi ogni turno con UNA riga di esito (cosa è cambiato o deciso), mai «Fatto.» da solo: alimenta recap, `next`, registro.

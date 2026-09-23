@@ -487,7 +487,10 @@ def collect_sources(now=None):
         if r.get("status") == "dead" or not r.get("session_id"):
             continue
         try:
-            runtime[r.get("tmux") or r.get("name") or ""] = core.session_runtime(r)
+            rt = core.session_runtime(r)
+            # 1.14 (22/09): il ripiego dopo un messaggio segnalato, gia' letto da `sessions --json`
+            rt["fallback"] = r.get("fallback") or None
+            runtime[r.get("tmux") or r.get("name") or ""] = rt
         except Exception:   # noqa: BLE001 — un extra: mai bloccare la push
             pass
     return {

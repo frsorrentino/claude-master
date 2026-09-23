@@ -36,6 +36,12 @@ della versione su disco (dove punta `claude` nel PATH): `claude update` e
 `claude --version` guardano il disco, e il 22/09 dicevano 2.1.280 mentre le
 quattro sessioni vive giravano sulla 2.1.278.
 
+MODELLO RIPIEGATO (22/09/2026): da Opus 5.5 un messaggio segnalato dalle
+salvaguardie (bio, cyber) sposta la sessione su un modello piu' vecchio senza
+fermarla. `fallback` = {from, to, category, at} finche' la sessione e' ancora
+sul modello di ripiego, letto dalla trascrizione (cm-core.model_fallback, stessa
+definizione di fable-director); nella tabella, la nota dice come tornare.
+
 Uso: cm-sessions.py [--json] [--watch [SECONDI]] [--no-screen]
 """
 import glob
@@ -375,6 +381,19 @@ def collect(read_screen=True):
         })
     for r in rows:
         r["outdated"] = older(r.get("version", ""), disk)
+    core = None
+    for r in rows:
+        r["fallback"] = None
+        if not r.get("session_id"):
+            continue
+        try:
+            if core is None:
+                spec = importlib.util.spec_from_file_location("cm_core", HERE / "cm-core.py")
+                core = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(core)
+            r["fallback"] = core.model_fallback(r)
+        except Exception:   # noqa: BLE001 — un'informazione in piu': mai far cadere l'elenco
+            pass
     # chi aspetta senza nessuno davanti va per primo: e' lavoro fermo, non in corso
     rows.sort(key=lambda r: (not (r["waiting"] and not r["attached"]), r["account"], r["tmux"] or r["name"]))
     return rows
@@ -429,6 +448,12 @@ def render(rows):
             else:
                 note = "  <- " + m("sessions.abandoned")
                 abandoned += 1
+        fb = r.get("fallback")
+        if fb:
+            back = next((mm["id"] for mm in CFG["tune"]["models"] if mm["id"].split("[")[0] == str(fb.get("from") or "").split("[")[0]), "")
+            note += "  <- " + m("sessions.fallback", to=fb["to"], was=fb.get("from") or "?",
+                                why=f" {fb['category']}" if fb.get("category") else "",
+                                back=f"/model · claude-master model {r['tmux'] or r['name']} {back}" if back and (r["tmux"] or r["name"]) else "/model")
         # NOME = il nome tmux, quello che answer/talk/close accettano; /rename nell'app cambia solo
         # `name` nel registro peer (provato l'11/09/2026): lo si mostra accanto, mai al posto
         shown = r["tmux"] or r["name"]

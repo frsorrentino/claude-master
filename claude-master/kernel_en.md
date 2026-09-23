@@ -4,7 +4,7 @@ CLAUDE-MASTER (parallel sessions; commands `claude-master sessions|launch|close|
 3. No clock: read `[local time]` before "yesterday", "last night", "a moment ago"; prefer absolute times.
 4. Another session: listed in `ListAgents` → `SendMessage`; otherwise `claude-master talk NAME "prompt"`. "Failed to send" can lie: check before resending.
 5. tmux: `has-session`/`kill-session` with `-t =NAME` (without `=` it kills `NAME-2` by prefix); `capture-pane`/`send-keys`/`set-option` take the bare name. Close with `claude-master close` (refuses attached ones); never close yourself: `claude-master restart arm` at the end of the turn.
-6. Window closed = session over; no window = it survives. Account deduced from the folder: a default with a warning, never a ban.
+6. Window closed = session over; no window = it survives. Account deduced from the folder: a default with a warning, never a ban. Never propose or recommend an account switch (it sends the context to the other organization): only when the user writes it; name the account by its owner, not «personal/work».
 7. `--resume` with a missing id opens an EMPTY conversation with no error: with two sessions on one folder use `--resume <id>`, not `--continue`.
 8. Partial paths: resolve them, ask if ambiguous; never create a folder for a typo (`--create` only on explicit request).
 9. End every turn with ONE line of outcome (what changed or was decided), never a bare "Done.": it feeds the recap, `next`, the registry.

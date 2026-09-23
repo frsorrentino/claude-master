@@ -174,6 +174,53 @@ with open(tpath, "a") as f:
 rt = core.session_runtime(row)
 T.check("CO11 a trailing «<synthetic>» turn is skipped: the last real turn gives model, effort and context",
         rt == {"model": {"id": "claude-sonnet-5", "label": "Sonnet 5"}, "effort": "medium", "context": 25}, str(rt))
+# CO12 (22/09/2026, Opus 5.5): il ripiego dopo un messaggio segnalato. Le righe come le scrive Claude Code 2.1.280
+# (schema letto nel binario; nessun messaggio segnalato provocato per vederle)
+row9 = {"session_id": "S-9", "cwd": str(cwd), "account": "personal"}
+t9 = tdir / "S-9.jsonl"
+
+
+def turno(model, ts="2026-09-22T20:00:00.000Z"):
+    return json.dumps({"type": "assistant", "timestamp": ts, "message": {"model": model, "usage": {"input_tokens": 10}}}, separators=(",", ":"))
+
+
+def ripiego(ts="2026-09-22T19:59:00.000Z", **kw):
+    d = {"parentUuid": "p", "isSidechain": False, "type": "system", "subtype": "model_refusal_fallback",
+         "content": "Opus 5.5's safeguards flagged this message.", "level": "warning", "trigger": "refusal", "direction": "retry",
+         "scope": "session", "originalModel": "claude-opus-5-5", "fallbackModel": "claude-opus-5", "requestId": "req_1",
+         "apiRefusalCategory": "cyber", "timestamp": ts}
+    d.update(kw)
+    return json.dumps({k: v for k, v in d.items() if v is not None}, separators=(",", ":"))
+
+
+def fb(*lines):
+    t9.write_text("\n".join(lines) + "\n")
+    return core.model_fallback(row9)
+
+
+core._CFG.setdefault("tune", {})["file"] = ""
+T.check("CO12 a session-scope fallback and the last turn on the fallback model → from, to, category, at",
+        fb(turno("claude-opus-5-5"), ripiego(), turno("claude-opus-5")) == {"from": "claude-opus-5-5", "to": "claude-opus-5", "category": "cyber", "at": 1790107140},
+        str(fb(turno("claude-opus-5-5"), ripiego(), turno("claude-opus-5"))))
+T.check("CO12 scope absent (older CLIs) counts as session", fb(ripiego(scope=None), turno("claude-opus-5")) is not None, "")
+T.check("CO12 scope local (a subagent, /btw, a fork) → the session model is unchanged: None",
+        fb(turno("claude-opus-5-5"), ripiego(scope="local", fallbackModel="claude-opus-5"), turno("claude-opus-5-5")) is None, "")
+T.check("CO12 a local fallback after a session one does not hide it",
+        fb(ripiego(), ripiego(scope="local", ts="2026-09-22T20:01:00.000Z"), turno("claude-opus-5")) is not None, "")
+T.check("CO12 back on the original model (/model or claude-master model) → None", fb(ripiego(), turno("claude-opus-5"), turno("claude-opus-5-5")) is None, "")
+T.check("CO12 direction revert → None", fb(ripiego(direction="revert"), turno("claude-opus-5")) is None, "")
+T.check("CO12 a trailing «<synthetic>» turn is skipped", fb(ripiego(), turno("claude-opus-5"), turno("<synthetic>")) is not None, "")
+riempi9 = json.dumps({"type": "user", "message": {"content": "x" * 900}})
+T.check("CO12 the flagged message hours ago, far before the 512 KB tail: still found",
+        fb(ripiego(), *([riempi9] * 800), turno("claude-opus-5")) is not None, str(t9.stat().st_size))
+T.check("CO12 no fallback line, empty transcript, no transcript → None",
+        fb(turno("claude-opus-5")) is None and (t9.write_text("") or core.model_fallback(row9)) is None
+        and core.model_fallback({"session_id": "nope", "cwd": str(cwd), "account": "personal"}) is None, "")
+tuned9 = proj / "tuned9.json"
+tuned9.write_text(json.dumps({"S-9": {"at": 1790107200, "model": {"id": "claude-opus-5-5[1m]", "label": "Opus 5.5"}}}))
+core._CFG["tune"]["file"] = str(tuned9)
+T.check("CO12 claude-master model back after the fallback, no new turn yet → None", fb(ripiego(), turno("claude-opus-5")) is None, "")
+core._CFG["tune"]["file"] = ""
 T.check("CO7 no transcript → the three fields are absent, without an error",
         core.session_runtime({"session_id": "nope", "cwd": str(cwd), "account": "personal"}) == {"model": None, "effort": None, "context": None}, "")
 T.finish()

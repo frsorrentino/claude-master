@@ -43,6 +43,7 @@
       },
       "effort": "high",
       "context": 62,
+      "fallback": null,
       "icon": "🟦",
       "color": "#3B82F6"
     },
@@ -74,6 +75,7 @@
       },
       "effort": "medium",
       "context": 18,
+      "fallback": null,
       "icon": "🟢",
       "color": "#2ECC71"
     },
@@ -105,6 +107,12 @@
       },
       "effort": "low",
       "context": 4,
+      "fallback": {
+        "from": "claude-opus-5-5",
+        "to": "claude-sonnet-5",
+        "category": "cyber",
+        "at": 1789210300
+      },
       "icon": "🟡",
       "color": "#F4D03F"
     },
@@ -129,6 +137,7 @@
       "model": null,
       "effort": null,
       "context": null,
+      "fallback": null,
       "icon": "🟪",
       "color": "#9B59B6"
     }

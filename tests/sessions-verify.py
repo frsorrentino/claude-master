@@ -27,6 +27,8 @@ S21 (S09, prova) experimental.codex acceso: il riquadro Codex (argv0 «codex») 
     rollout (task_started → busy, task_complete → idle); spento → nessuna riga
 S22 VERSIONE: quella del binario in /proc/<pid>/exe vince sul registro; senza un exe che si chiami come una versione,
     quella del registro; le piu' vecchie della versione su disco (CM_CLAUDE_BIN) hanno `*` e la riga che lo spiega
+S23 modello ripiegato dopo un messaggio segnalato (riga model_refusal_fallback nella trascrizione): `fallback` nel
+    JSON e una nota con il modello di prima e il comando per tornare; tornati al modello di prima, niente
 """
 import json
 import os
@@ -242,6 +244,29 @@ with T.PrivateTmux() as tm:
     table = run("--no-screen", extra={"CLAUDE_MASTER_CONFIG": cx_cfg, "CM_PROC_SCAN_PIDS": scan}).stdout
     T.check("S21 task_complete → idle; the table shows it by name, not as «(unregistered)»", cx and cx[0]["status"] == "idle" and any(l.split()[2:3] == ["cxs"] and "idle" in l for l in table.splitlines()), str(cx) + table[:600])
     T.check("S21 experimental.codex off (default): no Codex row", codex_rows(en_cfg) == [], "")
+
+    # S23: la trascrizione di alfa (account personale, cartella ws/alfa) con un ripiego dopo un messaggio segnalato
+    import re as _re9
+    tdir9 = home / ".claude" / "projects" / _re9.sub(r"[^A-Za-z0-9]", "-", os.path.realpath(home / "ws" / "alfa"))
+    tdir9.mkdir(parents=True, exist_ok=True)
+    t9 = tdir9 / "sid-alfa.jsonl"
+    rip = json.dumps({"type": "system", "subtype": "model_refusal_fallback", "trigger": "refusal", "direction": "retry",
+                      "scope": "session", "originalModel": "claude-opus-5-5", "fallbackModel": "claude-sonnet-5",
+                      "apiRefusalCategory": "cyber", "timestamp": "2026-09-22T19:59:00.000Z"}, separators=(",", ":"))
+    turn = lambda m: json.dumps({"type": "assistant", "message": {"model": m}}, separators=(",", ":"))  # noqa: E731
+    t9.write_text("\n".join([turn("claude-opus-5-5"), rip, turn("claude-sonnet-5")]) + "\n")
+    by = {x["name"]: x for x in json.loads(run("--json", "--no-screen").stdout)}
+    T.check("S23 --json: fallback {from, to, category, at} on the session that fell back, null on the others",
+            by.get("alfa", {}).get("fallback") == {"from": "claude-opus-5-5", "to": "claude-sonnet-5", "category": "cyber", "at": 1790107140}
+            and by.get("pix-beta", {}).get("fallback") is None, str(by.get("alfa", {}).get("fallback")))
+    table = run("--no-screen").stdout
+    line = next((l for l in table.splitlines() if l.split()[2:3] == ["alfa"]), "")
+    T.check("S23 the table: the note names both models and how to go back (/model, claude-master model alfa <id of Opus 5.5>)",
+            "ripiegata su claude-sonnet-5 al posto di claude-opus-5-5" in line and "claude-master model alfa claude-opus-5-5[1m]" in line, line or table[:900])
+    t9.write_text("\n".join([turn("claude-opus-5-5"), rip, turn("claude-sonnet-5"), turn("claude-opus-5-5")]) + "\n")
+    by = {x["name"]: x for x in json.loads(run("--json", "--no-screen").stdout)}
+    T.check("S23 back on the model it had: no fallback", by.get("alfa", {}).get("fallback") is None, str(by.get("alfa")))
+    t9.unlink()
 
     # S22: un processo che esegue davvero un binario chiamato «2.1.278» (come ~/.local/share/claude/versions/2.1.278)
     # mentre il registro dice 2.1.280, e uno col solo registro (2.1.279); su disco c'e' la 2.1.280
