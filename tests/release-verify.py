@@ -76,5 +76,15 @@ shutil.rmtree(stray.parent)
 r = run(ver)
 T.check("RL5 an untracked file OUTSIDE the plugin folder does not block (it never ships): CHECK OK",
         r.returncode == 0 and "CHECK OK" in r.stdout, r.stdout[-400:] + r.stderr[-200:])
+# RL6 (23/09/2026): lanciata da una sessione (niente terminale) una release VERA si ferma dopo il preflight se nessun ok
+# dell'utente la copre, prima di zip, commit e push. Stato degli ok isolato in una cartella vuota.
+okstate = Path(tempfile.mkdtemp(prefix="cm-release-ok-"))
+okcfg = okstate / "config.json"
+okcfg.write_text(json.dumps({"language": "it", "state_dir": str(okstate)}))
+real = subprocess.run(["bash", "release.sh", ver], cwd=copy, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL,
+                      env={**os.environ, "CLAUDE_OBSERVE_SRC": str(root.parent / "claude-observe"), "CLAUDE_MASTER_CONFIG": str(okcfg)})
+T.check("RL6 a real release run by a session without the user's ok stops right after the preflight, before tests, zip and push",
+        real.returncode != 0 and "no ok from the user covers this release" in real.stdout and "== 2/6" not in real.stdout and "== 3/6" not in real.stdout,
+        real.stdout[-600:] + real.stderr[-300:])
 shutil.rmtree(tmp)
 T.finish()

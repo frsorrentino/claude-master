@@ -359,7 +359,42 @@ def span(g):
     return f"{a}→{b}"
 
 
-def render_short(groups, label, as_html=False):
+def between_sessions(events):
+    """23/09 (fase 4 del design approvazioni-casella-registro): cosa e' successo FRA le sessioni, dal diario — gli ok
+    chiesti con esito, canale e attesa; le azioni coperte da un'autorizzazione iniziale; i messaggi non consegnati."""
+    asked, decided, covered, sent, delivered = {}, {}, 0, {}, set()
+    for e in events or []:
+        ev = e.get("event")
+        if ev == "ok-request":
+            asked[e.get("id")] = e
+        elif ev in ("ok-decision", "ok-expired"):
+            decided[e.get("id")] = e
+        elif ev == "ok-covered":
+            covered += 1
+        elif ev == "talk":
+            sent[e.get("id")] = e
+        elif ev == "delivered":
+            delivered.add(e.get("id"))
+    out = []
+    for rid, e in asked.items():
+        d = decided.get(rid)
+        if d is None:
+            state = M("recap.ok_pending")
+        elif d.get("event") == "ok-expired":
+            state = M("recap.ok_expired")
+        else:
+            mins = max(0, round((d["_ts"] - e["_ts"]).total_seconds() / 60))
+            state = M("recap.ok_decided", decision=d.get("decision") or "?", channel=d.get("channel") or "?", at=hm(d["_ts"]), mins=mins)
+        out.append(f"{rid} {e.get('what') or ''} ({e.get('session') or '?'}): {state}")
+    if covered:
+        out.append(M("recap.ok_covered", n=covered))
+    lost = [e for i, e in sent.items() if i not in delivered]
+    if lost:
+        out.append(M("recap.undelivered", n=len(lost), list=", ".join(f"{e.get('sender') or '?'} → {e.get('to') or '?'}" for e in lost[:5])))
+    return out
+
+
+def render_short(groups, label, as_html=False, between=None):
     """Il recap delle 20:00: totali, poi ⏳ ferme, ● vive, ✓ chiuse (senza le chiuse a zero turni)."""
     esc = html.escape if as_html else (lambda x: x)
     mode = str(D.get("last", "short"))
@@ -428,6 +463,13 @@ def render_short(groups, label, as_html=False):
         if minor:
             lines.append(esc(M("recap.h_other", names=", ".join(shown(g["project"], False) for g in minor))))
             lines.append("")
+    if between:
+        if lines[-1] != "":
+            lines.append("")
+        lines.append(esc(M("recap.h_between")))
+        lines.append("")
+        lines += [esc(x) for x in between]
+        lines.append("")
     if not (ferme or vive or chiuse):
         lines.append(esc(M("recap.empty")))
     per_acc = OrderedDict()
@@ -581,6 +623,7 @@ def build(argv):
     sessions = summarize(events)
     live = live_registry()
     groups = group_projects(sessions, live)
+    a.events = events
     return a, sessions, groups, label
 
 
@@ -601,14 +644,15 @@ def main(argv):
         text = render_full(sessions, label)
         print(text)
         return send(text, False) if a.send else 0
-    print(render_short(groups, label, as_html=False))
+    between = between_sessions(getattr(a, "events", None))
+    print(render_short(groups, label, as_html=False, between=between))
     if not a.since:
         day = dt.date.fromisoformat(a.date) if a.date else dt.date.today()
         n, rel = write_project_log(groups, summaries(groups, label), day)
         if n:
             print(M("recap.log_written", n=n, file=rel))
     if a.send:
-        return send(render_short(groups, label, as_html=True), True)
+        return send(render_short(groups, label, as_html=True, between=between), True)
     return 0
 
 

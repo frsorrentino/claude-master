@@ -201,6 +201,13 @@ def waiting_summary(p):
     return {"tool": p.get("tool_name", "?"), "input": keep}
 
 
+def inbox():
+    spec = importlib.util.spec_from_file_location("cm_inbox", HERE / "cm-inbox.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def main(argv):
     ev = argv[0] if argv else ""
     p = payload()
@@ -215,6 +222,12 @@ def main(argv):
         r = recent_recap(p)
         if r:
             sys.stdout.write(r + "\n")
+        try:   # 23/09: i messaggi arrivati mentre la sessione era chiusa (casella persistente)
+            box = inbox().deliver_block(my_tmux_name(), p.get("cwd") or os.getcwd(), "session-start")
+            if box:
+                sys.stdout.write(box + "\n")
+        except Exception:   # noqa: BLE001 — un'informazione in piu': mai far cadere l'avvio
+            pass
         relay_push()
     elif ev == "SessionEnd":
         explicit = p.get("reason", "") in ("prompt_input_exit", "logout")
@@ -272,6 +285,15 @@ def main(argv):
             ledger("queue-pop", p, text=item.get("text", "")[:120])
             sys.stdout.write(json.dumps({"decision": "block",
                                          "reason": f"[claude-master queue] {item.get('text', '')}"}, ensure_ascii=False) + "\n")
+            return 0
+        # 23/09: i messaggi arrivati mentre la sessione lavorava e non ha potuto riceverli (casella persistente)
+        if not p.get("stop_hook_active"):
+            try:
+                box = inbox().deliver_block(my_tmux_name(), p.get("cwd") or os.getcwd(), "stop")
+            except Exception:   # noqa: BLE001
+                box = ""
+            if box:
+                sys.stdout.write(json.dumps({"decision": "block", "reason": box}, ensure_ascii=False) + "\n")
     elif ev == "StopFailure":
         ledger("stop-failure", p, error=str(p.get("error", ""))[:200])
         subprocess.run([str(HERE / "cm-restart.sh"), "failed"], input=json.dumps(p), capture_output=True, text=True)

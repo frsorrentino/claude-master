@@ -263,6 +263,17 @@
       }
     ]
   },
+  "approvals": {
+    "channels": [
+      "tty",
+      "prompt",
+      "watch"
+    ],
+    "expires_h": 12
+  },
+  "inbox": {
+    "expires_h": 48
+  },
   "hooks": {
     "local_time": {
       "enabled": true,

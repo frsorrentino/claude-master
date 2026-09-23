@@ -215,7 +215,23 @@ def talk_tmux(row, text, force, max_wait, quiet, no_wait):
 
 
 # ------------------------------------------------------------------ main
+def inbox():
+    return _load("cm-inbox")
+
+
+def sender_name():
+    """Chi scrive: il nome tmux della sessione da cui parte il comando, o talk.from_name."""
+    pane = os.environ.get("TMUX_PANE", "")
+    if pane:
+        out = tmux("display-message", "-p", "-t", pane, "#{session_name}")
+        if out and out.strip():
+            return out.strip()
+    return CFG["talk"]["from_name"]
+
+
 def cmd_talk(argv):
+    if argv and argv[0] == "--status":
+        return inbox().main(["status"] + argv[1:2])
     name = argv[0] if argv else ""
     text = argv[1] if len(argv) > 1 else ""
     if not name or not text:
@@ -248,6 +264,13 @@ def cmd_talk(argv):
 
     row = find(name)
     if not row:
+        # 23/09: una sessione nota ma chiusa riceve il messaggio quando riparte (casella persistente); un nome mai
+        # visto resta un errore, perche' e' quasi sempre un refuso
+        known, cwd = inbox().known_session(name)
+        if known:
+            rec = inbox().put(name, text, sender_name(), cwd)
+            print(M("talk.saved", name=name, id=rec["id"]), file=sys.stderr)
+            return 0
         print(M("talk.missing", name=name), file=sys.stderr)
         live = [r["tmux"] or r["name"] for r in sessions.collect(read_screen=False)]
         print("  " + " ".join(live), file=sys.stderr)
@@ -257,6 +280,8 @@ def cmd_talk(argv):
     if hint and row["channel"] == "nativo" and os.environ.get("CLAUDE_CODE_MESSAGING_SOCKET"):
         print(M("talk.native_hint", name=name), file=sys.stderr)
 
+    # la casella prima della consegna: se la sessione si chiude o il socket rifiuta, il messaggio non si perde
+    rec = inbox().put(name, text, sender_name(), row.get("cwd") or "")
     use_socket = via == "socket" or (via == "auto" and row.get("socket") and os.path.exists(row["socket"]) and row.get("session_id"))
     if use_socket:
         row["_transcript"] = transcript_path(row)
@@ -269,6 +294,7 @@ def cmd_talk(argv):
             print(M("talk.socket_fallback", name=name, error=str(e)), file=sys.stderr)
             use_socket = False
         else:
+            inbox().mark(rec["id"], "delivered", "socket")
             print(M("talk.sent", name=name, via="socket"), file=sys.stderr)
             if no_wait:
                 return 0
@@ -276,6 +302,7 @@ def cmd_talk(argv):
                 print(t)
             return 0
     texts = talk_tmux(row, text, force, max_wait, quiet, no_wait)
+    inbox().mark(rec["id"], "delivered", "tmux")
     print(M("talk.sent", name=name, via="tmux"), file=sys.stderr)
     for t in texts:
         print(t)

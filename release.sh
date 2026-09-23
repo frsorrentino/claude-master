@@ -53,6 +53,14 @@ python3 tools-privacy-check.py --quiet \
   || { echo "FAIL: privacy check (docs/privacy-blocklist.txt) — neutralize before publishing"; exit 1; }
 echo "preflight ok: $VER in plugin.json, CHANGELOG, README; tag v$VER free; nothing untracked in $PLUGIN; privacy ok"
 
+# Cancello degli ok (23/09/2026, docs/plans/2026-09-23-approvazioni-casella-registro-design.md): lanciata da una sessione
+# (niente terminale), la release parte solo se un ok dell'utente o un'autorizzazione iniziale attiva copre questo commit.
+# Lanciata a mano da un terminale vero, non scatta: li' c'e' l'utente. --check non pubblica e non lo chiede.
+if [ "$CHECK" = 0 ] && ! [ -t 0 ]; then
+  python3 "$PLUGIN/scripts/cm-ok.py" ok --check --kind release --target "github.com/frsorrentino/claude-master" --commit "$(git rev-parse HEAD)" \
+    || { echo "FAIL: no ok from the user covers this release — claude-master ask-ok \"release claude-master $VER\" --kind release --target github.com/frsorrentino/claude-master --commit $(git rev-parse --short HEAD)"; exit 1; }
+fi
+
 echo "== 2/6 test suites (must be green BEFORE the commit) =="
 for t in tests/*-verify.py; do
   echo "-- $t"

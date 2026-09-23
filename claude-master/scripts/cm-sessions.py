@@ -435,6 +435,14 @@ def render(rows):
     lines.append(hdr)
     lines.append("-" * len(hdr))
     abandoned = 0
+    pending_ok = {}
+    for f in (Path(cm.expand(CFG["state_dir"])) / "approvals").glob("*.json"):
+        try:
+            a = json.loads(f.read_text())
+        except (OSError, ValueError):
+            continue
+        if a.get("type") == "request" and a.get("status") == "pending" and float(a.get("expires") or 0) > time.time():
+            pending_ok[(a.get("session") or {}).get("tmux") or ""] = a
     for r in rows:
         vista = "-" if r["attached"] is None else (m("sessions.open") if r["attached"] else m("sessions.detached"))
         note = ""
@@ -448,6 +456,9 @@ def render(rows):
             else:
                 note = "  <- " + m("sessions.abandoned")
                 abandoned += 1
+        wait_ok = pending_ok.get(r["tmux"] or r["name"])
+        if wait_ok:   # 23/09: la sessione aspetta un ok dell'utente (claude-master ask-ok)
+            note += "  <- " + m("sessions.waiting_ok", id=wait_ok["id"], what=wait_ok.get("what") or "")
         fb = r.get("fallback")
         if fb:
             back = next((mm["id"] for mm in CFG["tune"]["models"] if mm["id"].split("[")[0] == str(fb.get("from") or "").split("[")[0]), "")
