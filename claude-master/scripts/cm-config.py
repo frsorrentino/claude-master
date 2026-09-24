@@ -499,6 +499,17 @@ class Machine:
             return self.fake.get("env", {}).get(name, default)
         return os.environ.get(name, default)
 
+    def has_module(self, name):
+        """Un modulo Python importabile (nome puntato, es. cryptography.hazmat.primitives.ciphers.aead).
+        La macchina finta lo dichiara in "modules"."""
+        if self.fake is not None:
+            return name in self.fake.get("modules", [])
+        try:
+            __import__(name)
+            return True
+        except ImportError:
+            return False
+
     def procs(self):
         """Processi claude vivi: pid, cmdline, environ, cwd, nome tmux (o "")."""
         if self.fake is not None:
@@ -542,6 +553,23 @@ class Machine:
             return (r.stdout or r.stderr).strip().splitlines()[0][:40]
         except (OSError, subprocess.SubprocessError, IndexError):
             return ""
+
+
+RELAY_CRYPTO_MODULE = "cryptography.hazmat.primitives.ciphers.aead"
+
+
+def relay_deps_missing(m=None, crontab_cmd="crontab"):
+    """Le due dipendenze del relay dell'app Wear OS (0.4.20), fino a oggi scoperte solo come errore:
+    il modulo Python `cryptography` (AES-GCM, X25519) e `crontab` nel PATH (relay install). Torna
+    le mancanti tra "crypto" e "crontab"; doctor le mostra, relay pair/install si fermano prima
+    di chiedere o scrivere qualcosa. Nessuna installazione automatica."""
+    m = m or Machine()
+    missing = []
+    if not m.has_module(RELAY_CRYPTO_MODULE):
+        missing.append("crypto")
+    if not m.which(crontab_cmd):
+        missing.append("crontab")
+    return missing
 
 
 def read_json(path):
@@ -1027,6 +1055,14 @@ def cmd_doctor():
             rows.append(("PASS", "doctor.tool_ok", {"tool": tool, "version": m.version(tool) if m.fake is None else ""}, None))
         else:
             rows.append(("FAIL", "doctor.tool_missing", {"tool": tool}, None))
+
+    # relay dell'app Wear OS: cryptography e crontab solo se relay.enabled (spento: niente riga)
+    if cfg["relay"]["enabled"]:
+        missing = relay_deps_missing(m)
+        rows.append(("FAIL", "doctor.crypto_missing", {"module": RELAY_CRYPTO_MODULE.split(".")[0]}, "doctor.fix_crypto") if "crypto" in missing
+                    else ("PASS", "doctor.crypto_ok", {"module": RELAY_CRYPTO_MODULE.split(".")[0]}, None))
+        rows.append(("FAIL", "doctor.crontab_missing", {}, "doctor.fix_crontab") if "crontab" in missing
+                    else ("PASS", "doctor.crontab_ok", {"path": m.which("crontab")}, None))
 
     for name, a in cfg["accounts"].items():
         d = expand(a["config_dir"])

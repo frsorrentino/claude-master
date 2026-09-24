@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.4.19-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.4.20-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 ![One master session runs all the others: the root session launches, watches, answers and closes the parallel sessions of every project, from the terminal and from the wrist — beside it, the session list of the Wear OS app (beta coming soon), rendered from the app's code, on the demo set.](assets/readme/card0-hero.png)
 
@@ -383,6 +383,9 @@ only sees a monitor that has a window on it: `move` tells you to drag one there.
 - `crossSessionInbound: accept` in an account's settings, only to receive
   `talk` from the other account.
 - chrome-bridge ≥ 1.16.1, only for the window commands on ChromeOS.
+- `python3-cryptography` and `crontab`, only for the relay of the Wear OS app
+  (`doctor` checks both when `relay.enabled` is true; `relay pair` and
+  `relay install` stop before doing anything if one is missing).
 - Claude Code's `telegram` plugin, only to send: the diary, the night summary,
   the quota warnings and the watch's backup.
 

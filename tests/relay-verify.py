@@ -18,7 +18,7 @@ R5   relay pair: codice a 6 cifre, /pair/<code> con pc_pub, orologio finto che r
      ri-pair revoca l'uid vecchio
 R6   relay serve: SSE su /cmd, i sette op del contratto eseguiti via dispatcher finto → /result, /cmd cancellato,
      /state ripubblicato; duplicati ignorati; op fuori allow-list rifiutato; launch fuori da projects rifiutato;
-     RTDB giù → riconnessione; status/ensure/install/uninstall/off
+     RTDB giù → riconnessione; status/ensure/install/uninstall/off; install e pair rifiutati senza crontab (esce 5)
 R7   cm-hook.py: waiting/<sid> in JSON con tool_input; PermissionRequest/Stop/SessionStart/SessionEnd → push
      --async (relay abilitata); disabilitata → niente; bot follow/unfollow → push
 """
@@ -434,6 +434,13 @@ r = relay("push")
 T.check("R4 relay.enabled=false: push exits 2 saying so; --dry-run still works", r.returncode == 2 and "spento" in r.stdout and relay("push", "--dry-run").returncode == 0, r.stdout + r.stderr)
 write_cfg()
 
+# crontab finto (pair e install lo cercano prima di fare qualsiasi cosa, 0.4.20)
+cron = tmp / "crontab"; cron.write_text("")
+fake_crontab = tmp / "crontab.sh"
+fake_crontab.write_text('#!/bin/sh\nif [ "$1" = "-l" ]; then cat "%s"; else cat > "%s.tmp" && mv "%s.tmp" "%s"; fi\n' % (cron, cron, cron, cron))
+fake_crontab.chmod(0o755)
+ENV["CM_CRONTAB_CMD"] = str(fake_crontab)
+
 # R5: pair con un orologio finto
 def pair_run(timeout=8):
     pr = subprocess.Popen([sys.executable, str(T.SCRIPTS / "cm-relay.py"), "pair", "--timeout", str(timeout)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=ENV)
@@ -476,11 +483,6 @@ k = k2   # da qui la chiave viva e' quella dell'ultimo pairing
 rows_alive("ledger-api", "atlas-shop", "field-notes")
 (state_dir / "waiting" / "S-L").write_text(json.dumps({"tool": "AskUserQuestion", "input": {}}))
 relay("push")
-cron = tmp / "crontab"; cron.write_text("")
-fake_crontab = tmp / "crontab.sh"
-fake_crontab.write_text('#!/bin/sh\nif [ "$1" = "-l" ]; then cat "%s"; else cat > "%s.tmp" && mv "%s.tmp" "%s"; fi\n' % (cron, cron, cron, cron))
-fake_crontab.chmod(0o755)
-ENV["CM_CRONTAB_CMD"] = str(fake_crontab)
 
 
 def serve_pid():
@@ -655,6 +657,13 @@ T.check("R6 off: the daemon stops, the cron stays", r.returncode == 0 and T.wait
 relay("ensure")
 r = relay("uninstall")
 T.check("R6 uninstall: daemon stopped and cron lines removed", r.returncode == 0 and T.wait_until(lambda: serve_pid() == 0, 4) and "claude-master relay" not in cron.read_text(), r.stdout + cron.read_text())
+# 0.4.20: senza crontab (o cryptography) install e pair si fermano prima di scrivere o chiedere: esce 5, comando da lanciare
+ENV_NOCRON = dict(ENV, CM_CRONTAB_CMD=str(tmp / "no-such-crontab"))
+before = cron.read_text()
+r = relay("install", env=ENV_NOCRON)
+T.check("R6 install without crontab → exit 5, message with `apt install cron`, crontab untouched", r.returncode == 5 and "apt install cron" in r.stderr and cron.read_text() == before, f"rc={r.returncode} " + r.stdout + r.stderr)
+r = relay("pair", "--timeout", "2", env=ENV_NOCRON)
+T.check("R6 pair without crontab → exit 5 before printing a code, /pair untouched", r.returncode == 5 and "apt install cron" in r.stderr and not re.search(r"\b\d{6}\b", r.stdout), f"rc={r.returncode} " + r.stdout + r.stderr)
 
 # R7: hook e bot chiamano push --async
 def hook(ev, payload, env=None):

@@ -1196,9 +1196,17 @@ def main(argv):
             print(f"relay push: {e}", file=sys.stderr); log(f"push FAILED: {e}"); return 1
         print(M("relay.pushed", n=len(st["sessions"])))
         return 0
-    if cmd == "pair":
+    if cmd in ("pair", "install"):
+        # prima di chiedere o scrivere qualcosa: le dipendenze che finora si scoprivano solo come
+        # errore (ImportError di cryptography, crontab assente). Esce 5 con il comando da lanciare.
         if not R.get("enabled"):
             print(M("relay.disabled")); return 2
+        missing = cm.relay_deps_missing(cm.Machine(), os.environ.get("CM_CRONTAB_CMD", "crontab"))
+        if missing:
+            for dep in missing:
+                print(M(f"relay.dep_{dep}_missing"), file=sys.stderr)
+            return 5
+    if cmd == "pair":
         tmo = float(rest[rest.index("--timeout") + 1]) if "--timeout" in rest else None
         try:
             return pair(tmo)

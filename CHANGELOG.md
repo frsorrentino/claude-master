@@ -2,6 +2,12 @@
 
 ## 0.3.x
 
+- **0.4.20 — 2026-09-24: the relay's dependencies are declared, not discovered as errors.**
+  - `doctor`: when `relay.enabled` is true, one PASS/FAIL line for the Python module `cryptography` (the import of `cryptography.hazmat.primitives.ciphers.aead`) and one for `crontab` in the PATH, each with its remedy (`pip install --user cryptography` or `apt install python3-cryptography`; `apt install cron`). With the relay off, no line.
+  - `relay pair` and `relay install` check the same two things first, before asking or writing anything; if one is missing they exit 5 with the message and the command to run. Nothing is installed on its own.
+  - README, Requirements: `python3-cryptography` and `crontab`, only for the relay of the Wear OS app. The contract does not change (asked by the watch session, 24/09).
+  - Tests: C13d (doctor with the relay on and off, both dependencies present and missing), R6 (install and pair refused without crontab, the crontab untouched).
+
 - **0.4.19 — 2026-09-23: the approval queue is removed; the durable inbox stays.**
   - The approval queue of 0.4.18 (`claude-master ask-ok`, `ok`, `oks`, standing authorizations, the check in `release.sh`) is removed, by the user's decision after trying it: repeating a code on top of «go ahead» was worse than the plain final approval. For publications, pushes and releases a session now asks for a final approval saying what goes out and where; an «ok» or «go ahead» is enough. `release.sh` asks only its usual checks again.
   - The durable inbox stays (`talk` writes before delivering, delivery at the next start or at the end of the turn, `claude-master inbox`, `talk --status`), and the recap's «between sessions» keeps the messages not delivered yet.

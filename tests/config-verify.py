@@ -15,6 +15,7 @@ C11 init: chrome-bridge cli, lingua dai settings
 C12 init --yes scrive; secondo giro rifiuta senza --force; --dry-run non scrive
 C15 init --tmux: blocco da tmux.keybindings; --yes accoda a ~/.tmux.conf una volta sola
 C13 doctor: WARN hook duplicato, WARN chrome-bridge assente, FAIL account mancante
+C13d doctor: relay.enabled → PASS/FAIL cryptography e crontab con il rimedio; relay spento → niente riga
 C14 shim: risolve la radice da installed_plugins.json ed esegue il dispatcher
 """
 import json
@@ -229,6 +230,25 @@ r_in = T.run_config(["doctor"], home, target, Path(tmp) / "machine-c13c-in.json"
 T.check("C13c shim dir not in PATH → WARN naming ~/.local/bin with the remedy (export PATH)", "WARN shim_not_in_path" in r_out.stdout and "~/.local/bin" in r_out.stdout and 'export PATH="$HOME/.local/bin:$PATH"' in r_out.stdout, r_out.stdout)
 T.check("C13c shim dir in PATH → no such line", "shim_not_in_path" not in r_in.stdout and "PASS shim_ok" in r_in.stdout, r_in.stdout)
 shim13.unlink()
+
+# C13d (24/09): le dipendenze del relay — cryptography e crontab — si vedono in doctor solo con relay.enabled.
+# Macchina finta: "modules" e "which" dichiarano cosa c'e'.
+m13d = json.loads(Path(machine).read_text())
+cfg13d = json.loads(target.read_text())
+cfg13d["relay"] = dict(cfg13d.get("relay") or {}, enabled=True)
+(Path(tmp) / "relay-on.json").write_text(json.dumps(cfg13d))
+m13d["which"] = [w for w in m13d["which"] if w != "crontab"]; m13d["modules"] = []
+(Path(tmp) / "machine-c13d-none.json").write_text(json.dumps(m13d))
+r = T.run_config(["doctor"], home, Path(tmp) / "relay-on.json", Path(tmp) / "machine-c13d-none.json")
+T.check("C13d relay on, both missing → FAIL crypto_missing and FAIL crontab_missing with the remedies, exit 1",
+        r.returncode == 1 and "FAIL crypto_missing" in r.stdout and "FAIL crontab_missing" in r.stdout
+        and "apt install python3-cryptography" in r.stdout and "pip install --user cryptography" in r.stdout and "apt install cron" in r.stdout, r.stdout)
+m13d["which"] = m13d["which"] + ["crontab"]; m13d["modules"] = ["cryptography.hazmat.primitives.ciphers.aead"]
+(Path(tmp) / "machine-c13d-all.json").write_text(json.dumps(m13d))
+r = T.run_config(["doctor"], home, Path(tmp) / "relay-on.json", Path(tmp) / "machine-c13d-all.json")
+T.check("C13d relay on, both present → PASS crypto_ok and PASS crontab_ok, exit 0", r.returncode == 0 and "PASS crypto_ok" in r.stdout and "PASS crontab_ok" in r.stdout, r.stdout)
+r = T.run_config(["doctor"], home, target, Path(tmp) / "machine-c13d-none.json")
+T.check("C13d relay off → no crypto/crontab line even if both are missing", r.returncode == 0 and "crypto" not in r.stdout and "crontab" not in r.stdout, r.stdout)
 
 # C14 shim
 r = T.run_config(["init", "--shim", "--yes"], home, target, machine)
