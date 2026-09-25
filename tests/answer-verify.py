@@ -32,7 +32,7 @@ tg.mkdir(parents=True)
 API, CALLS, _ = T.fake_telegram()
 rdir = tmp / "relay"
 rdir.mkdir()
-cfg.write_text(json.dumps({"language": "it", "state_dir": str(tmp / "state"),
+cfg.write_text(json.dumps({"language": "it", "sessions": {"max_sessions": 50}, "state_dir": str(tmp / "state"),
                            "bot": {"api_base": API, "token_file": str(tg / ".env"), "access_file": str(tg / "access.json")},
                            "relay": {"dir": str(rdir)},
                            "hooks": {"ask_notify": {"delay_s": 0.5}}}))

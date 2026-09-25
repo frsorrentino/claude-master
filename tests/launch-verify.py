@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verifica cm-launch.sh con il claude finto, un tmux privato e il backend terminale `fake`.
 
+L14 tetto sessions.max_sessions: 5 al lavoro → exit 7 senza terminale, --force procede
 L1  percorso relativo → exit 2; cartella inesistente → exit 4; --create la crea
 L2  argv: claude_args da config, --remote-control NOME -n NOME, account dedotto da folder_map (CLAUDE_CONFIG_DIR)
 L3  nome: radice → root_session_name; `sito.com` → `sito-com` (T2); seconda sessione → -2; prefisso dell'account
@@ -22,6 +23,7 @@ L14 (S09, prova) --agent codex: spento (experimental.codex false) → exit 2; ac
 L14b il dialogo di fiducia di Codex disegnato 4 s dopo la prima riga viene risposto; pronta solo sul segno di Codex pronto
 """
 import json
+import re
 import os
 import subprocess
 import sys
@@ -52,7 +54,10 @@ cfg.write_text(json.dumps({
     "profiles": {"scan": {"args": ["--permission-prompts", "none"], "model": "sonnet", "effort": "low",
                           "env": {"CLAUDE_CODE_TOOL_MEMORY_LIMIT": "2g"}, "window": False}},
     "tabs": {"color_registry": str(tmp / "colors")},
+    "sessions": {"max_sessions": 50},   # il tetto si prova a parte (L14) con config-cap.json: qui le sessioni finte si accumulano
 }))
+cfg_cap = tmp / "config-cap.json"
+cfg_cap.write_text(json.dumps(dict(json.loads(cfg.read_text()), sessions={"max_sessions": 5})))
 argslog = tmp / "args.log"
 fakelog = tmp / "fake-terminal.log"
 FAKE = T.ROOT / "tests" / "lib" / "fake-claude.sh"
@@ -96,6 +101,22 @@ with T.PrivateTmux() as tm:
     T.check("L8 --no-window → no terminal open", not fakelog.exists() or "nuova" not in fakelog.read_text(), fakelog.read_text() if fakelog.exists() else "")
     T.check("L11 registry written with the session", reg.exists() and '"nuova"' in reg.read_text(), reg.read_text() if reg.exists() else "missing")
     T.check("L11 link from the peer registry", "link:      https://claude.ai/code/session_01FAKE" in r.stdout, r.stdout)
+    # L14 (25/09/2026): tetto sessions.max_sessions — 5 sessioni al lavoro nel registro → senza terminale exit 7 con
+    # conteggio e memoria libera; --force procede
+    keep = []
+    for i in range(5):
+        pr = subprocess.Popen(["sleep", "300"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); keep.append(pr); time.sleep(0.1)
+        st = Path(f"/proc/{pr.pid}/stat").read_text(); st = st[st.rindex(")") + 2:].split()[19]
+        (home / ".claude" / "sessions" / f"{pr.pid}.json").write_text(json.dumps({"pid": pr.pid, "name": f"finta{i}", "cwd": str(home), "status": "idle", "tmux": f"finta{i}:@0.%0",
+                                                                                  "startedAt": int(time.time() * 1000), "procStart": st, "sessionId": f"sid-finta{i}"}))
+    r = run(str(home / "ws" / "personali" / "sesta"), "--no-window", "--create", extra={"CM_LAUNCH_NO_TTY": "1", "CLAUDE_MASTER_CONFIG": str(cfg_cap)})
+    T.check("L14 5 sessions at work, no terminal → exit 7, the count, the cap and the free memory in the message, nothing launched",
+            r.returncode == 7 and (lambda m: bool(m) and int(m.group(1)) >= 5)(re.search(r"(\d+) sessioni già al lavoro", r.stderr)) and "tetto sessions.max_sessions = 5" in r.stderr and "memoria libera" in r.stderr and "--force" in r.stderr
+            and not tm("has-session", "-t", "=sesta").returncode == 0, r.stdout + r.stderr)
+    r = run(str(home / "ws" / "personali" / "sesta"), "--no-window", "--create", "--force", extra={"CM_LAUNCH_NO_TTY": "1", "CLAUDE_MASTER_CONFIG": str(cfg_cap)})
+    T.check("L14 --force → launched", r.returncode == 0 and tm("has-session", "-t", "=sesta").returncode == 0, r.stdout + r.stderr)
+    for pr in keep:
+        pr.kill(); (home / ".claude" / "sessions" / f"{pr.pid}.json").unlink(missing_ok=True)
     r = run(str(home / "ws" / "personali" / "tardi"), "--no-window", "--create", scenario="bridge-late", extra={"FAKE_CLAUDE_DELAY": "3"})
     T.check("L11b bridgeSessionId arriving late (3 s) is waited for: link printed, no «not yet» line", r.returncode == 0 and "link:      https://claude.ai/code/session_01FAKE" in r.stdout and "telefono" not in r.stdout, r.stdout + r.stderr)
 

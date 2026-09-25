@@ -38,7 +38,7 @@ cfg.write_text(json.dumps({
                  "professionale": {"config_dir": str(home / ".claude-pixel"), "tmux_prefix": "pix-"}},
     "folder_map": [{"path": str(home / "ws" / "pro"), "account": "professionale"}],
     "session": {"startup_timeout_s": 20, "death_check_s": 1},
-    "sessions": {"stall_min": 20, "recent_min": 5},
+    "sessions": {"max_sessions": 50, "stall_min": 20, "recent_min": 5},
     "quota": {"source": str(qdir), "warn_pct": 85},
     "terminal": {"backend": "none"},
     "registry": {"file": str(tmp / "registry.json")},

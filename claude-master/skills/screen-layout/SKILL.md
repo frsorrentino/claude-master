@@ -31,8 +31,7 @@ Alias: `affianca`, `riaffianca`, `unisci`, `sposta`; tasti tmux `Ctrl+b a` / `Ct
 - **Sessioni sparse su più monitor** vengono radunate dove sta la maggioranza (a parità,
   dove sta la prima chiesta): `tile` lo dice.
 - **Meno di 340 px per colonna** (`tile.min_column_px`): griglia automatica.
-- **Numero DISPARI di finestre con la master fra loro** (l'utente 11/09, `tile.odd_layout` =
-  `master-primary`): la master è la finestra grande a sinistra (60%), le altre impilate a destra
+- **Numero DISPARI di finestre con la master fra loro** (`tile.odd_layout` = `master-primary`): la master è la finestra grande a sinistra (60%), le altre impilate a destra
   in N-1 righe; `tile` lo dice («main-vertical»). Con un numero pari, con `--rows`/`--grid`, o
   se la master non è fra le affiancate: colonne/griglia uniformi come sempre. La colonna impilata
   può scendere sotto `min_column_px`: consentito e segnalato, non rifiutato. `odd_layout: uniform`
@@ -41,12 +40,12 @@ Alias: `affianca`, `riaffianca`, `unisci`, `sposta`; tasti tmux `Ctrl+b a` / `Ct
   e da un segnaposto consumato dalla shell; se «nessuna scheda nuova attaccata entro N s»,
   le vecchie NON sono state chiuse e la sessione è salva. Non riprovare a raffica.
 - **Nessuna finestra del Terminale mostra la scheda iniziale «Terminale» (#home) accanto a una
-  sessione** (T80, chrome-bridge `ed24b83`, misurato dal vivo l'11/09 su 8 sessioni): la #home non
-  si chiude finché ha compagnia (T78) ma si può portare via DA SOLA — `move_tab` in un popup nuovo,
-  poi `close` lì. `launch`/`restart`/`restore` (scheda in una finestra aperta, o UNA finestra nuova
-  via garcon per la prima), `tile` (una finestra app per sessione via garcon, mai popup) e `merge`
-  (raccolta) la sfrattano da soli, sempre e solo per URL `#home`, mai per posizione, e solo se la
-  finestra ha altre schede. Le finestre `normal` (T79) restano RIFIUTATE (barra degli indirizzi).
+  sessione**: la #home non si chiude finché ha compagnia ma si può portare via DA SOLA — `move_tab`
+  in un popup nuovo, poi `close` lì. `launch`/`restart`/`restore` (scheda in una finestra aperta, o
+  UNA finestra nuova via garcon per la prima), `tile` (una finestra app per sessione via garcon, mai
+  popup) e `merge` (raccolta) la sfrattano da soli, sempre e solo per URL `#home`, mai per posizione,
+  e solo se la finestra ha altre schede. Le finestre `normal` restano RIFIUTATE (barra degli
+  indirizzi).
 - **Layout con nome**: `layout save NOME` fotografa tutte le finestre e le sessioni presenti;
   `layout restore NOME` riposiziona solo quelle che riconosce e dice quali mancano: allora
   si rifà con `tile` e si risalva.

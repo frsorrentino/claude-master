@@ -59,7 +59,7 @@ FAKE = T.ROOT / "tests" / "lib" / "fake-claude.sh"
 argslog = tmp / "args.log"
 cfg = tmp / "config.json"
 cfg.write_text(json.dumps({
-    "language": "it", "state_dir": str(state),
+    "language": "it", "sessions": {"max_sessions": 50}, "state_dir": str(state),
     "workspace": {"root": str(ws)},
     "accounts": {"personale": {"config_dir": "~/.claude"}, "professionale": {"config_dir": "~/.claude-pixel", "tmux_prefix": "pix-"}},
     "default_account": "personale",

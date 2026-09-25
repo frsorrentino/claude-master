@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.4.23-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.4.24-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 ![One master session runs all the others: the root session launches, watches, answers and closes the parallel sessions of every project, from the terminal and from the wrist — beside it, the session list of the Wear OS app (beta coming soon), rendered from the app's code, on the demo set.](assets/readme/card0-hero.png)
 
@@ -61,7 +61,14 @@ in the pictures (`master`, `atlas-shop`, `ledger-api`, `field-notes`, `orbit-doc
 stopped on a question waiting for you, whether a tab is attached, which
 channel reaches it. A detached session stuck on a question is work standing
 still, not work in progress: it goes first. `claude-master next` picks the one
-that needs you most.
+that needs you most. Three more notes on a row, read without asking anyone:
+«at lower priority» when the session runs past its limit in `/low-priority`
+mode (slow but alive; it shows only on the session's own screen, so the note
+needs its tmux pane), «goal: …» when a native `/goal` is still open (from the
+transcript), and «idle for N h» with the close command when a session has done
+nothing for `sessions.idle_hours` hours. `quota` counts the lower-priority
+sessions per account under its table; `wait` says when it returns on an open
+goal (idle with a goal not met is «Goal paused», not finished work).
 
 The `work-` in front of two names is the tmux prefix of the `work` account in the
 demo set: every account has its own, set in `accounts.<name>.tmux_prefix`.
@@ -75,7 +82,11 @@ deduces the account (personal or work, by a map you set once: a warning, never
 a refusal), answers the trust and bypass dialogs, and opens the session as a
 tab of the Terminal window you already have, with no start tab beside it. A
 typo never becomes a folder: `--create` only when you ask, with the full path
-shown first. Typing `claude` inside a project folder does the same.
+shown first. Typing `claude` inside a project folder does the same. Past
+`sessions.max_sessions` sessions at work (5 by default; busy or idle, the
+master excluded) `launch` stops with the count and the free memory and asks;
+without a terminal it exits 7 and says to close an idle session or repeat with
+`--force`. It never closes anything on its own.
 
 ### Talk. Answer its question.
 
@@ -177,6 +188,13 @@ in the config, then `relay pair`, `relay install`. RTDB rules: `/state`,
 writable only by those, `/pair/<code>/watch` and `/pair/<id>/watch` writable by
 an anonymous user; the PC writes with the service account. `relay push
 --dry-run` prints the clear state without touching the network.
+
+Contract 1.16 adds two fields to every session in `/state`: `low_priority`
+(`off`, `offered` when Claude Code proposes `/low-priority` at the usage limit,
+`active` when the session runs on past it, `null` when there is no screen to
+read it from — that state lives only in the session's memory) and `goal`
+(`{text, since, met}` from the last `goal_status` of the transcript, `null`
+without a `/goal`).
 
 The QR (contract 1.15) carries the pairing id, the PC's public key, the host,
 the expiry and the data the phone needs to join the Firebase project: the
@@ -373,6 +391,7 @@ longer adds up. A minimal example for two accounts:
 | `accounts.<name>` | one entry per Claude account: its config folder, the tab's shape, a prefix for its session names, the shell command that opens it |
 | `folder_map` · `workspace.root` | which folders belong to which account; the root opens the `master` session |
 | `session.claude_args` · `session.link_wait_s` | flags every session starts with; how long `launch` waits for the Remote Control link (20 s) |
+| `sessions.max_sessions` · `sessions.idle_hours` | past this many sessions at work `launch` asks (5); after this many idle hours `sessions` suggests closing (2) |
 | `terminal.backend` | `chromeos`, `gnome`, `kitty`, `iterm2`, `macos-terminal`, `wt`, `none` |
 | `shell.*` · `tmux.keybindings` · `tile.*` | the wrappers and aliases `init --shell` generates, the three keys of the `.tmux.conf` block, the window layout rules |
 | `bot.*` · `recap.*` · `night.*` · `guard.*` | one-way Telegram, the evening diary, the night queue, the quota guard: all off or empty until you turn them on |
@@ -443,15 +462,15 @@ The complete reference. Italian aliases (`lancia`, `chiudi`, `sessioni`,
 | `claude-master init [--dry-run\|--yes] [--force] [--shim] [--shell] [--cron] [--tmux]` | reads the machine and proposes or writes the configuration; the flags print (or install with `--yes`) the shim, the shell file, the crontab line, the `.tmux.conf` block |
 | `claude-master doctor` | PASS / WARN / FAIL with a remedy per line |
 | `claude-master config [--sh\|--get KEY\|--path]` | the effective configuration |
-| `claude-master launch <dir> [--create] [--continue\|--resume <id>] [--account N] [--no-window] [--bg] [--profile N]` | a session in tmux; dialogs answered, startup confirmed by the registry, tab verified attached — on ChromeOS as a tab of the Terminal window already open (`terminal.open_as_tab`) |
-| `claude-master sessions [--watch]` | every live session of every account |
+| `claude-master launch <dir> [--create] [--continue\|--resume <id>] [--account N] [--no-window] [--bg] [--profile N] [--force]` | a session in tmux; dialogs answered, startup confirmed by the registry, tab verified attached — on ChromeOS as a tab of the Terminal window already open (`terminal.open_as_tab`); past `sessions.max_sessions` sessions at work it asks, or exits 7 without a terminal (`--force` skips the check) |
+| `claude-master sessions [--watch]` | every live session of every account, with the notes «at lower priority», «goal: …», «idle for N h» |
 | `claude-master close <name> \| --abandoned [--dry-run]` | closes a session nobody is attached to; refuses one with a tab |
 | `claude-master restart arm [--clean\|--switch-account [N]]` | restart when the turn ends |
 | `claude-master talk <name> "prompt" [--wait S] [--force]` | a prompt to another session, the reply read from its transcript |
 | `claude-master answer <name> --show` · `answer <name> <n> [--text "…"]` | reads the question another session is stuck on (options numbered) and answers it by number, from any session or from the phone through the root session |
 | `claude-master model <name> <model>` · `claude-master effort <name> <level>` | switches another session's model or effort **for that session only**, through its own picker: the default for new sessions is never touched. Refuses a session that is working, has a question open or has text typed in its prompt; values come from `tune.models` and `tune.efforts` |
 | `claude-master screen <name> [--lines N]` | the last 30 lines of a session's terminal, for the phone («screen NAME» to the root session) |
-| `claude-master wait <name> [--timeout S]` | blocks until that session is idle |
+| `claude-master wait <name> [--timeout S]` | blocks until that session is idle; says if a `/goal` is still open there |
 | `claude-master report <project> <image\|-> "text" [--no-launch]` | screenshot into the project's `docs/segnalazioni/`, prompt delivered |
 | `claude-master queue <name> "prompt" [--expires M] \| --show \| --clear` | a prompt delivered when that session's next turn ends |
 | `claude-master next [--all] [--attach]` | the session that needs you most |

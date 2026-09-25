@@ -21,6 +21,8 @@ S16 una sessione in attesa di risposta mostra UNO stato («attesa»), non «busy
 S17 il processo fuori registro ha un'etichetta leggibile invece del nome vuoto e del «?»
 S18 senza `language` nella config: LANG it → italiano, LANG en → inglese, settings.json «italiano» → italiano anche con LANG en
 S19 il valore esplicito vince sul rilevamento: `language: en` con LANG it → inglese
+S23 idle da piu' di sessions.idle_hours → suggerimento di chiusura; --count-active per il tetto di launch
+S21 bassa priorita' dallo schermo («Working at lower priority»), goal nativo dal transcript (goal_status), nota in quota
 S20 il server tmux (primo argomento «tmux», `…/claude` nella riga di comando) non e' un Claude fuori registro; il
     processo claude vero di S4 resta
 S21 (S09, prova) experimental.codex acceso: il riquadro Codex (argv0 «codex») ha una riga con nome, cartella e stato dal
@@ -176,6 +178,69 @@ with T.PrivateTmux() as tm:
     rows = json.loads(run("--json").stdout)
     by = {x["name"]: x for x in rows if x["name"]}
     T.check("S7 hook flag → waiting even with clean screen", by.get("alfa", {}).get("waiting") is True, str(by.get("alfa")))
+
+    # S21 (25/09/2026): bassa priorita' dallo schermo, goal nativo dal transcript, nota in quota
+    tm("send-keys", "-t", "gamma", "clear; printf '\\n  Working at lower priority \xc2\xb7 waiting for capacity\\n'", "Enter")
+    time.sleep(0.8)
+    import re as _re
+    slug = _re.sub(r"[^A-Za-z0-9]", "-", os.path.realpath(str(home / "ws" / "alfa")))
+    tr = home / ".claude" / "projects" / slug / "sid-alfa.jsonl"
+    tr.parent.mkdir(parents=True, exist_ok=True)
+    goal = lambda **kw: json.dumps({"type": "attachment", "uuid": "u", "attachment": dict({"type": "goal_status", "met": False, "sentinel": True, "condition": "tests green"}, **kw)}) + "\n"  # noqa: E731
+    tr.write_text(json.dumps({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "x"}]}}) + "\n"
+                  + goal() + goal(sentinel=False, iterations=2, met=False))
+    rows = json.loads(run("--json").stdout)
+    by = {x["name"]: x for x in rows if x["name"]}
+    T.check("S21 «Working at lower priority» on the screen → low_priority «active»; a clean screen → «off»", by.get("questa-prova", {}).get("low_priority") == "active" and by.get("alfa", {}).get("low_priority") == "off", str({k: v.get("low_priority") for k, v in by.items()}))
+    T.check("S21 the last goal_status attachment not met → goal with its condition and iterations; goal_status {text, since, met} for the watch", by.get("alfa", {}).get("goal") == "tests green" and by.get("alfa", {}).get("goal_iterations") == 2 and by.get("alfa", {}).get("goal_status") == {"text": "tests green", "since": None, "met": False}, str(by.get("alfa")))
+    table = run().stdout
+    T.check("S21 table: «a bassa priorità» and «goal: …» as notes", "a bassa priorità" in table and "goal: «tests green» (2 controlli)" in table, table)
+    rows = json.loads(run("--json", "--no-screen").stdout)
+    by = {x["name"]: x for x in rows if x["name"]}
+    T.check("S21 --no-screen: low_priority null (not known), the goal still read", by.get("questa-prova", {}).get("low_priority") is None and by.get("alfa", {}).get("goal") == "tests green", str(by.get("alfa")))
+    with open(tr, "a") as f:
+        f.write(goal(sentinel=False, iterations=3, met=True))
+    rows = json.loads(run("--json", "--no-screen").stdout)
+    by = {x["name"]: x for x in rows if x["name"]}
+    T.check("S21 goal met → no goal in the table, goal_status met true for the watch", by.get("alfa", {}).get("goal") == "" and (by.get("alfa", {}).get("goal_status") or {}).get("met") is True, str(by.get("alfa")))
+    # l'offerta al muro del limite → «offered» e la nota
+    tm("send-keys", "-t", "gamma", "clear; printf '\\n  Usage limit reached \xc2\xb7 /low-priority to continue now at lower priority \xc2\xb7 uses your weekly limit\\n'", "Enter")
+    time.sleep(0.8)
+    rows = json.loads(run("--json").stdout)
+    by = {x["name"]: x for x in rows if x["name"]}
+    T.check("S21 the offer line on the screen → low_priority «offered» and the note «proposto /low-priority»", by.get("questa-prova", {}).get("low_priority") == "offered" and "proposto /low-priority" in run().stdout, str(by.get("questa-prova")))
+    tm("send-keys", "-t", "gamma", "clear; printf '\\n  Working at lower priority \xc2\xb7 waiting for capacity\\n'", "Enter")
+    time.sleep(0.8)
+    # quota: la nota per l'account con una sessione a bassa priorita' (file quota della statusline finto)
+    import hashlib
+    qsrc = home / ".claude" / "fable-director"; qsrc.mkdir(parents=True, exist_ok=True)
+    acct = by.get("questa-prova", {}).get("account") or "personale"
+    conf_dir = {"personale": str(home / ".claude"), "professionale": str(home / ".claude-pixel")}[acct]
+    (qsrc / f"quota-{hashlib.sha256(conf_dir.encode()).hexdigest()[:8]}.json").write_text(json.dumps({"five_hour_used_pct": 10, "weekly_used_pct": 91, "weekly_resets_at": time.time() + 86400}))
+    env_q = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg), "CM_TMUX_ARGS": tm.env["CM_TMUX_ARGS"], "CM_PROC_SCAN_PIDS": " ".join(str(p.pid) for p in procs)}
+    env_q.pop("CLAUDE_CONFIG_DIR", None)
+    rq = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-quota.py")], capture_output=True, text=True, env=env_q, timeout=60)
+    T.check("S21 quota: «N sessione/i in modalità a bassa priorità» for that account; nothing with --no-screen", rq.returncode == 0 and f"«{acct}»: 1 sessione/i in modalità a bassa priorità" in rq.stdout
+            and "bassa priorità" not in subprocess.run([sys.executable, str(T.SCRIPTS / "cm-quota.py"), "--no-screen"], capture_output=True, text=True, env=env_q, timeout=60).stdout, rq.stdout + rq.stderr)
+    tm("send-keys", "-t", "gamma", "clear", "Enter")
+    time.sleep(0.5)
+
+    # S23 (25/09/2026): idle da piu' di sessions.idle_hours → suggerimento di chiusura; --count-active per il tetto
+    e = json.loads((home / ".claude-pixel" / "sessions" / f"{p2}.json").read_text())
+    e["status"] = "idle"; e["statusUpdatedAt"] = int(time.time() * 1000) - 3 * 3600_000
+    (home / ".claude-pixel" / "sessions" / f"{p2}.json").write_text(json.dumps(e))
+    table = run("--no-screen").stdout
+    T.check("S23 idle for 3 h → «idle da 3 h: se non serve, claude-master close pix-beta»", "idle da 3 h: se non serve, claude-master close pix-beta" in table, table)
+    rows = json.loads(run("--json", "--no-screen").stdout)
+    by = {x["name"]: x for x in rows if x["name"]}
+    T.check("S23 json: status_age_min", by.get("pix-beta", {}).get("status_age_min") == 180, str(by.get("pix-beta")))
+    e["status"] = "busy"; e["statusUpdatedAt"] = int(time.time() * 1000)
+    (home / ".claude-pixel" / "sessions" / f"{p2}.json").write_text(json.dumps(e))
+    e["status"] = "busy"
+    # attive: alfa (waiting per il flag S7), pix-beta, questa-prova; fuori registro e master non contano
+    entry(home / ".claude" / "sessions", spawn(), "master", str(home / "ws"), "master")
+    rc = run("--count-active")
+    T.check("S23 --count-active: busy/idle/waiting in the registry, not the master, not the unregistered process", rc.stdout.strip() == "3", rc.stdout + rc.stderr + str([(x["name"], x["status"]) for x in rows]))
 
     # tabella
     r = run()

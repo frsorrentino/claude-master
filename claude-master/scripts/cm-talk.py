@@ -329,7 +329,10 @@ def cmd_wait(argv):
             return 1
         time.sleep(2)
     print(M("wait.idle", name=name, status=st))
-    # ultima risposta: si rilegge dall'inizio del file se non c'era niente di nuovo
+    # goal nativo ancora aperto (`/goal`): idle con un goal non raggiunto = «Goal paused», non lavoro finito
+    g = sessions.goal_of(row)
+    if g and not g["met"]:
+        print(M("wait.goal", goal=g["condition"], n=g["iterations"]))
     texts, _ = assistant_texts(row["_transcript"], offset)
     if not texts:
         texts, _ = assistant_texts(row["_transcript"], 0)

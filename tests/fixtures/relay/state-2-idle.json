@@ -33,7 +33,9 @@
       "context": 18,
       "fallback": null,
       "icon": "🟢",
-      "color": "#2ECC71"
+      "color": "#2ECC71",
+      "low_priority": "off",
+      "goal": null
     }
   ],
   "quota": {

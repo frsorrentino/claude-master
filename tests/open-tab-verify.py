@@ -42,7 +42,7 @@ cfg = tmp / "config.json"
 
 def write_cfg(as_tab=True):
     cfg.write_text(json.dumps({
-        "language": "it", "state_dir": str(state),
+        "language": "it", "sessions": {"max_sessions": 50}, "state_dir": str(state),
         "workspace": {"root": str(home / "ws"), "root_session_name": "master"},
         "accounts": {"personale": {"config_dir": str(home / ".claude")}},
         "session": {"startup_timeout_s": 25, "death_check_s": 1},

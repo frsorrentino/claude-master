@@ -134,7 +134,9 @@
   },
   "sessions": {
     "stall_min": 20,
-    "recent_min": 5
+    "recent_min": 5,
+    "max_sessions": 5,
+    "idle_hours": 2
   },
   "quota": {
     "source": "~/.claude/fable-director",

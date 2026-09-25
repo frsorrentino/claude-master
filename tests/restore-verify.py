@@ -23,7 +23,7 @@ for d in (".claude/sessions", ".claude-pixel/sessions", "ws/personali/alfa", "ws
 reg = tmp / "registry.json"
 cfg = tmp / "config.json"
 cfg.write_text(json.dumps({
-    "language": "it", "state_dir": str(tmp / "state"),
+    "language": "it", "sessions": {"max_sessions": 50}, "state_dir": str(tmp / "state"),
     "workspace": {"root": str(home / "ws"), "root_session_name": "master"},
     "accounts": {"personale": {"config_dir": str(home / ".claude")},
                  "professionale": {"config_dir": str(home / ".claude-pixel"), "tmux_prefix": "pix-"}},

@@ -266,16 +266,103 @@ WAIT_LIST = re.compile(r"^[[:space:]]*[0-9]+\.[[:space:]]".replace("[[:space:]]"
 WAIT_HINT = re.compile(r"to select|to navigate|Tab to amend")
 
 
-def waits_on_screen(tmux_name):
-    """T13: due indizi insieme. Nome nudo: capture-pane non accetta `=` (T54)."""
+# Modalita' a bassa priorita' (`/low-priority`, Claude Code 2.1.282): stato solo in memoria della sessione, niente
+# nel registro peer, nel JSON della statusline o nel transcript. L'unica traccia leggibile da fuori e' lo schermo:
+# la riga di stato «Lower priority until …» e il banner «Working at lower priority · waiting for capacity»
+# (testi di default del flag tengu_toasty_breeze; «Continuing now at lower priority» e' la conferma del comando).
+LOWPRI_RE = re.compile(r"Lower priority until|Working at lower priority|Continuing now at lower priority|Lower-priority mode is (back on|on)")
+# l'offerta (contratto 1.16): al muro del limite Claude Code stampa la riga «/low-priority to continue now at lower
+# priority · uses your weekly limit» o la voce di menu «Continue now at lower priority» (testi del flag, default)
+LOWPRI_OFFER_RE = re.compile(r"/low-priority to continue now at lower priority|Continue now at lower priority")
+
+
+def screen_of(tmux_name, lines=20):
+    """Le ultime `lines` righe SCRITTE del riquadro (le vuote in coda, schermo non pieno, non contano).
+    Nome nudo: capture-pane non accetta `=` (T54). Stringa vuota senza riquadro o senza tmux."""
     if not tmux_name:
-        return False
+        return ""
     screen = tmux("capture-pane", "-p", "-t", tmux_name)
     if not screen:
-        return False
-    # le righe vuote in coda (schermo non pieno) non contano: le ultime 20 righe SCRITTE
-    tail = "\n".join(screen.rstrip("\n").splitlines()[-20:])
-    return bool(WAIT_LIST.search(tail) and WAIT_HINT.search(tail))
+        return ""
+    return "\n".join(screen.rstrip("\n").splitlines()[-lines:])
+
+
+def waits_on_screen(tmux_name, screen=None):
+    """T13: due indizi insieme."""
+    tail = screen_of(tmux_name) if screen is None else screen
+    return bool(tail and WAIT_LIST.search(tail) and WAIT_HINT.search(tail))
+
+
+def low_priority_on_screen(tmux_name, screen=None):
+    """Contratto 1.16: «active» se lo schermo mostra la modalita' a bassa priorita' in corso, «offered» se mostra
+    l'offerta al muro del limite, «off» altrimenti; None senza schermo da leggere (non si sa)."""
+    tail = screen_of(tmux_name) if screen is None else screen
+    if not tail:
+        return None
+    if LOWPRI_RE.search(tail):
+        return "active"
+    if LOWPRI_OFFER_RE.search(tail):
+        return "offered"
+    return "off"
+
+
+def transcript_of(row):
+    """<config_dir>/projects/<slug>/<sessionId>.jsonl — slug: ogni non alfanumerico → '-' (come cm-talk)."""
+    acc = CFG["accounts"].get(row.get("account") or "") or {}
+    if not row.get("session_id") or not row.get("cwd"):
+        return None
+    slug = re.sub(r"[^A-Za-z0-9]", "-", os.path.realpath(row["cwd"]))
+    return Path(cm.expand(acc.get("config_dir", "~/.claude"))) / "projects" / slug / f"{row['session_id']}.jsonl"
+
+
+def goal_of(row, tail_bytes=512 * 1024):
+    """Il goal nativo (`/goal`) della sessione, letto dal transcript: Claude Code lo persiste come attachment
+    {"type": "goal_status", "condition", "met", "failed", "sentinel", "iterations"} e alla ripresa lo ricostruisce
+    dall'ULTIMO di questi (2.1.282). Torna {"condition", "iterations"} se l'ultimo non e' met ne' failed, altrimenti
+    None. Si legge solo la coda del file: il goal e' quasi sempre recente, e i transcript pesano decine di MB."""
+    path = transcript_of(row)
+    if not path:
+        return None
+    try:
+        with open(path, "rb") as f:
+            f.seek(max(0, path.stat().st_size - tail_bytes))
+            data = f.read()
+    except OSError:
+        return None
+    last, since = None, None
+    for line in data.split(b"\n"):
+        if b'"goal_status"' not in line:
+            continue
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        att = d.get("attachment") if d.get("type") == "attachment" else None
+        if isinstance(att, dict) and att.get("type") == "goal_status":
+            if att.get("sentinel") and not att.get("met"):
+                # la sentinella «goal impostato»: la sua data e' il since del contratto 1.16
+                since = _epoch_of(d.get("timestamp")) or since
+            last = att
+    if not last or last.get("failed"):
+        return None
+    cond = last.get("condition")
+    if not isinstance(cond, str) or not cond.strip():
+        return None
+    if last.get("met") and last.get("sentinel"):
+        return None   # la sentinella «goal tolto» (/goal clear): nessun goal
+    return {"condition": cond.strip(), "iterations": int(last.get("iterations") or 0), "since": since, "met": bool(last.get("met"))}
+
+
+def _epoch_of(ts):
+    """ISO 8601 del transcript («2026-09-25T14:03:11.123Z») → epoch in secondi; None se non si legge."""
+    if not isinstance(ts, str) or not ts:
+        return None
+    try:
+        from datetime import datetime, timezone
+        t = ts.replace("Z", "+00:00")
+        return int(datetime.fromisoformat(t).astimezone(timezone.utc).timestamp())
+    except ValueError:
+        return None
 
 
 def waiting_flag(session_id):
@@ -343,7 +430,18 @@ def collect(read_screen=True):
         # «aspetta una risposta»: prima il registro (status `waiting`, visto dal vivo il 09/09/2026
         # con un dialogo aperto), poi il flag dell'hook, infine lo schermo (T13)
         flag = waiting_flag(row["session_id"])
-        row["waiting"] = (row["status"] == "waiting") or (bool(flag) if flag is not None else (waits_on_screen(tm) if read_screen else False))
+        screen = screen_of(tm) if read_screen else ""
+        row["waiting"] = (row["status"] == "waiting") or (bool(flag) if flag is not None else (waits_on_screen(tm, screen) if read_screen else False))
+        # bassa priorita' (lenta ma viva) e goal nativo: informazione, mai azione
+        row["low_priority"] = low_priority_on_screen(tm, screen) if read_screen else None
+        a = status_age_min(row)
+        row["status_age_min"] = round(a) if a is not None else None
+        g = goal_of(row)
+        # `goal`: il testo del goal ANCORA APERTO (per la tabella e per wait); `goal_status`: la forma del contratto
+        # 1.16 per il polso, anche quando e' raggiunto ({text, since, met})
+        row["goal"] = g["condition"] if g and not g["met"] else ""
+        row["goal_iterations"] = g["iterations"] if g and not g["met"] else 0
+        row["goal_status"] = {"text": g["condition"], "since": g["since"], "met": g["met"]} if g else None
         row["channel"] = ("(questa)" if is_ancestor(pid)
                           else "nativo" if row["registry"] == my_registry else "talk")
         rows.append(row)
@@ -442,6 +540,9 @@ def render(rows):
         age = status_age_min(r)
         if r["status"] == "busy" and age is not None and age >= CFG["sessions"]["stall_min"]:
             note = "  <- " + m("sessions.stalled", min=round(age))
+        # tetto (25/09/2026): idle da piu' di sessions.idle_hours → suggerimento di chiusura, mai chiusa da sola
+        if r["status"] == "idle" and not r["waiting"] and age is not None and age >= CFG["sessions"]["idle_hours"] * 60:
+            note = "  <- " + m("sessions.idle_long", hours=round(age / 60), name=r["tmux"] or r["name"])
         if r["waiting"]:
             if r["attached"]:
                 note = "  <- " + m("sessions.waiting")
@@ -466,6 +567,12 @@ def render(rows):
             shown, state = shown or m("sessions.unregistered"), "-"
         if r["waiting"]:
             state = m("sessions.state_waiting")
+        if r.get("low_priority") == "active":
+            note += "  <- " + m("sessions.low_priority")
+        elif r.get("low_priority") == "offered":
+            note += "  <- " + m("sessions.low_priority_offered")
+        if r.get("goal"):
+            note += "  <- " + m("sessions.goal", goal=r["goal"][:60] + ("…" if len(r["goal"]) > 60 else ""), n=r.get("goal_iterations") or 0)
         lines.append(f"{r['pid']:<8} {r['account'][:13]:<13} {shown[:22]:<22} {state[:6]:<6} "
                      f"{short_cwd(r['cwd'])[:24]:<24} {vista:<9} {channel.get(r['channel'], r['channel']):<9} {etime(r['started_at']):<9} "
                      f"{(r.get('version') or '-') + ('*' if r.get('outdated') else ''):<9}{note}")
@@ -485,7 +592,18 @@ def render(rows):
     return "\n".join(lines) + "\n"
 
 
+def active_count(rows):
+    """Le sessioni «al lavoro» per il tetto di launch: busy o idle (non «?» ne' gone), esclusa la master
+    (workspace.root_session_name) e i processi fuori registro; Codex non conta (e' un'altra memoria)."""
+    root = CFG["workspace"].get("root_session_name") or "master"
+    return sum(1 for r in rows if r.get("registry") and r.get("agent") != "codex" and r["status"] in ("busy", "idle", "waiting")
+               and (r["tmux"] or r["name"]) != root)
+
+
 def main(argv):
+    if "--count-active" in argv:   # usato da launch (tetto sessions.max_sessions): solo il numero
+        print(active_count(collect(read_screen=False)))
+        return 0
     if "--quota-warn" in argv:   # usato da launch: stampa l'avviso per UN account, se serve
         acc = argv[argv.index("--quota-warn") + 1]
         for a, q in quota_warnings():

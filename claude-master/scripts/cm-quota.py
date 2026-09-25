@@ -18,7 +18,7 @@ fresco e' peggio dell'ignoranza: si decide con sicurezza sulla cosa sbagliata.
 Per questo l'eta' della lettura sta in tabella accanto al numero, e una
 finestra gia' scaduta viene detta a chiare lettere.
 
-Uso: cm-quota.py [--json]
+Uso: cm-quota.py [--json] [--no-screen]   (--no-screen: non legge gli schermi tmux per la bassa priorita')
 """
 import hashlib
 import importlib.util
@@ -96,8 +96,28 @@ def pct(v):
     return "-" if v is None else f"{round(v)}%"
 
 
+def bassa_priorita():
+    """Sessioni in modalita' a bassa priorita' per account (`/low-priority`: oltre il limite, lente ma vive). Lo dice
+    solo lo schermo tmux (cm-sessions), quindi conta le sessioni con un riquadro; senza tmux il conteggio e' zero."""
+    try:
+        spec = importlib.util.spec_from_file_location("cm_sessions", HERE / "cm-sessions.py")
+        ses = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ses)
+        rows = ses.collect(read_screen=True)
+    except Exception:  # noqa: BLE001 — l'informazione e' accessoria: la quota si stampa comunque
+        return {}
+    out = {}
+    for r in rows:
+        if r.get("low_priority") == "active":
+            out[r["account"]] = out.get(r["account"], 0) + 1
+    return out
+
+
 def main():
     letture = [(name, leggi(cm.expand(a["config_dir"]))) for name, a in CFG["accounts"].items()]
+    lente = {} if "--no-screen" in sys.argv else bassa_priorita()
+    for n, q in letture:
+        q["bassa_priorita"] = lente.get(n, 0)
     if "--json" in sys.argv:
         print(json.dumps({n: q for n, q in letture}, indent=2))
         return 0
@@ -112,6 +132,10 @@ def main():
         r = data_breve(q["reset_settimanale"]) if q["reset_settimanale"] else "-"
         eta = eta_umana(q["eta_secondi"]) + ("  " + m("quota.old_mark") if q["vecchia"] else "")
         print(f"{nome:<14} {pct(q['cinque_ore_pct']):>7} {pct(q['settimana_pct']):>10}  {r:<17} {eta}")
+    for n, q in letture:
+        if q.get("bassa_priorita"):
+            print()
+            print("  " + m("quota.low_priority", account=n, n=q["bassa_priorita"]))
     avvisi = [n for n, q in letture if q["stato"] == "ok" and q["finestra_scaduta"]]
     if avvisi:
         print()

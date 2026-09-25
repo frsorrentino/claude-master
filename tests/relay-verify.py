@@ -143,16 +143,17 @@ def iso(t):
 
 
 ROOT_WS = "/home/demo/workspaces"
+SES = load("cm-sessions")   # 1.16: le letture dello schermo e del goal che alimentano /state
 F1 = json.loads((FIX / "state-1-question.json").read_text())
 F2 = json.loads((FIX / "state-2-idle.json").read_text())
 F3 = json.loads((FIX / "state-3-stale.json").read_text())
 SRC1 = {
     "host": "crostini-demo", "root": ROOT_WS, "prefixes": ["work-"], "high_words": None,
     "rows": [
-        {"name": "work-ledger-api", "tmux": "work-ledger-api", "account": "work", "cwd": ROOT_WS + "/work/clients/ledger-api", "status": "waiting", "waiting": True, "session_id": "9e9c87fb-edcd-4c51-8c62-328c0146019b", "link": "https://claude.ai/code/session_01CnGG8im7UG4KtjbPDx9fst", "attached": False, "started_at": 1789210000000},
-        {"name": "atlas-shop", "tmux": "atlas-shop", "account": "personal", "cwd": ROOT_WS + "/personal/atlas-shop", "status": "busy", "waiting": False, "session_id": "f61903c0-ea6a-409c-a961-d01126a0f3ad", "link": "https://claude.ai/code/session_018CKZ1Pum1Qs7DX5hbRLQ6X", "attached": True, "started_at": 1789209000000},
-        {"name": "field-notes", "tmux": "field-notes", "account": "personal", "cwd": ROOT_WS + "/personal/field-notes", "status": "idle", "waiting": False, "session_id": "3d1b2c4e-0000-4000-8000-000000000003", "link": "https://claude.ai/code/session_03fieldnotes", "attached": False, "started_at": 1789120000000},
-        {"name": "work-orbit-docs", "tmux": "work-orbit-docs", "account": "work", "cwd": ROOT_WS + "/work/own/orbit-docs", "status": "dead", "waiting": False, "session_id": "3d1b2c4e-0000-4000-8000-000000000004", "link": "", "attached": False, "visto_ts": 1789200000},
+        {"name": "work-ledger-api", "tmux": "work-ledger-api", "low_priority": "offered", "goal_status": None, "account": "work", "cwd": ROOT_WS + "/work/clients/ledger-api", "status": "waiting", "waiting": True, "session_id": "9e9c87fb-edcd-4c51-8c62-328c0146019b", "link": "https://claude.ai/code/session_01CnGG8im7UG4KtjbPDx9fst", "attached": False, "started_at": 1789210000000},
+        {"name": "atlas-shop", "tmux": "atlas-shop", "low_priority": "active", "goal_status": {"text": "All checkout tests green and the release tagged", "since": 1789210700, "met": False}, "account": "personal", "cwd": ROOT_WS + "/personal/atlas-shop", "status": "busy", "waiting": False, "session_id": "f61903c0-ea6a-409c-a961-d01126a0f3ad", "link": "https://claude.ai/code/session_018CKZ1Pum1Qs7DX5hbRLQ6X", "attached": True, "started_at": 1789209000000},
+        {"name": "field-notes", "tmux": "field-notes", "low_priority": "off", "goal_status": None, "account": "personal", "cwd": ROOT_WS + "/personal/field-notes", "status": "idle", "waiting": False, "session_id": "3d1b2c4e-0000-4000-8000-000000000003", "link": "https://claude.ai/code/session_03fieldnotes", "attached": False, "started_at": 1789120000000},
+        {"name": "work-orbit-docs", "tmux": "work-orbit-docs", "low_priority": None, "goal_status": None, "account": "work", "cwd": ROOT_WS + "/work/own/orbit-docs", "status": "dead", "waiting": False, "session_id": "3d1b2c4e-0000-4000-8000-000000000004", "link": "", "attached": False, "visto_ts": 1789200000},
     ],
     "ledger": [
         {"event": "start", "session_id": "9e9c87fb-edcd-4c51-8c62-328c0146019b", "ts": iso(1789210000)},
@@ -207,9 +208,30 @@ def diff(a, b, path=""):
 
 
 T.check("R2 build_state(src) == state-1-question.json (four sessions, two accounts, quota, projects, night, recap)", st1 == F1, diff(st1, F1) or "equal")
+# R12 (contratto 1.16, 25/09): low_priority («off» | «offered» | «active» | null) e goal ({text, since, met} | null) per sessione
+T.check("R12 (1.16) state-1: low_priority offered/active/off/null and goal {text, since, met} on the busy session, null elsewhere",
+        [x["low_priority"] for x in st1["sessions"]] == ["offered", "active", "off", None] and st1["sessions"][1]["goal"] == {"text": "All checkout tests green and the release tagged", "since": 1789210700, "met": False} and all(x["goal"] is None for i, x in enumerate(st1["sessions"]) if i != 1), str([(x["low_priority"], x["goal"]) for x in st1["sessions"]]))
+_lp = SES.low_priority_on_screen
+T.check("R12 (1.16) the screen decides: «Working at lower priority» → active, «/low-priority to continue now at lower priority» → offered, the menu line «Continue now at lower priority» → offered, a plain screen → off, no screen → null",
+        _lp("x", "…\n  Working at lower priority · waiting for capacity\n") == "active" and _lp("x", "Usage limit reached · /low-priority to continue now at lower priority · uses your weekly limit") == "offered"
+        and _lp("x", "  ❯ 1. Stop and wait for limit to reset\n    2. Continue now at lower priority\n") == "offered" and _lp("x", "  ❯ \n") == "off" and _lp("x", "") is None, "")
+_gt = tmp / "goal-transcript.jsonl"
+_gt.write_text('{"type":"attachment","uuid":"a","timestamp":"2026-09-25T12:00:00.000Z","attachment":{"type":"goal_status","met":false,"sentinel":true,"condition":"la suite passa"}}\n'
+               '{"type":"attachment","uuid":"b","timestamp":"2026-09-25T12:10:00.000Z","attachment":{"type":"goal_status","met":false,"sentinel":false,"iterations":3,"condition":"la suite passa"}}\n')
+_row = {"account": "personale", "session_id": "goal-transcript", "cwd": str(tmp)}
+_orig = SES.transcript_of
+SES.transcript_of = lambda r: _gt
+g_open = SES.goal_of(_row)
+_gt.write_text(_gt.read_text() + '{"type":"attachment","uuid":"c","timestamp":"2026-09-25T12:20:00.000Z","attachment":{"type":"goal_status","met":true,"sentinel":false,"iterations":4,"condition":"la suite passa"}}\n')
+g_met = SES.goal_of(_row)
+_gt.write_text(_gt.read_text() + '{"type":"attachment","uuid":"d","timestamp":"2026-09-25T12:21:00.000Z","attachment":{"type":"goal_status","met":true,"sentinel":true,"condition":"la suite passa"}}\n')
+g_cleared = SES.goal_of(_row)
+SES.transcript_of = _orig
+T.check("R12 (1.16) goal_of: open → {condition, since = the set sentinel's timestamp (epoch), met false}; the check that finds it met → met true; the clear sentinel → none",
+        g_open == {"condition": "la suite passa", "iterations": 3, "since": 1790337600, "met": False} and g_met is not None and g_met["met"] is True and g_met["since"] == 1790337600 and g_cleared is None, str((g_open, g_met, g_cleared)))
 T.check("R2 rules: order waiting/busy/idle/gone then alphabetical, short ≤ 200 (1.6), full ≤ 600, n from 1, ≤ 8 KB", [x["state"] for x in st1["sessions"]] == ["waiting", "busy", "idle", "gone"] and all(len(x["outcome"]["short"]) <= 200 and len(x["outcome"]["full"]) <= 600 for x in st1["sessions"] if x["outcome"]) and [o["n"] for o in st1["sessions"][0]["question"]["options"]] == [1, 2] and S.size_of(st1) <= 8192, str(S.size_of(st1)))
 SRC2 = {"host": "crostini-demo", "root": ROOT_WS, "prefixes": ["work-"],
-        "rows": [{"name": "atlas-shop", "tmux": "atlas-shop", "account": "personal", "cwd": ROOT_WS + "/personal/atlas-shop", "status": "idle", "waiting": False, "session_id": "f61903c0-ea6a-409c-a961-d01126a0f3ad", "link": "https://claude.ai/code/session_018CKZ1Pum1Qs7DX5hbRLQ6X", "attached": False, "started_at": 1789214000000}],
+        "rows": [{"name": "atlas-shop", "tmux": "atlas-shop", "low_priority": "off", "goal_status": None, "account": "personal", "cwd": ROOT_WS + "/personal/atlas-shop", "status": "idle", "waiting": False, "session_id": "f61903c0-ea6a-409c-a961-d01126a0f3ad", "link": "https://claude.ai/code/session_018CKZ1Pum1Qs7DX5hbRLQ6X", "attached": False, "started_at": 1789214000000}],
         "ledger": [{"event": "stop", "session_id": "f61903c0-ea6a-409c-a961-d01126a0f3ad", "ts": iso(1789213900), "last": "x", "esito": "Esito: seeds and admin page reviewed, 42 tests green.", "tail": "Esito: seeds and admin page reviewed, 42 tests green.\nWatch: Seeds and admin page reviewed", "watch": "Watch: Seeds and admin page reviewed"}],
         "questions": {}, "quota": {"personal": {"cinque_ore_pct": 24, "settimana_pct": 38, "reset_settimanale": 1789610400, "reset_cinque_ore": 1789228800, "vecchia": False}, "work": {"cinque_ore_pct": 3, "settimana_pct": 75, "reset_settimanale": 1789444800, "reset_cinque_ore": 1789225200, "vecchia": False}},
         "projects": [{"path": ROOT_WS + "/personal/atlas-shop", "name": "atlas-shop", "account": "personal", "last_used": 1789213900}], "night": {"queued": 0, "running": None}, "recap": {"date": "2026-09-12", "items": []},
@@ -357,7 +379,7 @@ cfg = tmp / "config.json"
 
 
 def write_cfg(enabled=True, **extra):
-    d = {"language": "it", "state_dir": str(state_dir), "default_account": "personal",
+    d = {"language": "it", "sessions": {"max_sessions": 50}, "state_dir": str(state_dir), "default_account": "personal",
          "workspace": {"root": str(ws), "excluded_dirs": [".git"], "project_dirs": ["personal", "work/clients", "work/own"]},
          "folder_map": [{"path": str(ws / "work"), "account": "work"}, {"path": str(ws / "personal"), "account": "personal"}],
          "bot": {"api_base": TG_API, "token_file": str(tgdir / ".env"), "access_file": str(tgdir / "access.json")},

@@ -38,9 +38,9 @@ il percorso completo.
   il caso normale è una sessione pulita
 - `--resume <id>` quando le conversazioni della cartella sono **più di una**: `--continue` prende
   sempre la più recente, e con due sessioni sulla stessa cartella le porta entrambe sulla stessa
-  conversazione lasciando l'altra orfana (successo il 2026-08-24). Un id inesistente **non dà
-  errore** in Claude: apre una conversazione vuota che sembra una ripresa riuscita; `launch` si
-  ferma prima e stampa gli id veri con peso e data
+  conversazione lasciando l'altra orfana. Un id inesistente **non dà errore** in Claude: apre una
+  conversazione vuota che sembra una ripresa riuscita; `launch` si ferma prima e stampa gli id veri
+  con peso e data
 - `--profile <nome>`: argomenti, modello, effort, variabili d'ambiente da `profiles.<nome>` in
   config (per esempio uno scan economico in background)
 - `--bg`: lavori muti (scansioni, batch senza domande) — niente tmux, niente finestra, niente
@@ -67,8 +67,10 @@ così che si ottiene una sessione da pilotare solo dal telefono.
 
 Enumera tutte le sessioni di tutti gli account (registro peer `sessions/<pid>.json` + processi),
 con STATO (`busy`/`idle`/`waiting`), VISTA (`aperta`/`STACCATA`), CANALE (`(questa)` /
-`nativo` / `talk`) e la nota «aspetta una risposta»: una sessione staccata ferma su una domanda è
-lavoro fermo, non in corso — l'unico caso in cui chiuderla non interrompe niente.
+`nativo` / `talk`) e le note: «aspetta una risposta» (una sessione staccata ferma su una domanda è
+lavoro fermo, non in corso — l'unico caso in cui chiuderla non interrompe niente), «a bassa
+priorità» (`/low-priority`: oltre il limite, lenta ma viva — si legge solo dal suo schermo), «goal:
+…» (il `/goal` nativo ancora aperto, dal transcript) e «idle da N h» con il comando per chiuderla.
 
 ## Parlare con un'altra sessione
 
@@ -87,6 +89,8 @@ aver controllato che nella casella non ci sia già del testo **digitato** (`--fo
 **Mai scrivere «ti riferisco quando finisce» senza un trigger armato**: con `SendMessage` usa
 `notify_when_idle: true` (arriva davvero, anche se il messaggio viene trattenuto); altrimenti
 `claude-master wait <nome>` in un `Monitor`, oppure di' esplicitamente «chiedimi "novità?"».
+`wait` torna all'idle e, se la sessione ha un `/goal` ancora aperto, lo dice: idle con un goal non
+raggiunto è «Goal paused» (l'API ha rifiutato, un hook ha chiuso il turno), non lavoro finito.
 Il risultato di `SendMessage` **può mentire** («Failed to send» a messaggio arrivato): verifica
 sullo schermo o con `sessions` prima di rimandare, o consegni due volte.
 
@@ -105,12 +109,10 @@ RTDB + FCM, `/state` cifrato nella forma del contratto, comandi eseguiti via CLI
 (`last` torna l'ultimo messaggio intero dal transcript, per la lettura vocale). `relay push --dry-run`
 mostra lo stato in chiaro senza toccare la rete.
 
-Telegram è rimasto a SENSO UNICO dal 16/09/2026: il PC manda, nessuno risponde. Il bot interattivo
-(comandi a parola nuda, tastiere inline, schede, «Avvisami», il daemon in long polling, il digest
-delle 8:00) è stato ritirato: l'orologio fa le stesse cose in tempo reale, e Telegram duplicava gli
-avvisi. Su Telegram restano i testi lunghi che sul polso non si leggono (il diario delle 20:00,
-il rapporto della notte con `night run --send`), gli avvisi della guardia quota e la scorta per il
-polso quando il relay non risponde. `claude-master bot status` dice token, chat autorizzate e log.
+Telegram è a SENSO UNICO: il PC manda, nessuno risponde (il bot interattivo non c'è più: l'orologio
+fa le stesse cose in tempo reale). Su Telegram restano i testi lunghi che sul polso non si leggono
+(il diario delle 20:00, il rapporto della notte con `night run --send`), gli avvisi della guardia
+quota e la scorta per il polso quando il relay non risponde. `claude-master bot status` dice token, chat autorizzate e log.
 Il «cosa aspetta te» del mattino si guarda dall'orologio, che mostra senza sosta chi è ferma su una
 domanda.
 
@@ -167,9 +169,9 @@ Le foto arrivate via Remote Control hanno già un percorso su disco: passalo a `
 `close` rifiuta le sessioni **attaccate**: se qualcuno la guarda, la sta usando. Una sessione
 **non può chiudere sé stessa**: un kill da un tool arriva a turno aperto e lascia nel transcript
 una chiamata senza risposta, che `--continue` poi riprende monca. Con tmux usa sempre
-`-t =NOME` per `has-session` e `kill-session` (senza `=` aggancia per prefisso: l'08/09/2026 è
-morta `fable-director-2` al posto di `fable-director`); `capture-pane`, `send-keys` e
-`set-option` invece vogliono il nome nudo.
+`-t =NOME` per `has-session` e `kill-session` (senza `=` aggancia per prefisso: `fable-director`
+uccide `fable-director-2`); `capture-pane`, `send-keys` e `set-option` invece vogliono il nome
+nudo.
 
 ## Riavviare la sessione corrente
 
@@ -177,7 +179,7 @@ Quando cambia ciò che si legge solo all'avvio (settings, hook, `additionalDirec
 
     claude-master restart arm                     riparte con --continue a fine turno
     claude-master restart arm --clean             contesto azzerato, memoria intatta (prima: stato su disco)
-    claude-master restart arm --switch-account    stessa conversazione sull'altro account (T51)
+    claude-master restart arm --switch-account    stessa conversazione sull'altro account
 
 Arma e basta: la chiusura la esegue lo Stop hook a turno finito, l'unico istante sicuro. Un flag
 per sessione: più sessioni possono armare insieme (`claude-master restart list` le elenca).
@@ -230,6 +232,9 @@ vissuto, «oggi» nel calendario. Di' l'ora, non il giorno.
 - Su una cartella mai aperta Claude chiede la fiducia (e, su una config nuova, l'accettazione del
   bypass): `launch` li rileva e risponde da solo, altrimenti la sessione arriverebbe sul telefono
   bloccata.
-- Ogni sessione occupa 400–600 MB: con poca memoria controlla `free -m` prima di aprirne diverse.
+- Ogni sessione occupa 350–600 MB. Oltre `sessions.max_sessions` sessioni al lavoro (5; busy o idle,
+  esclusa la master) `launch` si ferma con il conteggio e la memoria libera: da una sessione Claude
+  non c'è un terminale per rispondere, quindi chiudi una idle (`sessions` segna quelle ferme da più
+  di `sessions.idle_hours` ore) o ripeti con `--force` se l'utente lo vuole davvero.
 - `claude-master quota` mostra quanto è pieno il serbatoio di ciascun account con l'età della
   lettura: un numero vecchio creduto fresco fa decidere sulla cosa sbagliata.

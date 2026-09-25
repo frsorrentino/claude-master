@@ -2,7 +2,7 @@
 # claude-master launch — avvia una sessione Claude in una cartella, dentro tmux, staccata dal terminale.
 #
 # Uso: claude-master launch <percorso assoluto> [--create] [--continue|--resume <id>]
-#        [--account <nome>|--<nome-account>] [--no-window] [--bg] [--profile <nome>]
+#        [--account <nome>|--<nome-account>] [--no-window] [--bg] [--profile <nome>] [--force]
 #        [--model M] [--effort E]
 #   --create        crea la cartella se non esiste (mkdir -p)          (it: --crea)
 #   --continue      riprende l'ultima conversazione della cartella      (it: --continua)
@@ -32,7 +32,7 @@ source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/cm-lib.sh"
 if [ -n "${CM_TRACE:-}" ]; then PS4='+ $(date +%T) '; set -x; fi   # CM_TRACE=1: traccia con orari (diagnosi dei tempi)
 
 CARTELLA="${1:-}"
-CREA=no; CONTINUA=no; RIPRENDI=""; ACCOUNT=""; FINESTRA="$CM_SESSION_WINDOW_BY_DEFAULT"; BG=no
+CREA=no; CONTINUA=no; RIPRENDI=""; ACCOUNT=""; FINESTRA="$CM_SESSION_WINDOW_BY_DEFAULT"; BG=no; FORCE=no
 PROFILO=""; MODEL=""; EFFORT=""; TELEPORT=""; AGENT=claude
 shift || true
 while [ $# -gt 0 ]; do
@@ -45,6 +45,7 @@ while [ $# -gt 0 ]; do
     --no-window|--senza-finestra) FINESTRA=false ;;
     --window|--finestra) FINESTRA=true; FINESTRA_CHIESTA=force ;;
     --bg|--background) BG=si ;;
+    --force|--forza) FORCE=si ;;   # oltre il tetto sessions.max_sessions senza chiedere
     --profile|--profilo) shift; PROFILO="${1:-}" ;;
     --model) shift; MODEL="${1:-}" ;;
     --effort) shift; EFFORT="${1:-}" ;;
@@ -95,6 +96,23 @@ PREFIX="$(cm_get "$ACCOUNT" TMUX_PREFIX)"
 
 # 2.3: quota settimanale dell'account oltre soglia → avviso (consiglio, non blocco)
 python3 "$CM_SCRIPTS/cm-sessions.py" --quota-warn "$ACCOUNT" >&2 2>/dev/null || true
+# tetto (25/09/2026): 6,6 GB di RAM e ~350 MB a sessione. Oltre sessions.max_sessions sessioni al lavoro (busy o
+# idle, esclusa la master) si avvisa con il conteggio e la memoria libera e si chiede conferma; senza terminale
+# (lanciata da una sessione Claude) ci si ferma con exit 7 e si dice di ripetere con --force.
+if [ "$FORCE" != si ]; then
+  ATTIVE="$(python3 "$CM_SCRIPTS/cm-sessions.py" --count-active 2>/dev/null || echo 0)"
+  MAX="${CM_SESSIONS_MAX_SESSIONS:-5}"
+  if [ "${ATTIVE:-0}" -ge "$MAX" ] 2>/dev/null; then
+    LIBERA="$(free -m 2>/dev/null | awk '/^Mem:/{print $7}')"
+    cm_msg launch.too_many "n=$ATTIVE" "max=$MAX" "free=${LIBERA:-?}" >&2
+    if [ -t 0 ] && [ -z "${CM_LAUNCH_NO_TTY:-}" ]; then
+      printf '%s ' "$(cm_msg launch.too_many_ask)" >&2; read -r risposta
+      case "$risposta" in s|S|si|sì|SI|y|Y|yes) ;; *) cm_msg launch.too_many_stop >&2; exit 7 ;; esac
+    else
+      cm_msg launch.too_many_noninteractive >&2; exit 7
+    fi
+  fi
+fi
 command -v tmux >/dev/null || { cm_msg launch.no_tmux >&2; exit 3; }
 # il binario: CM_CLAUDE_BIN (prove), poi il PATH, poi il link ~/.local/bin/claude (T81: dal cron il PATH
 # e' minimo; da shell `claude` e' una funzione wrapper, il binario e' quel link)

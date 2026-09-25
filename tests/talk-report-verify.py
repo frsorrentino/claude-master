@@ -7,7 +7,7 @@ T3  socket: --no-wait consegna e torna subito; sessione inesistente → exit 3; 
 T4  tmux: testo digitato nella casella → rifiuto (exit 4); FORZA=si / --force lo butta via (T16)
 T5  tmux: il filtro dei suggerimenti (SGR 2, non chiuso, U+00A0) — funzione typed_text su schermate sintetiche
 T6  tmux: consegna via Escape / send-keys -l / Enter e lettura del diff dello schermo (T17)
-T7  wait: torna quando il registro dice idle e stampa l'ultima risposta
+T7  wait: torna quando il registro dice idle e stampa l'ultima risposta; T7b con un goal aperto nel transcript lo dice
 R1  report: progetto per nome esatto, prefisso, sottostringa; immagine copiata in <subdir>/<data>-<slug>.<ext> con chmod 644
 R2  report: consegna alla sessione via talk --no-wait; --no-launch archivia e basta se la sessione manca
 R3  report: sessione assente → la lancia (claude finto) e consegna
@@ -175,6 +175,15 @@ print(repr(filt("❯ \\x1b[2msolo suggerimento fino a fine riga")))        # non
     threading.Timer(2, lambda: peer.set_status("idle")).start()
     r = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-talk.py"), "wait", "blog", "--timeout", "20"], capture_output=True, text=True, env=env(), timeout=60)
     T.check("T7 wait returns on idle and prints the last reply", r.returncode == 0 and "idle" in r.stdout and "pong dal peer finto" in r.stdout, r.stdout + r.stderr)
+    # T7b (25/09/2026): con un goal nativo ancora aperto nel transcript, wait lo dice (idle = «Goal paused», non finita)
+    with open(peer.transcript, "a") as f:
+        f.write(json.dumps({"type": "attachment", "attachment": {"type": "goal_status", "met": False, "sentinel": False, "iterations": 4, "condition": "la suite passa"}}) + "\n")
+    r = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-talk.py"), "wait", "blog", "--timeout", "20"], capture_output=True, text=True, env=env(), timeout=60)
+    T.check("T7b wait with an open goal → «goal ancora aperto: «…» (4 controlli finora)»", r.returncode == 0 and "goal ancora aperto: «la suite passa» (4 controlli finora)" in r.stdout, r.stdout + r.stderr)
+    with open(peer.transcript, "a") as f:
+        f.write(json.dumps({"type": "attachment", "attachment": {"type": "goal_status", "met": True, "sentinel": False, "iterations": 5, "condition": "la suite passa"}}) + "\n")
+    r = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-talk.py"), "wait", "blog", "--timeout", "20"], capture_output=True, text=True, env=env(), timeout=60)
+    T.check("T7b goal met → no goal line", r.returncode == 0 and "goal ancora aperto" not in r.stdout, r.stdout + r.stderr)
 
     # R1/R2 report
     img = tmp / "shot.PNG"

@@ -72,7 +72,7 @@ fake_crontab.write_text('#!/bin/sh\nif [ "$1" = "-l" ]; then cat "%s"; else cat 
 fake_crontab.chmod(0o755)
 cfg = tmp / "config.json"
 cfg.write_text(json.dumps({
-    "language": "it", "state_dir": str(state),
+    "language": "it", "sessions": {"max_sessions": 50}, "state_dir": str(state),
     "workspace": {"root": str(ws), "root_session_name": "master"},
     "accounts": {"personale": {"config_dir": str(home / ".claude"), "shape": "circle"}, "professionale": {"config_dir": str(home / ".claude-pixel"), "shape": "square", "tmux_prefix": "pix-"}},
     "tabs": {"color_registry": str(tmp / "colors")},

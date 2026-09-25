@@ -226,7 +226,20 @@ def build_session(row, src):
         # 1.1: icona della scheda (stabile per la vita della sessione) e il suo solo colore
         "icon": (src.get("icons") or {}).get(tmux) or None,
         "color": color_of((src.get("icons") or {}).get(tmux), src.get("colors")),
+        # 1.16 (25/09/2026): la modalita' a bassa priorita' («off» | «offered» | «active», letta dallo schermo tmux:
+        # Claude Code la tiene solo in memoria; null senza schermo o sessione gone) e il goal nativo di /goal
+        # ({text, since, met} dall'ultimo goal_status del transcript; null senza goal)
+        "low_priority": row.get("low_priority") if row.get("low_priority") in ("off", "offered", "active") else None,
+        "goal": _goal(row.get("goal_status")),
     }
+
+
+def _goal(g):
+    if not isinstance(g, dict) or not str(g.get("text") or "").strip():
+        return None
+    since = g.get("since")
+    return {"text": one_line(str(g["text"]))[:200], "since": int(since) if isinstance(since, (int, float)) and since else None,
+            "met": bool(g.get("met"))}
 
 
 def _int_or_none(v):

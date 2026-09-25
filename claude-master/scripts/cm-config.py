@@ -115,7 +115,7 @@ DEFAULTS = {
     "talk": {"quiet_s": 6, "max_wait_s": 240, "warn_native_channel": True,
              "from_name": "claude-master", "from_mode": "bypass"},
     "report": {"subdir": "docs/reports", "image_exts": ["png", "jpg", "jpeg", "webp", "gif"]},
-    "sessions": {"stall_min": 20, "recent_min": 5},
+    "sessions": {"stall_min": 20, "recent_min": 5, "max_sessions": 5, "idle_hours": 2},
     "quota": {"source": "~/.claude/fable-director", "warn_pct": 85},
     # spento di default (l'utente, 10/09/2026): la master resta l'unico ingresso dal telefono; lo
     # sportello apre sessioni senza progetto, con nome casuale e cartella fissa, e costa un
