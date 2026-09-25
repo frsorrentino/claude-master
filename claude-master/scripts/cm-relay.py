@@ -661,14 +661,15 @@ def qr_payload(pair_id, pub, host, exp, app):
             "f": {"k": app["api_key"], "p": app["project_id"], "a": app["app_id"], "d": base_url(), "t": str(R.get("fcm_topic") or "watch")}}
 
 
-def qr_lines(text, margin=4):
+def qr_lines(text, margin=2):
     """Il QR di `text` come righe di testo per il terminale: mezzi blocchi (due moduli per carattere, uno sopra e uno
-    sotto), margine di `margin` moduli chiari, correzione M (senza rialzo automatico: il livello resta quello del
-    contratto). I moduli chiari sono blocchi pieni e quelli scuri spazi, come `qrencode -t UTF8`: su un terminale
+    sotto), margine di `margin` moduli chiari (2: le fotocamere dei telefoni lo leggono e il QR resta stretto sul
+    terminale), correzione L senza rialzo automatico (R3, 25/09: col payload reale, 349 byte, la M dava versione 14
+    e 73 moduli, la L da' versione 12 e 65; il contratto non fissa il livello). I moduli chiari sono blocchi pieni e quelli scuri spazi, come `qrencode -t UTF8`: su un terminale
     scuro il QR viene nero su bianco, che e' come lo legge una fotocamera. Generatore: qrcodegen (Project Nayuki,
     MIT, scripts/qrcodegen.py), nessuna dipendenza nuova."""
     Q = _load("qrcodegen")
-    qr = Q.QrCode.encode_segments(Q.QrSegment.make_segments(text), Q.QrCode.Ecc.MEDIUM, boostecl=False)
+    qr = Q.QrCode.encode_segments(Q.QrSegment.make_segments(text), Q.QrCode.Ecc.LOW, boostecl=False)
     n = qr.get_size()
 
     def dark(x, y):

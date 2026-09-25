@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.4.22-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.4.23-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 ![One master session runs all the others: the root session launches, watches, answers and closes the parallel sessions of every project, from the terminal and from the wrist — beside it, the session list of the Wear OS app (beta coming soon), rendered from the app's code, on the demo set.](assets/readme/card0-hero.png)
 
@@ -186,8 +186,9 @@ client; `relay.app_package` picks one when the file has more than one); the
 database URL and the FCM topic
 come from the relay's own config. Without those data `relay pair` says so, shows
 no QR and the six-digit code still works; `doctor` shows a WARN. The QR is
-drawn in the terminal with half blocks and a four-module margin (about 80
-columns wide; `relay pair --text` prints its JSON on one line instead). The same
+drawn in the terminal with half blocks, error correction L and a two-module
+margin (about 70 columns wide; `relay pair --text` prints its JSON on one line
+instead). The same
 document sits under `/pair/<code>` and `/pair/<id>`; the first valid answer
 wins, the other node is deleted, expiry and attempts are shared. The phone may
 answer with `uids` (up to four) and `names`: every uid goes to `/allowed`, and

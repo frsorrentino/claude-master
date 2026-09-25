@@ -527,7 +527,7 @@ except ValueError:
 T.check("R5 (1.15) pair --text: one JSON line {v:1, i:<id node>, c:pc_pub, h, e:exp, f:{k,p,a,d,t}} above the code, no QR drawn", len(head) == 1 and qr_doc.get("v") == 1 and qr_doc.get("i") == pid_node and qr_doc.get("c") == STORE["pair"][pid_node]["pc_pub"] and qr_doc.get("h") == "crostini-test" and qr_doc.get("e") == STORE["pair"][pid_node]["exp"] and qr_doc.get("f") == {"k": APP["api_key"], "p": APP["project_id"], "a": APP["app_id"], "d": URL, "t": "watch"}, str(head)[:400])
 pair_stop(pr)
 T.wait_until(lambda: code not in (STORE.get("pair") or {}) and pid_node not in (STORE.get("pair") or {}), 3)
-# senza --text: il QR a mezzi blocchi, margine di 4 moduli, decodificato (OpenCV, se c'e') = quel JSON
+# senza --text: il QR a mezzi blocchi, margine di 2 moduli, decodificato (OpenCV, se c'e') = quel JSON
 pr, code, head = pair_run(8)
 T.wait_until(lambda: (STORE.get("pair") or {}).get(code, {}).get("pc_pub"), 3)
 pid_node = next(n for n in pair_nodes(code) if n != code)
@@ -535,22 +535,25 @@ rows = [l for l in head if l and set(l) <= set("█▀▄ ")]
 
 
 def qr_decode(rows, scale=6):
-    """Le righe a mezzi blocchi tornano immagine (chiaro = blocco) e OpenCV le legge; None senza cv2."""
+    """Le righe a mezzi blocchi tornano immagine (chiaro = blocco) e OpenCV le legge; None senza cv2. Il detector e'
+    QRCodeDetectorAruco (OpenCV >= 4.8): quello classico perde circa un QR su dieci a qualunque scala e livello di
+    correzione, sempre sugli stessi contenuti (misurato su 40 payload di pair, 25/09), e il test era aleatorio."""
     try:
         import cv2
         import numpy as np
     except ImportError:
         return None
+    Det = getattr(cv2, "QRCodeDetectorAruco", None) or cv2.QRCodeDetector
     img = np.zeros((len(rows) * 2 * scale, len(rows[0]) * scale), np.uint8)
     for y, r in enumerate(rows):
         for x, ch in enumerate(r):
             img[y * 2 * scale:(y * 2 + 1) * scale, x * scale:(x + 1) * scale] = 255 if ch in "█▀" else 0
             img[(y * 2 + 1) * scale:(y * 2 + 2) * scale, x * scale:(x + 1) * scale] = 255 if ch in "█▄" else 0
-    return cv2.QRCodeDetector().detectAndDecode(img)[0]
+    return Det().detectAndDecode(img)[0]
 
 
 decoded = qr_decode(rows) if rows else ""
-T.check("R5 (1.15) pair draws the QR in half blocks: «Inquadra» line, square rows of equal width, a light margin of 4 modules (2 rows and 4 columns of full blocks) on every side, then the code", any("Inquadra il QR" in l for l in head) and len(rows) >= 20 and len({len(r) for r in rows}) == 1 and rows[0] == rows[1] == "█" * len(rows[0]) and rows[-1] == "█" * len(rows[0]) and all(r.startswith("████") and r.endswith("████") for r in rows) and abs(len(rows) * 2 - len(rows[0])) <= 1, f"rows={len(rows)} width={len(rows[0]) if rows else 0} head={head[:3]}")
+T.check("R5 (1.15) pair draws the QR in half blocks: «Inquadra» line, square rows of equal width, a light margin of 2 modules (1 row and 2 columns of full blocks) on every side, then the code", any("Inquadra il QR" in l for l in head) and len(rows) >= 20 and len({len(r) for r in rows}) == 1 and rows[0] == "█" * len(rows[0]) and rows[-1] == "█" * len(rows[0]) and rows[1] != rows[0] and all(r.startswith("██") and r.endswith("██") for r in rows) and abs(len(rows) * 2 - len(rows[0])) <= 1, f"rows={len(rows)} width={len(rows[0]) if rows else 0} head={head[:3]}")
 T.check("R5 (1.15) the drawn QR decodes (OpenCV) to the JSON of the QR, with i = the id node on the bus (skipped without cv2)", decoded is None or (decoded and json.loads(decoded)["i"] == pid_node and json.loads(decoded)["c"] == STORE["pair"][pid_node]["pc_pub"]), f"decoded={str(decoded)[:120]}")
 pair_stop(pr)
 T.wait_until(lambda: code not in (STORE.get("pair") or {}) and pid_node not in (STORE.get("pair") or {}), 3)
