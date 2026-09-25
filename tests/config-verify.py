@@ -16,6 +16,7 @@ C12 init --yes scrive; secondo giro rifiuta senza --force; --dry-run non scrive
 C15 init --tmux: blocco da tmux.keybindings; --yes accoda a ~/.tmux.conf una volta sola
 C13 doctor: WARN hook duplicato, WARN chrome-bridge assente, FAIL account mancante
 C13d doctor: relay.enabled → PASS/FAIL cryptography e crontab con il rimedio; relay spento → niente riga
+C13e doctor: dati dell'app Firebase per il QR (1.15) → WARN senza, PASS da relay.firebase_app o google-services.json
 C14 shim: risolve la radice da installed_plugins.json ed esegue il dispatcher
 """
 import json
@@ -249,6 +250,42 @@ r = T.run_config(["doctor"], home, Path(tmp) / "relay-on.json", Path(tmp) / "mac
 T.check("C13d relay on, both present → PASS crypto_ok and PASS crontab_ok, exit 0", r.returncode == 0 and "PASS crypto_ok" in r.stdout and "PASS crontab_ok" in r.stdout, r.stdout)
 r = T.run_config(["doctor"], home, target, Path(tmp) / "machine-c13d-none.json")
 T.check("C13d relay off → no crypto/crontab line even if both are missing", r.returncode == 0 and "crypto" not in r.stdout and "crontab" not in r.stdout, r.stdout)
+
+# C13e (24/09, contratto 1.15): i dati dell'app Firebase per il QR di `relay pair` — WARN senza, PASS da relay.firebase_app
+# o da un google-services.json (il suo client Android; relay.app_package se ne ha piu' d'uno); relay spento: niente riga
+r = T.run_config(["doctor"], home, Path(tmp) / "relay-on.json", Path(tmp) / "machine-c13d-all.json")
+T.check("C13e relay on, no app data → WARN firebase_app_missing (relay pair shows no QR) with the remedy, exit 0", r.returncode == 0 and "WARN firebase_app_missing" in r.stdout and "relay.google_services" in r.stdout and "relay.firebase_app" in r.stdout, r.stdout)
+cfg13e = json.loads((Path(tmp) / "relay-on.json").read_text())
+cfg13e["relay"]["firebase_app"] = {"api_key": "AIza-x", "project_id": "demo-proj", "app_id": "1:1:android:a"}
+(Path(tmp) / "relay-app.json").write_text(json.dumps(cfg13e))
+r = T.run_config(["doctor"], home, Path(tmp) / "relay-app.json", Path(tmp) / "machine-c13d-all.json")
+T.check("C13e relay.firebase_app complete → PASS firebase_app_ok with the project id (config)", r.returncode == 0 and "PASS firebase_app_ok" in r.stdout and "demo-proj" in r.stdout and "(config)" in r.stdout, r.stdout)
+gs = Path(tmp) / "google-services.json"
+gs.write_text(json.dumps({"project_info": {"project_number": "123", "project_id": "gs-proj", "firebase_url": "https://gs-proj-default-rtdb.europe-west1.firebasedatabase.app"},
+                          "client": [{"client_info": {"mobilesdk_app_id": "1:123:android:other", "android_client_info": {"package_name": "com.example.other"}}, "api_key": [{"current_key": "AIza-other"}]},
+                                     {"client_info": {"mobilesdk_app_id": "1:123:android:cmw", "android_client_info": {"package_name": "it.example.cmwatch"}}, "api_key": [{"current_key": "AIza-cmw"}]}]}))
+cfg13e["relay"]["firebase_app"] = {}; cfg13e["relay"]["google_services"] = str(gs)
+(Path(tmp) / "relay-gs.json").write_text(json.dumps(cfg13e))
+r = T.run_config(["doctor"], home, Path(tmp) / "relay-gs.json", Path(tmp) / "machine-c13d-all.json")
+import importlib.util as _ilu
+_sp = _ilu.spec_from_file_location("cm_config", T.SCRIPTS / "cm-config.py"); _cmc = _ilu.module_from_spec(_sp); _sp.loader.exec_module(_cmc)
+T.check("C13e a google-services.json with two Android clients and no relay.app_package → WARN saying to set relay.app_package", r.returncode == 0 and "WARN firebase_app_missing" in r.stdout and "relay.app_package" in r.stdout and _cmc.relay_firebase_app(cfg13e) == (None, "relay.app_file_many"), r.stdout)
+cfg13e["relay"]["app_package"] = "it.example.cmwatch"
+(Path(tmp) / "relay-gs.json").write_text(json.dumps(cfg13e))
+r = T.run_config(["doctor"], home, Path(tmp) / "relay-gs.json", Path(tmp) / "machine-c13d-all.json")
+app13e, src13e = _cmc.relay_firebase_app(cfg13e)
+T.check("C13e relay.app_package set → PASS with the project of project_info and that client (not the other package): its app_id and api_key", r.returncode == 0 and "PASS firebase_app_ok" in r.stdout and "gs-proj" in r.stdout and app13e == {"api_key": "AIza-cmw", "project_id": "gs-proj", "app_id": "1:123:android:cmw"} and src13e == str(gs), r.stdout + str(app13e))
+gs.write_text(json.dumps({"project_info": {"project_id": "gs-proj"}, "client": [{"client_info": {"mobilesdk_app_id": "1:123:android:only", "android_client_info": {"package_name": "it.example.only"}}, "api_key": [{"current_key": "AIza-only"}]}]}))
+cfg13e["relay"]["app_package"] = ""
+(Path(tmp) / "relay-gs.json").write_text(json.dumps(cfg13e))
+T.check("C13e one Android client and no relay.app_package → that client", _cmc.relay_firebase_app(cfg13e) == ({"api_key": "AIza-only", "project_id": "gs-proj", "app_id": "1:123:android:only"}, str(gs)), str(_cmc.relay_firebase_app(cfg13e)))
+cfg13e["relay"]["google_services"] = str(Path(tmp) / "no-such-google-services.json")
+(Path(tmp) / "relay-gs-missing.json").write_text(json.dumps(cfg13e))
+r = T.run_config(["doctor"], home, Path(tmp) / "relay-gs-missing.json", Path(tmp) / "machine-c13d-all.json")
+T.check("C13e relay.google_services pointing to a missing file → WARN saying the path does not exist", r.returncode == 0 and "WARN firebase_app_missing" in r.stdout and "no-such-google-services.json" in r.stdout and "non esiste" in r.stdout, r.stdout)
+gs.write_text(json.dumps({"project_info": {"project_id": "gs-proj"}, "client": []}))
+r = T.run_config(["doctor"], home, Path(tmp) / "relay-gs.json", Path(tmp) / "machine-c13d-all.json")
+T.check("C13e a google-services.json without any Android client → WARN (file bad)", r.returncode == 0 and "WARN firebase_app_missing" in r.stdout and "mobilesdk_app_id" in r.stdout, r.stdout)
 
 # C14 shim
 r = T.run_config(["init", "--shim", "--yes"], home, target, machine)

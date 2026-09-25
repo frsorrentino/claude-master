@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.4.20-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.4.21-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 ![One master session runs all the others: the root session launches, watches, answers and closes the parallel sessions of every project, from the terminal and from the wrist — beside it, the session list of the Wear OS app (beta coming soon), rendered from the app's code, on the demo set.](assets/readme/card0-hero.png)
 
@@ -167,15 +167,53 @@ whose README has the watch side under «Set up»):
 `tests/fixtures/relay/`) to Firebase RTDB, appends `/events` and wakes the watch
 with FCM; `relay serve` listens on `/cmd` and runs the allow-listed commands
 (answer, prompt, launch — with an optional first message — follow, resume, reopen, screen, allow_all, last, model, effort) through the CLI,
-writing `/result`; `relay pair` shows a six-digit code and agrees the AES key
-with the watch over X25519. Setup: a Firebase project with RTDB and FCM, its
+writing `/result`; `relay pair` shows a QR for the phone app and a six-digit
+code for the watch, and agrees the AES key over X25519 with whichever answers
+first. Setup: a Firebase project with RTDB and FCM, its
 service account JSON in `~/.claude-master/relay/service-account.json` (0600,
 never in the repo), `relay.enabled`, `relay.firebase_url` and `relay.fcm_topic`
 in the config, then `relay pair`, `relay install`. RTDB rules: `/state`,
 `/events` and `/result` readable only by a uid present in `/allowed`, `/cmd`
-writable only by those, `/pair/<code>/watch` writable by an anonymous user; the
-PC writes with the service account. `relay push --dry-run` prints the clear
-state without touching the network.
+writable only by those, `/pair/<code>/watch` and `/pair/<id>/watch` writable by
+an anonymous user; the PC writes with the service account. `relay push
+--dry-run` prints the clear state without touching the network.
+
+The QR (contract 1.15) carries the pairing id, the PC's public key, the host,
+the expiry and the data the phone needs to join the Firebase project: the
+app's API key, project id and Android app id, from `relay.firebase_app`, or read
+from the `google-services.json` named in `relay.google_services` (its Android
+client; `relay.app_package` picks one when the file has more than one); the
+database URL and the FCM topic
+come from the relay's own config. Without those data `relay pair` says so, shows
+no QR and the six-digit code still works; `doctor` shows a WARN. The QR is
+drawn in the terminal with half blocks and a four-module margin (about 80
+columns wide; `relay pair --text` prints its JSON on one line instead). The same
+document sits under `/pair/<code>` and `/pair/<id>`; the first valid answer
+wins, the other node is deleted, expiry and attempts are shared. The phone may
+answer with `uids` (up to four) and `names`: every uid goes to `/allowed`, and
+`devices.json` keeps each with its name.
+
+`relay setup` builds the Firebase side, guided and idempotent, on the Firebase
+CLI already logged in (`npm install -g firebase-tools`, `firebase login`): it
+picks or creates the project, creates the Realtime Database instance
+(`relay.setup_location`, europe-west1 by default), deploys the rules above,
+enables anonymous sign-in, registers the Android app of `relay.app_package`
+without a SHA fingerprint (the API key is not restricted: the Play signature
+differs from the development one), saves its data in `relay.firebase_app` and
+`<relay.dir>/google-services.json`, creates the firebase-adminsdk key at
+`relay.service_account` (0600) and writes `relay.enabled`, `relay.firebase_url`
+and `relay.fcm_topic` into the config in use, `CLAUDE_MASTER_CONFIG` included.
+Anonymous sign-in and the key go through Google's REST APIs with the CLI's own
+token; when that token is missing, the two steps print the exact console link
+and wait for Enter. A key file that belongs to another project is never
+replaced. `--dry-run` lists what would be done and writes nothing; `--yes` takes
+the defaults; the end is a summary like `doctor`'s.
+
+To try the app without touching the watch already paired, point
+`CLAUDE_MASTER_CONFIG` at a trial config with its own `relay.dir`,
+`relay.service_account` and `relay.firebase_url`: `relay pair`, `relay push` and
+`relay serve` then work only there, and the main config's key, `devices.json`,
+`/allowed` and crontab stay as they are.
 
 Each session in `/state` carries the badge the watch draws: `icon`, the emoji
 of its Terminal tab (stable for the session's life, the last known one once it
@@ -350,7 +388,8 @@ report — and whatever the watch is not receiving.
 claude-master bot status       # token, allowed chats, log; nothing to keep alive
 claude-master recap install    # the day's diary to those chats at 20:00 (recap.cron_time)
 claude-master night install    # the overnight queue at 02:00 (night.cron_time); fill it with `night add`
-claude-master relay pair       # the watch, once: a 6-digit code
+claude-master relay setup      # the Firebase project, guided (--dry-run to see the steps)
+claude-master relay pair       # once: a QR for the phone, a 6-digit code for the watch
 claude-master relay install    # the relay's daemon and its keeper
 ```
 
@@ -442,4 +481,6 @@ a test before it was fixed. The README cards are generated by
 
 ## License
 
-MIT — Francesco Sorrentino.
+MIT — Francesco Sorrentino. The QR of `relay pair` is drawn with
+[qrcodegen](https://www.nayuki.io/page/qr-code-generator-library) by Project
+Nayuki (MIT), shipped in `scripts/qrcodegen.py`.

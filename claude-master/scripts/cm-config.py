@@ -157,7 +157,14 @@ DEFAULTS = {
               "telegram_fallback_after_s": 600,
               # contesto di una sessione (1.13.1): dove una statusline salva la finestra dichiarata da Claude Code, e i
               # modelli il cui id non dice se la finestra e' da 1M o standard (sotto i 200k token il contesto resta null)
-              "window_hint_dir": "~/.claude/fable-director/sessions", "window_unmarked": ["claude-fable-5-1"]},
+              "window_hint_dir": "~/.claude/fable-director/sessions", "window_unmarked": ["claude-fable-5-1"],
+              # 1.15 (24/09/2026): i dati dell'app Firebase nel QR di `relay pair` — o qui, o letti da un
+              # google-services.json (project_info + il client con il pacchetto dell'app). Senza: niente QR, il codice basta.
+              "firebase_app": {"api_key": "", "project_id": "", "app_id": ""}, "google_services": "",
+              # il client Android da prendere in quel file quando ne ha piu' d'uno (vuoto: l'unico che c'e')
+              "app_package": "",
+              # dove `relay setup` crea l'istanza del Realtime Database
+              "setup_location": "europe-west1"},
     # cambio di modello ed effort di una sessione dal suo selettore, SOLO per quella sessione (16/09/2026, contratto
     # 1.12): `pick` e' l'etichetta della voce nel selettore di /model, `id` quello che la sessione riporta in model.id.
     # Dalla 2.1.280 (catturato il 22/09/2026) «Opus (1M context)» e' Opus 5.5 e Opus 5 non ha piu' una voce: tenere
@@ -577,6 +584,40 @@ def read_json(path):
         return json.loads(Path(expand(path)).read_text())
     except (OSError, ValueError):
         return {}
+
+
+def relay_firebase_app(cfg):
+    """I dati dell'app Firebase per il QR di `relay pair` (contratto 1.15): (dati, origine) oppure (None, motivo).
+    Prima `relay.firebase_app` {api_key, project_id, app_id} se completo; altrimenti `relay.google_services`, il
+    google-services.json scaricato dalla console: project_info.project_id e, nel client Android dell'app
+    (`relay.app_package` se il file ne ha piu' d'uno, altrimenti l'unico), client_info.mobilesdk_app_id e
+    api_key[0].current_key. Il motivo e' la chiave del messaggio: relay.app_unset (nessuna delle due),
+    relay.app_file_missing, relay.app_file_many (piu' client e nessun relay.app_package), relay.app_file_bad."""
+    r = cfg.get("relay") or {}
+    app = r.get("firebase_app") if isinstance(r.get("firebase_app"), dict) else {}
+    got = {k: str(app.get(k) or "").strip() for k in ("api_key", "project_id", "app_id")}
+    if all(got.values()):
+        return got, "config"
+    gs = str(r.get("google_services") or "").strip()
+    if not gs:
+        return None, "relay.app_unset"
+    path = Path(expand(gs))
+    if not path.is_file():
+        return None, "relay.app_file_missing"
+    want = str(r.get("app_package") or "").strip()
+    try:
+        doc = json.loads(path.read_text())
+        clients = [(c, str(((c.get("client_info") or {}).get("android_client_info") or {}).get("package_name") or ""))
+                   for c in doc.get("client") or [] if isinstance(c, dict)]
+        clients = [(c, pkg) for c, pkg in clients if pkg and (not want or pkg == want)]
+        if len(clients) > 1:
+            return None, "relay.app_file_many"
+        client = clients[0][0]
+        got = {"api_key": str(client["api_key"][0]["current_key"]), "project_id": str(doc["project_info"]["project_id"]),
+               "app_id": str(client["client_info"]["mobilesdk_app_id"])}
+    except (OSError, ValueError, KeyError, IndexError, TypeError, AttributeError):
+        return None, "relay.app_file_bad"
+    return (got, str(path)) if all(got.values()) else (None, "relay.app_file_bad")
 
 
 def has_local_time_hook(settings):
@@ -1063,6 +1104,10 @@ def cmd_doctor():
                     else ("PASS", "doctor.crypto_ok", {"module": RELAY_CRYPTO_MODULE.split(".")[0]}, None))
         rows.append(("FAIL", "doctor.crontab_missing", {}, "doctor.fix_crontab") if "crontab" in missing
                     else ("PASS", "doctor.crontab_ok", {"path": m.which("crontab")}, None))
+        # 1.15: i dati dell'app Firebase nel QR di `relay pair` — senza, il QR non compare e resta il codice a 6 cifre
+        app, why = relay_firebase_app(cfg)
+        rows.append(("PASS", "doctor.firebase_app_ok", {"project": app["project_id"], "source": why}, None) if app
+                    else ("WARN", "doctor.firebase_app_missing", {"why": msg(cfg, why, path=expand(cfg["relay"].get("google_services") or ""), package=cfg["relay"].get("app_package") or "")}, "doctor.fix_firebase_app"))
 
     for name, a in cfg["accounts"].items():
         d = expand(a["config_dir"])

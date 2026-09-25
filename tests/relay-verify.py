@@ -15,13 +15,18 @@ R4   relay push: --dry-run stampa il JSON in chiaro senza HTTP; push scrive /sta
      una scrittura); stato oltre 8 KB ridotto
 R5   relay pair: codice a 6 cifre, /pair/<code> con pc_pub, orologio finto che risponde → chiave condivisa
      salvata, uid in /allowed e devices.json, /pair cancellato; check sbagliato ×5 → esce 2; timeout → 3;
-     ri-pair revoca l'uid vecchio
+     ri-pair revoca l'uid vecchio. 1.15: lo stesso documento in /pair/<id>, il telefono finto risponde li' con
+     uids e names; --text stampa il JSON del QR; il QR a mezzi blocchi si decodifica (OpenCV, se c'e')
+R5b  i vettori del contratto 1.15 (pair-qr.json, pair-response.json: scalari 0..31 e 32..63) → pair_accept
+     produce esattamente `ok`; qr_payload = pair-qr.json
+R5c  prove isolate: CLAUDE_MASTER_CONFIG di prova → pair/push/serve solo li', la configurazione principale intatta
 R6   relay serve: SSE su /cmd, i sette op del contratto eseguiti via dispatcher finto → /result, /cmd cancellato,
      /state ripubblicato; duplicati ignorati; op fuori allow-list rifiutato; launch fuori da projects rifiutato;
      RTDB giù → riconnessione; status/ensure/install/uninstall/off; install e pair rifiutati senza crontab (esce 5)
 R7   cm-hook.py: waiting/<sid> in JSON con tool_input; PermissionRequest/Stop/SessionStart/SessionEnd → push
      --async (relay abilitata); disabilitata → niente; bot follow/unfollow → push
 """
+import base64
 import json
 import re
 import os
@@ -39,7 +44,7 @@ WATCH = Path.home() / "Desktop" / "workspaces" / "personali" / "claude-master-wa
 FIX = T.ROOT / "tests" / "fixtures" / "relay"
 
 # R0: fixture identiche al contratto
-for f in ("state-1-question", "state-2-idle", "state-3-stale", "events-sample", "cmd-result-sample"):
+for f in ("state-1-question", "state-2-idle", "state-3-stale", "events-sample", "cmd-result-sample", "pair-qr", "pair-response"):
     a = FIX / f"{f}.json"; b = WATCH / "contract" / f"{f}.json"
     T.check(f"R0 fixture {f} identical to the app contract (skipped if the app repo is absent)", a.is_file() and ((not b.is_file()) or a.read_bytes() == b.read_bytes()), str(b))
 
@@ -441,42 +446,169 @@ fake_crontab.write_text('#!/bin/sh\nif [ "$1" = "-l" ]; then cat "%s"; else cat 
 fake_crontab.chmod(0o755)
 ENV["CM_CRONTAB_CMD"] = str(fake_crontab)
 
-# R5: pair con un orologio finto
-def pair_run(timeout=8):
-    pr = subprocess.Popen([sys.executable, str(T.SCRIPTS / "cm-relay.py"), "pair", "--timeout", str(timeout)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=ENV)
-    line = pr.stdout.readline()
+# R5: pair con un orologio finto (codice) e un telefono finto (QR, 1.15)
+def pair_run(timeout=8, *extra):
+    """Lancia `pair`, legge stdout fino alla riga del codice; torna (processo, codice, righe prima del codice)."""
+    pr = subprocess.Popen([sys.executable, str(T.SCRIPTS / "cm-relay.py"), "pair", "--timeout", str(timeout), *extra], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=ENV)
     import re as _re
-    m = _re.search(r"\b(\d{6})\b", line)
-    return pr, (m.group(1) if m else "")
+    head = []
+    for _ in range(200):
+        line = pr.stdout.readline()
+        if not line:
+            break
+        m = _re.search(r"Codice di pairing.*\b(\d{6})\b", line)
+        if m:
+            return pr, m.group(1), head
+        head.append(line.rstrip("\n"))
+    return pr, "", head
 
 
-pr, code = pair_run()
-T.check("R5 pair: a six-digit code on stdout; /pair/<code> has the PC's public key, host and exp", len(code) == 6 and T.wait_until(lambda: (STORE.get("pair") or {}).get(code, {}).get("pc_pub"), 3) and STORE["pair"][code]["host"] == "crostini-test" and STORE["pair"][code]["exp"] > time.time(), str(STORE.get("pair")))
+def pair_nodes(code):
+    """I nodi di questo giro: quelli con la stessa pc_pub del codice (una conferma `ok` di un giro vecchio non conta)."""
+    pub = ((STORE.get("pair") or {}).get(code) or {}).get("pc_pub")
+    return {n: v for n, v in (STORE.get("pair") or {}).items() if isinstance(v, dict) and pub and v.get("pc_pub") == pub}
+
+
+def pair_stop(pr):
+    """Ctrl-C al pair in corso: il suo `finally` toglie i nodi dal bus."""
+    import signal as _sig
+    pr.send_signal(_sig.SIGINT); pr.wait(timeout=10)
+
+
+pr, code, head = pair_run()
+T.wait_until(lambda: (STORE.get("pair") or {}).get(code, {}).get("pc_pub"), 3)
+nodes = pair_nodes(code)
+pid_node = next((n for n in nodes if n != code), "")
+T.check("R5 pair: a six-digit code on stdout; /pair/<code> has the PC's public key, host and exp", len(code) == 6 and nodes.get(code, {}).get("pc_pub") and nodes[code]["host"] == "crostini-test" and nodes[code]["exp"] > time.time(), str(STORE.get("pair")))
+T.check("R5 (1.15) the same {pc_pub, host, exp} under /pair/<id>, the id 22 base64url characters; without the app's Firebase data no QR, said in one line above the code", len(pid_node) == 22 and re.fullmatch(r"[A-Za-z0-9_-]{22}", pid_node) and nodes[pid_node] == nodes[code] and len(nodes) == 2 and any("niente QR" in l and "relay.firebase_app" in l for l in head), f"nodes={list(nodes)} head={head}")
 w_priv, w_pub = C.pair_keys()
 k_watch = C.shared_key(w_priv, STORE["pair"][code]["pc_pub"])
-for i in range(5):
+for i in range(3):   # tre sul codice, due sull'id: i tentativi sono in comune
     http("PUT", f"/pair/{code}/watch.json", {"watch_pub": w_pub, "uid": "u-bad", "name": "intruder", "check": f"{i:016x}"})
     T.wait_until(lambda: not (STORE.get("pair") or {}).get(code, {}).get("watch"), 3)
-pr.wait(timeout=15)
-T.check("R5 five wrong checks → exit 2, no key change, no uid allowed, /pair cleaned", pr.returncode == 2 and C.load_key(rdir2) == k and not (STORE.get("allowed") or {}) and code not in (STORE.get("pair") or {}), f"rc={pr.returncode} " + pr.stdout.read() + pr.stderr.read())
-pr, code = pair_run()
+for i in range(2):
+    http("PUT", f"/pair/{pid_node}/watch.json", {"watch_pub": w_pub, "uid": "u-bad", "name": "intruder", "check": f"{i:016x}"})
+    T.wait_until(lambda: not (STORE.get("pair") or {}).get(pid_node, {}).get("watch"), 3)
+pr.wait(timeout=10)
+T.check("R5 five wrong checks (three on the code, two on the id: attempts shared) → exit 2, no key change, no uid allowed, both nodes cleaned", pr.returncode == 2 and C.load_key(rdir2) == k and not (STORE.get("allowed") or {}) and code not in (STORE.get("pair") or {}) and pid_node not in (STORE.get("pair") or {}), f"rc={pr.returncode} " + pr.stdout.read() + pr.stderr.read())
+pr, code, head = pair_run()
 T.wait_until(lambda: (STORE.get("pair") or {}).get(code, {}).get("pc_pub"), 3)
+pid_node = next(n for n in pair_nodes(code) if n != code)
 w_priv, w_pub = C.pair_keys()
 k_watch = C.shared_key(w_priv, STORE["pair"][code]["pc_pub"])
 http("PUT", f"/pair/{code}/watch.json", {"watch_pub": w_pub, "uid": "u1", "name": "watch-pixel5", "check": C.check_code(k_watch, code)})
-pr.wait(timeout=15)
+pr.wait(timeout=10)
 out5 = pr.stdout.read()
-T.check("R5 a new key wipes /events and /result on the bus (old ciphertext is unreadable)", "events" not in STORE and "result" not in STORE, str(list(STORE)))
-T.check("R5 right check → exit 0, the shared key saved (0600) and equal to the watch's, u1 in /allowed and devices.json, only the confirmation left under /pair/<code> (the watch still has to read it), «accoppiato» printed", pr.returncode == 0 and C.load_key(rdir2) == k_watch and STORE.get("allowed") == {"u1": True} and "u1" in json.loads((rdir2 / "devices.json").read_text()) and set((STORE.get("pair") or {}).get(code, {})) == {"ok"} and "accoppiato" in out5, f"rc={pr.returncode} {out5} {pr.stderr.read()} {STORE.get('allowed')}")
-pr, code = pair_run()
+T.wait_until(lambda: set((STORE.get("pair") or {}).get(code, {})) == {"ok"}, 3)
+T.check("R5 right check on the code → exit 0, the shared key saved (0600) and equal to the watch's, u1 in /allowed and devices.json, only the confirmation left under /pair/<code> (the watch still has to read it), /pair/<id> gone, «accoppiato» printed", pr.returncode == 0 and C.load_key(rdir2) == k_watch and STORE.get("allowed") == {"u1": True} and json.loads((rdir2 / "devices.json").read_text())["u1"]["name"] == "watch-pixel5" and set((STORE.get("pair") or {}).get(code, {})) == {"ok"} and STORE["pair"][code]["ok"]["check"] == C.check_code(k_watch, code + ":pc") and pid_node not in STORE["pair"] and "accoppiato: watch-pixel5 (uid u1)" in out5, f"rc={pr.returncode} {out5} {pr.stderr.read()} {STORE.get('allowed')} {STORE.get('pair')}")
+# 1.15: il telefono risponde sull'id del QR, con uids e names: tutti gli uid in /allowed, i nomi in devices.json
+pr, code, head = pair_run()
 T.wait_until(lambda: (STORE.get("pair") or {}).get(code, {}).get("pc_pub"), 3)
-w2_priv, w2_pub = C.pair_keys(); k2 = C.shared_key(w2_priv, STORE["pair"][code]["pc_pub"])
-http("PUT", f"/pair/{code}/watch.json", {"watch_pub": w2_pub, "uid": "u2", "name": "watch-new", "check": C.check_code(k2, code)})
-pr.wait(timeout=15)
-T.check("R5 pairing again (a reset watch) → the old uid revoked: /allowed = {u2}, new key, and the previous confirmation swept from /pair", len(STORE.get("pair") or {}) == 1 and pr.returncode == 0 and STORE.get("allowed") == {"u2": True} and C.load_key(rdir2) == k2, str(STORE.get("allowed")))
-pr, code = pair_run(timeout=2)
-pr.wait(timeout=15)
-T.check("R5 nobody answers → exit 3 at the timeout, /pair cleaned", pr.returncode == 3 and code not in (STORE.get("pair") or {}), f"rc={pr.returncode}")
+pid_node = next(n for n in pair_nodes(code) if n != code)
+w2_priv, w2_pub = C.pair_keys(); k2 = C.shared_key(w2_priv, STORE["pair"][pid_node]["pc_pub"])
+http("PUT", f"/pair/{pid_node}/watch.json", {"watch_pub": w2_pub, "uid": "u2", "name": "Pixel 9", "check": C.check_code(k2, pid_node),
+                                              "uids": ["u2", "u3"], "names": {"u2": "Pixel 9", "u3": "Pixel Watch 5"}})
+pr.wait(timeout=10); out5b = pr.stdout.read()
+dev = json.loads((rdir2 / "devices.json").read_text())
+T.check("R5 (1.15) pairing again from the phone on /pair/<id> with uids and names → exit 0, /allowed = {u2, u3} (u1 revoked), devices.json with both names, new key, ok.check = HMAC(key, id + «:pc») under /pair/<id>, /pair/<code> gone and the previous confirmation swept", pr.returncode == 0 and STORE.get("allowed") == {"u2": True, "u3": True} and {u: d["name"] for u, d in dev.items()} == {"u2": "Pixel 9", "u3": "Pixel Watch 5"} and C.load_key(rdir2) == k2 and set(STORE["pair"]) == {pid_node} and STORE["pair"][pid_node] == {"ok": {"host": "crostini-test", "check": C.check_code(k2, pid_node + ":pc")}} and "Pixel 9 (uid u2)" in out5b and "Pixel Watch 5 (uid u3)" in out5b, f"rc={pr.returncode} {out5b} {STORE.get('allowed')} {STORE.get('pair')} {dev}")
+pr, code, head = pair_run(2)
+pr.wait(timeout=10)
+T.check("R5 nobody answers → exit 3 at the timeout, both nodes cleaned", pr.returncode == 3 and not pair_nodes(code), f"rc={pr.returncode} {STORE.get('pair')}")
+# con i dati dell'app Firebase: --text stampa il JSON del QR su una riga (contratto 1.15, pair-qr.json), poi il codice
+APP = {"api_key": "AIzaSyD-test-key", "project_id": "fake-project", "app_id": "1:123456789012:android:0a1b2c3d4e5f6a7b"}
+write_cfg(firebase_app=APP)
+pr, code, head = pair_run(8, "--text")
+T.wait_until(lambda: (STORE.get("pair") or {}).get(code, {}).get("pc_pub"), 3)
+pid_node = next(n for n in pair_nodes(code) if n != code)
+try:
+    qr_doc = json.loads(head[-1]) if head else {}
+except ValueError:
+    qr_doc = {}
+T.check("R5 (1.15) pair --text: one JSON line {v:1, i:<id node>, c:pc_pub, h, e:exp, f:{k,p,a,d,t}} above the code, no QR drawn", len(head) == 1 and qr_doc.get("v") == 1 and qr_doc.get("i") == pid_node and qr_doc.get("c") == STORE["pair"][pid_node]["pc_pub"] and qr_doc.get("h") == "crostini-test" and qr_doc.get("e") == STORE["pair"][pid_node]["exp"] and qr_doc.get("f") == {"k": APP["api_key"], "p": APP["project_id"], "a": APP["app_id"], "d": URL, "t": "watch"}, str(head)[:400])
+pair_stop(pr)
+T.wait_until(lambda: code not in (STORE.get("pair") or {}) and pid_node not in (STORE.get("pair") or {}), 3)
+# senza --text: il QR a mezzi blocchi, margine di 4 moduli, decodificato (OpenCV, se c'e') = quel JSON
+pr, code, head = pair_run(8)
+T.wait_until(lambda: (STORE.get("pair") or {}).get(code, {}).get("pc_pub"), 3)
+pid_node = next(n for n in pair_nodes(code) if n != code)
+rows = [l for l in head if l and set(l) <= set("█▀▄ ")]
+
+
+def qr_decode(rows, scale=6):
+    """Le righe a mezzi blocchi tornano immagine (chiaro = blocco) e OpenCV le legge; None senza cv2."""
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        return None
+    img = np.zeros((len(rows) * 2 * scale, len(rows[0]) * scale), np.uint8)
+    for y, r in enumerate(rows):
+        for x, ch in enumerate(r):
+            img[y * 2 * scale:(y * 2 + 1) * scale, x * scale:(x + 1) * scale] = 255 if ch in "█▀" else 0
+            img[(y * 2 + 1) * scale:(y * 2 + 2) * scale, x * scale:(x + 1) * scale] = 255 if ch in "█▄" else 0
+    return cv2.QRCodeDetector().detectAndDecode(img)[0]
+
+
+decoded = qr_decode(rows) if rows else ""
+T.check("R5 (1.15) pair draws the QR in half blocks: «Inquadra» line, square rows of equal width, a light margin of 4 modules (2 rows and 4 columns of full blocks) on every side, then the code", any("Inquadra il QR" in l for l in head) and len(rows) >= 20 and len({len(r) for r in rows}) == 1 and rows[0] == rows[1] == "█" * len(rows[0]) and rows[-1] == "█" * len(rows[0]) and all(r.startswith("████") and r.endswith("████") for r in rows) and abs(len(rows) * 2 - len(rows[0])) <= 1, f"rows={len(rows)} width={len(rows[0]) if rows else 0} head={head[:3]}")
+T.check("R5 (1.15) the drawn QR decodes (OpenCV) to the JSON of the QR, with i = the id node on the bus (skipped without cv2)", decoded is None or (decoded and json.loads(decoded)["i"] == pid_node and json.loads(decoded)["c"] == STORE["pair"][pid_node]["pc_pub"]), f"decoded={str(decoded)[:120]}")
+pair_stop(pr)
+T.wait_until(lambda: code not in (STORE.get("pair") or {}) and pid_node not in (STORE.get("pair") or {}), 3)
+write_cfg()
+
+# R5b: i vettori del contratto 1.15 — pair-qr.json e pair-response.json (chiave privata del PC = scalare 0..31,
+# del telefono = 32..63): pair_accept sull'id della fixture accetta la risposta e produce esattamente `ok`
+os.environ.update({"CLAUDE_MASTER_CONFIG": str(cfg), "HOME": str(home), "CM_HOME": str(home)})
+RL = load("cm-relay")
+from cryptography.hazmat.primitives.asymmetric import x25519 as _x
+from cryptography.hazmat.primitives import serialization as _ser
+FQ = json.loads((FIX / "pair-qr.json").read_text()); FR = json.loads((FIX / "pair-response.json").read_text())
+pc_priv = _x.X25519PrivateKey.from_private_bytes(bytes(range(32)))
+ph_priv = _x.X25519PrivateKey.from_private_bytes(bytes(range(32, 64)))
+pc_pub_fx = base64.b64encode(pc_priv.public_key().public_bytes(_ser.Encoding.Raw, _ser.PublicFormat.Raw)).decode()
+k_fx = C.shared_key(ph_priv, FQ["c"])
+T.check("R5b fixture pair-qr.json: c is the public key of scalar 0..31, i has 22 base64url chars, v = 1, f has k p a d t", FQ["c"] == pc_pub_fx and len(FQ["i"]) == 22 and FQ["v"] == 1 and set(FQ["f"]) == {"k", "p", "a", "d", "t"}, FQ["c"])
+T.check("R5b fixture pair-response.json: watch_pub is the public key of scalar 32..63 and check = HMAC(key, i) of the shared key", FR["watch"]["watch_pub"] == base64.b64encode(ph_priv.public_key().public_bytes(_ser.Encoding.Raw, _ser.PublicFormat.Raw)).decode() and FR["watch"]["check"] == C.check_code(k_fx, FQ["i"]), FR["watch"]["check"])
+got = RL.pair_accept(pc_priv, FQ["i"], FR["watch"], FQ["h"])
+T.check("R5b pair_accept(id of the fixture, watch of pair-response.json) → the same key, exactly pair-response.json's `ok`, the devices with uids and names", got is not None and got[0] == k_fx and got[1] == FR["ok"] and {u: d["name"] for u, d in got[2].items()} == FR["watch"]["names"] and list(got[2]) == FR["watch"]["uids"], str(got[1:] if got else got))
+T.check("R5b pair_accept with the check computed on the code instead of the id → refused (the check binds the node)", RL.pair_accept(pc_priv, "123456", FR["watch"], FQ["h"]) is None, "")
+pl = RL.qr_payload(FQ["i"], FQ["c"], FQ["h"], FQ["e"], {"api_key": FQ["f"]["k"], "project_id": FQ["f"]["p"], "app_id": FQ["f"]["a"]})
+T.check("R5b qr_payload with the fixture's values = pair-qr.json (d and t from this config: firebase_url and fcm_topic)", pl == dict(FQ, f=dict(FQ["f"], d=URL, t="watch")), json.dumps(pl))
+fx_rows = RL.qr_lines(json.dumps(FQ, ensure_ascii=False, separators=(",", ":")))
+fx_dec = qr_decode(fx_rows)
+T.check("R5b the fixture's JSON drawn as QR and decoded (OpenCV) gives back the same document (skipped without cv2)", fx_dec is None or (fx_dec and json.loads(fx_dec) == FQ), str(fx_dec)[:100])
+for kk in ("CLAUDE_MASTER_CONFIG", "HOME", "CM_HOME"):
+    os.environ.pop(kk, None)
+
+# R5c (1.15): prove isolate — con CLAUDE_MASTER_CONFIG su una configurazione di prova (relay.dir, service account e
+# firebase_url suoi) pair, push e serve lavorano solo li': chiave, devices.json, /allowed e crontab della
+# configurazione principale restano come sono (le prove dell'app non devono scollegare l'orologio vero)
+URL_ISO, CALLS_ISO, STORE_ISO = T.fake_rtdb("iso-project")
+rdir_iso = tmp / "relay-iso"
+SA_ISO = tmp / "sa-iso.json"; SA_ISO.write_text(SA.read_text().replace("fake-project", "iso-project"))
+cfg_iso = tmp / "config-iso.json"
+cfg_iso.write_text(json.dumps(dict(json.loads(cfg.read_text()), relay={"enabled": True, "firebase_url": URL_ISO, "service_account": str(SA_ISO), "token_url": URL_ISO + "/token",
+                                                                         "fcm_url": URL_ISO, "dir": str(rdir_iso), "host": "iso-host", "debounce_s": 1, "fcm_topic": "watch-iso", "firebase_app": APP})))
+ENV_ISO = dict(ENV, CLAUDE_MASTER_CONFIG=str(cfg_iso))
+snap = lambda: ((rdir2 / "key").read_bytes(), (rdir2 / "devices.json").read_bytes(), json.dumps(STORE.get("allowed"), sort_keys=True), cron.read_text(), (rdir2 / "serve.pid").exists())  # noqa: E731
+before_iso = snap()
+pr = subprocess.Popen([sys.executable, str(T.SCRIPTS / "cm-relay.py"), "pair", "--timeout", "8", "--text"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=ENV_ISO)
+T.wait_until(lambda: any(isinstance(v, dict) and v.get("pc_pub") for v in (STORE_ISO.get("pair") or {}).values()), 4)
+iso_nodes = {n: v for n, v in (STORE_ISO.get("pair") or {}).items() if isinstance(v, dict) and v.get("pc_pub")}
+iso_id = next((n for n in iso_nodes if len(n) == 22), "")
+wi_priv, wi_pub = C.pair_keys(); k_iso = C.shared_key(wi_priv, iso_nodes[iso_id]["pc_pub"]) if iso_id else b""
+if iso_id:
+    import urllib.request as _ur
+    req = _ur.Request(f"{URL_ISO}/pair/{iso_id}/watch.json", data=json.dumps({"watch_pub": wi_pub, "uid": "u-iso", "name": "Phone iso", "check": C.check_code(k_iso, iso_id)}).encode(), method="PUT", headers={"Content-Type": "application/json"})
+    _ur.urlopen(req, timeout=5).read()
+pr.wait(timeout=12); out_iso = pr.stdout.read()
+r_push = relay("push", env=ENV_ISO)
+r_ens = relay("ensure", env=ENV_ISO)
+iso_pid = int((rdir_iso / "serve.pid").read_text().strip() or 0) if (rdir_iso / "serve.pid").exists() else 0
+r_off = relay("off", env=ENV_ISO)
+T.check("R5c the trial config pairs on its own bus and dir: exit 0, key and devices.json under its relay.dir, u-iso in ITS /allowed, its /state pushed (exit 0), its serve started and stopped", pr.returncode == 0 and C.load_key(rdir_iso) == k_iso and "u-iso" in json.loads((rdir_iso / "devices.json").read_text()) and STORE_ISO.get("allowed") == {"u-iso": True} and r_push.returncode == 0 and "enc" in (STORE_ISO.get("state") or {}) and r_ens.returncode == 0 and iso_pid > 0 and r_off.returncode == 0, f"rc={pr.returncode} {out_iso[-200:]} {pr.stderr.read()[-200:]} push={r_push.returncode} {r_push.stderr[-200:]} ens={r_ens.stdout}{r_ens.stderr} pid={iso_pid}")
+T.check("R5c meanwhile the main config is untouched: same key bytes, same devices.json, same /allowed on its bus, same crontab, no serve pid in its dir", snap() == before_iso and json.loads((rdir2 / "devices.json").read_text()) == dev and STORE.get("allowed") == {"u2": True, "u3": True}, f"before={before_iso[2:]} after={snap()[2:]}")
+T.wait_until(lambda: not (rdir_iso / "serve.pid").exists() or not os.path.exists(f"/proc/{iso_pid}"), 5)
 k = k2   # da qui la chiave viva e' quella dell'ultimo pairing
 
 # R6: serve — i comandi del contratto

@@ -7,10 +7,12 @@
                                                   con FCM; --dry-run stampa il JSON in chiaro e non tocca la rete;
                                                   --async torna subito e pusha entro relay.debounce_s (piu' richieste
                                                   ravvicinate = una push)
-  claude-master relay pair [--timeout S]          codice a 6 cifre sullo schermo, X25519 su /pair/<code>, chiave in
-                                                  <relay.dir>/key, uid dell'orologio in /allowed e devices.json
+  claude-master relay pair [--timeout S] [--text] QR per il telefono (1.15) e codice a 6 cifre per l'orologio, X25519 su
+                                                  /pair/<id> e /pair/<code>, chiave in <relay.dir>/key, uid accettati in
+                                                  /allowed e devices.json; --text stampa il JSON del QR invece di disegnarlo
   claude-master relay serve                       il daemon: stream SSE su /cmd, esegue (allow-list), /result, ripubblica
   claude-master relay ensure|status|install|uninstall|off
+  claude-master relay setup [--project ID] [--dry-run] [--yes]   il progetto Firebase, guidato e idempotente (cm-relay-setup)
 
 Ogni documento sul bus e' {"v":1,"enc":…} (cm-relay-crypto); la forma di /state e' il contratto v1 dell'app
 (tests/fixtures/relay/state-*.json, costruito da cm-relay-state). Niente SDK Firebase: REST + SSE con urllib, token
@@ -18,6 +20,9 @@ OAuth2 dal service account (<relay.dir>/service-account.json, 0600, mai nel repo
 
 Prove: CM_RELAY_CM (dispatcher da usare per sessions/registry/quota/answer/talk/launch/screen), relay.firebase_url,
 relay.token_url e relay.fcm_url sul Firebase finto (tests/lib/cm_test.fake_rtdb).
+Prove isolate (1.15): con CLAUDE_MASTER_CONFIG che punta a una configurazione di prova (relay.dir, service_account e
+firebase_url suoi) pair, push e serve lavorano solo li' — chiave, devices.json, /allowed e crontab della configurazione
+principale non si toccano (test R5c); cosi' le prove dell'app non scollegano l'orologio vero.
 """
 import fcntl
 import copy
@@ -643,73 +648,162 @@ def sweep_stale_pairs():
                 pass
 
 
-def pair(timeout=None):
-    """Codice a 6 cifre sullo schermo; /pair/<code> = {pc_pub, host, exp}; l'orologio risponde in /pair/<code>/watch
-    con {watch_pub, uid, name, check}; la chiave e' HKDF(X25519); `check` (HMAC della chiave sul codice) prova che
-    l'orologio ha derivato la stessa chiave. Un uid per dispositivo: /allowed = {uid: true} (il pairing nuovo revoca
-    il vecchio, la chiave e' una sola), devices.json sul PC. Esce 0 ok, 2 dopo relay.pair_attempts check sbagliati,
-    3 allo scadere di relay.pair_ttl_s."""
+def firebase_app():
+    """(dati dell'app Firebase, origine) per il QR, o (None, motivo): vedi cm-config.relay_firebase_app."""
+    return cm.relay_firebase_app(CFG)
+
+
+def qr_payload(pair_id, pub, host, exp, app):
+    """Il documento del QR (contratto 1.15, tests/fixtures/relay/pair-qr.json): v, i (id del nodo /pair/<id>), c (pc_pub),
+    h (host), e (exp) e f, i dati che l'app del telefono usa per entrare nel progetto Firebase: k chiave API, p id del
+    progetto, a id dell'app Android, d URL del database (relay.firebase_url: il bus che il relay scrive), t topic FCM."""
+    return {"v": 1, "i": pair_id, "c": pub, "h": host, "e": int(exp),
+            "f": {"k": app["api_key"], "p": app["project_id"], "a": app["app_id"], "d": base_url(), "t": str(R.get("fcm_topic") or "watch")}}
+
+
+def qr_lines(text, margin=4):
+    """Il QR di `text` come righe di testo per il terminale: mezzi blocchi (due moduli per carattere, uno sopra e uno
+    sotto), margine di `margin` moduli chiari, correzione M (senza rialzo automatico: il livello resta quello del
+    contratto). I moduli chiari sono blocchi pieni e quelli scuri spazi, come `qrencode -t UTF8`: su un terminale
+    scuro il QR viene nero su bianco, che e' come lo legge una fotocamera. Generatore: qrcodegen (Project Nayuki,
+    MIT, scripts/qrcodegen.py), nessuna dipendenza nuova."""
+    Q = _load("qrcodegen")
+    qr = Q.QrCode.encode_segments(Q.QrSegment.make_segments(text), Q.QrCode.Ecc.MEDIUM, boostecl=False)
+    n = qr.get_size()
+
+    def dark(x, y):
+        return 0 <= x < n and 0 <= y < n and qr.get_module(x, y)
+
+    lines = []
+    for y in range(-margin, n + margin, 2):
+        row = []
+        for x in range(-margin, n + margin):
+            top, bottom = dark(x, y), dark(x, y + 1)
+            row.append(" " if top and bottom else "\u2584" if top else "\u2580" if bottom else "\u2588")
+        lines.append("".join(row))
+    return lines
+
+
+def pair_accept(priv, node, w, host):
+    """La risposta in /pair/<node>/watch: {watch_pub, uid, name, check} e, dal telefono (1.15), `uids` (fino a 4) e
+    `names` (uid → nome). Se `check` e' HMAC della chiave concordata sulla stringa del nodo (il codice, o l'id del
+    QR), torna (chiave, conferma `ok`, dispositivi {uid: {name, paired_at}}); altrimenti None. Senza `uids` un
+    solo dispositivo, come prima."""
     import hmac as _hmac
+    try:
+        k = C.shared_key(priv, str(w["watch_pub"]))
+    except Exception as e:   # noqa: BLE001 — chiave pubblica malformata
+        log(f"pair: watch_pub non valida ({e})"); return None
+    if not _hmac.compare_digest(C.check_code(k, node), str(w.get("check") or "")):
+        return None
+    uid, name = str(w["uid"]), str(w.get("name") or "watch")
+    uids = [str(u) for u in (w.get("uids") if isinstance(w.get("uids"), list) else []) if isinstance(u, str) and u.strip()]
+    uids = list(dict.fromkeys([uid] + uids))   # il mittente sempre, senza doppioni, nell'ordine dato
+    if len(uids) > 4:
+        log(f"pair: {len(uids)} uid, tengo i primi 4"); uids = uids[:4]
+    names = w.get("names") if isinstance(w.get("names"), dict) else {}
+    now = int(time.time())
+    devices = {u: {"name": str(names.get(u) or (name if u == uid else "watch")), "paired_at": now} for u in uids}
+    return k, {"host": host, "check": C.check_code(k, node + ":pc")}, devices
+
+
+def pair(timeout=None, text=False):
+    """Codice a 6 cifre e QR sullo schermo (1.15): lo stesso {pc_pub, host, exp} in /pair/<code> (l'orologio, con il
+    codice) e in /pair/<id> (il telefono, che legge il QR); il relay interroga tutti e due, vince la prima risposta
+    valida in /pair/<…>/watch e l'altro nodo si cancella; scadenza e tentativi sono in comune. La chiave e'
+    HKDF(X25519); `check` (HMAC della chiave sulla stringa del nodo) prova che l'altra parte ha derivato la stessa
+    chiave. /allowed = {uid: true} per ogni uid accettato (il pairing nuovo revoca i vecchi, la chiave e' una sola),
+    devices.json sul PC. Senza i dati dell'app Firebase il QR non compare, lo dice, e il codice funziona. `text`
+    stampa il JSON del QR su una riga invece di disegnarlo. Esce 0 ok, 2 dopo relay.pair_attempts check sbagliati,
+    3 allo scadere di relay.pair_ttl_s."""
+    import base64 as _b64
     import secrets as _secrets
     ttl = float(timeout or R.get("pair_ttl_s") or 300)
     max_attempts = int(R.get("pair_attempts") or 5)
     code = f"{_secrets.randbelow(10 ** 6):06d}"
+    pair_id = _b64.urlsafe_b64encode(_secrets.token_bytes(16)).rstrip(b"=").decode()   # 22 caratteri, validi come chiave RTDB
+    nodes = [code, pair_id]
     sweep_stale_pairs()
     paired = False
     priv, pub = C.pair_keys()
     exp = int(time.time() + ttl)
     host = str(R.get("host") or socket.gethostname())
-    rtdb("PUT", f"pair/{code}", {"pc_pub": pub, "host": host, "exp": exp}, {"print": "silent"})
+    app, why = firebase_app()
+    for node in nodes:
+        rtdb("PUT", f"pair/{node}", {"pc_pub": pub, "host": host, "exp": exp}, {"print": "silent"})
+    if app:
+        line = json.dumps(qr_payload(pair_id, pub, host, exp, app), ensure_ascii=False, separators=(",", ":"))
+        if text:
+            print(line)
+        else:
+            rows = qr_lines(line)
+            try:
+                cols = os.get_terminal_size().columns
+            except OSError:
+                cols = 0
+            if cols and cols < len(rows[0]):
+                print(M("relay.pair_qr_narrow", cols=cols, need=len(rows[0])))
+            print(M("relay.pair_scan"))
+            print("\n".join(rows))
+    else:
+        print(M("relay.pair_no_qr", why=M(why, path=cm.expand(R.get("google_services") or ""), package=R.get("app_package") or "")))
     print(M("relay.pair_code", code=code)); sys.stdout.flush()
-    log(f"pair: codice {code}, scade {exp}")
+    log(f"pair: codice {code}, id {pair_id}, scade {exp}" + ("" if app else f", senza QR ({why})"))
     attempts = 0
     try:
         while time.time() < exp:
-            try:
-                w = rtdb("GET", f"pair/{code}/watch")
-            except (urllib.error.URLError, OSError, ValueError) as e:
-                log(f"pair: lettura fallita ({e}), riprovo"); time.sleep(2); continue
-            if isinstance(w, dict) and w.get("watch_pub") and w.get("uid"):
+            for node in nodes:
                 try:
-                    k = C.shared_key(priv, str(w["watch_pub"]))
-                except Exception as e:   # chiave pubblica malformata
-                    log(f"pair: watch_pub non valida ({e})"); k = None
-                if k and _hmac.compare_digest(C.check_code(k, code), str(w.get("check") or "")):
-                    uid, name = str(w["uid"]), str(w.get("name") or "watch")
+                    w = rtdb("GET", f"pair/{node}/watch")
+                except (urllib.error.URLError, OSError, ValueError) as e:
+                    log(f"pair: lettura fallita ({e}), riprovo"); continue
+                if not (isinstance(w, dict) and w.get("watch_pub") and w.get("uid")):
+                    continue
+                got = pair_accept(priv, node, w, host)
+                if got:
+                    k, ok, devices = got
                     C.save_key(rdir(), k)
-                    write_json(devices_path(), {uid: {"name": name, "paired_at": int(time.time())}})
-                    rtdb("PUT", "allowed", {uid: True}, {"print": "silent"})
+                    write_json(devices_path(), devices)
+                    rtdb("PUT", "allowed", {u: True for u in devices}, {"print": "silent"})
                     # chiave nuova: gli eventi e i risultati cifrati con la vecchia non si aprono piu' → via
                     for stale in ("events", "result"):
                         try:
                             rtdb("DELETE", stale)
                         except (urllib.error.URLError, OSError, ValueError):
                             pass
-                    rtdb("PUT", f"pair/{code}", {"ok": {"host": host, "check": C.check_code(k, code + ":pc")}}, {"print": "silent"})
-                    print(M("relay.pair_ok", name=name, uid=uid, path=str(C.key_path(rdir()))))
-                    log(f"pair: ok {name} ({uid})")
-                    # La conferma deve restare leggibile finche' l'orologio non la prende: lui interroga
-                    # /pair/<code>/ok una volta al secondo (FirebaseTransport.pollMs) e un solo secondo di
-                    # vita bastava a farlo arrivare tardi — PC accoppiato, orologio fermo su «Code not
-                    # accepted» (19/09). Quindi: si tolgono subito le chiavi del giro, cosi' sullo stesso
-                    # codice non si puo' iniziare un'altra stretta di mano (la PUT qui sopra riscrive il
-                    # nodo intero: via pc_pub, watch, host, exp), e resta solo `ok`, che il prossimo
-                    # `pair` spazza via (vedi sweep_stale_pairs).
+                    rtdb("PUT", f"pair/{node}", {"ok": ok}, {"print": "silent"})
+                    # La conferma deve restare leggibile finche' l'altra parte non la prende: l'orologio interroga
+                    # /pair/<code>/ok una volta al secondo (FirebaseTransport.pollMs) e un solo secondo di vita
+                    # bastava a farlo arrivare tardi — PC accoppiato, orologio fermo su «Code not accepted» (19/09).
+                    # Quindi: si tolgono subito le chiavi del giro, cosi' sullo stesso nodo non si puo' iniziare
+                    # un'altra stretta di mano (la PUT qui sopra riscrive il nodo intero: via pc_pub, watch, host,
+                    # exp), resta solo `ok`, che il prossimo `pair` spazza via (vedi sweep_stale_pairs); l'altro
+                    # nodo del giro (1.15) se ne va subito.
+                    for other in nodes:
+                        if other != node:
+                            try:
+                                rtdb("DELETE", f"pair/{other}")
+                            except (urllib.error.URLError, OSError, ValueError):
+                                pass
+                    shown = ", ".join(f"{d['name']} (uid {u})" for u, d in devices.items())
+                    print(M("relay.pair_ok", devices=shown, path=str(C.key_path(rdir()))))
+                    log(f"pair: ok su /pair/{'<code>' if node == code else '<id>'}: {shown}")
                     paired = True
                     return 0
                 attempts += 1
                 log(f"pair: check sbagliato ({attempts}/{max_attempts})")
-                rtdb("DELETE", f"pair/{code}/watch")
+                rtdb("DELETE", f"pair/{node}/watch")
                 if attempts >= max_attempts:
                     print(M("relay.pair_failed", n=attempts)); return 2
             time.sleep(1)
         print(M("relay.pair_timeout", s=int(ttl))); return 3
     finally:
-        if not paired:   # accoppiato: /pair/<code>/ok resta per l'orologio, lo spazza il pair successivo
-            try:
-                rtdb("DELETE", f"pair/{code}")
-            except (urllib.error.URLError, OSError, ValueError, RelayError):
-                pass
+        if not paired:   # accoppiato: /pair/<nodo>/ok resta per l'altra parte, lo spazza il pair successivo
+            for node in nodes:
+                try:
+                    rtdb("DELETE", f"pair/{node}")
+                except (urllib.error.URLError, OSError, ValueError, RelayError):
+                    pass
 
 
 # ------------------------------------------------------------------ esecuzione dei comandi (allow-list)
@@ -1196,6 +1290,8 @@ def main(argv):
             print(f"relay push: {e}", file=sys.stderr); log(f"push FAILED: {e}"); return 1
         print(M("relay.pushed", n=len(st["sessions"])))
         return 0
+    if cmd == "setup":   # il progetto Firebase, guidato (R2, 24/09): la sua CLI, non cryptography ne' crontab
+        return _load("cm-relay-setup").main(rest)
     if cmd in ("pair", "install"):
         # prima di chiedere o scrivere qualcosa: le dipendenze che finora si scoprivano solo come
         # errore (ImportError di cryptography, crontab assente). Esce 5 con il comando da lanciare.
@@ -1209,7 +1305,7 @@ def main(argv):
     if cmd == "pair":
         tmo = float(rest[rest.index("--timeout") + 1]) if "--timeout" in rest else None
         try:
-            return pair(tmo)
+            return pair(tmo, text="--text" in rest)
         except (RelayError, urllib.error.URLError, OSError, ValueError) as e:
             print(f"relay pair: {e}", file=sys.stderr); return 1
     if cmd == "serve":

@@ -228,7 +228,15 @@
     "window_hint_dir": "~/.claude/fable-director/sessions",
     "window_unmarked": [
       "claude-fable-5-1"
-    ]
+    ],
+    "firebase_app": {
+      "api_key": "",
+      "project_id": "",
+      "app_id": ""
+    },
+    "google_services": "",
+    "app_package": "",
+    "setup_location": "europe-west1"
   },
   "tune": {
     "timeout_s": 8,

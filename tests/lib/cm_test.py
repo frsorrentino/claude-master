@@ -294,7 +294,11 @@ def fake_rtdb(project="fake-project"):
         def _json(self, code, body):
             out = json.dumps(body).encode()
             self.send_response(code); self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(out))); self.end_headers(); self.wfile.write(out)
+            self.send_header("Content-Length", str(len(out))); self.end_headers()
+            try:
+                self.wfile.write(out)
+            except BrokenPipeError:   # il client ha chiuso a meta' (un pair interrotto): non e' un errore del finto
+                pass
 
         def _fail(self):
             f = os.environ.get("FAKE_RTDB_FAIL", "")
