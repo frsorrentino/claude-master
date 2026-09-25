@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.4.21-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.4.22-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 ![One master session runs all the others: the root session launches, watches, answers and closes the parallel sessions of every project, from the terminal and from the wrist — beside it, the session list of the Wear OS app (beta coming soon), rendered from the app's code, on the demo set.](assets/readme/card0-hero.png)
 
@@ -203,9 +203,12 @@ differs from the development one), saves its data in `relay.firebase_app` and
 `<relay.dir>/google-services.json`, creates the firebase-adminsdk key at
 `relay.service_account` (0600) and writes `relay.enabled`, `relay.firebase_url`
 and `relay.fcm_topic` into the config in use, `CLAUDE_MASTER_CONFIG` included.
-Anonymous sign-in and the key go through Google's REST APIs with the CLI's own
-token; when that token is missing, the two steps print the exact console link
-and wait for Enter. A key file that belongs to another project is never
+The database instance, anonymous sign-in and the key go through Google's REST
+APIs with the CLI's own token; when that token is missing, those steps print
+the exact console link and wait for Enter. On a project born a minute ago
+Authentication has to be opened once in the console («Get started»), because
+no API initializes it without billing: `relay setup` says so, waits, then
+enables the provider. A key file that belongs to another project is never
 replaced. `--dry-run` lists what would be done and writes nothing; `--yes` takes
 the defaults; the end is a summary like `doctor`'s.
 

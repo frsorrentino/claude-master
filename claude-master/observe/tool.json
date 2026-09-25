@@ -2,6 +2,7 @@
   "name": "claude-master",
   "repo": "frsorrentino/claude-master",
   "command": "claude-master observe",
+  "security": "advisory",
   "version_from": ".claude-plugin/plugin.json",
   "match": {
     "bash": ["(^|\\s|/)claude-master(\\s|$)", "/scripts/cm-[\\w-]+\\.(sh|py)\\b"]

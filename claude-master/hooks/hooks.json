@@ -85,6 +85,15 @@
             "timeout": 20
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/observe/observe.py\" stop",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "StopFailure": [
