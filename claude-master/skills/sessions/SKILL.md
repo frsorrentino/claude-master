@@ -6,8 +6,8 @@ description: Use when the user asks to open, launch, start, list, close, restart
 # Sessioni Claude su questa macchina (claude-master)
 
 Tutto passa da un solo comando, `claude-master` (alias italiani da config: `lancia`, `sessioni`,
-`chiudi`, `parla-con`, `segnala`, `riavvia`, `attacca`, `quote`). Le regole qui sotto sono state
-pagate sul campo: valgono più dei comandi.
+`chiudi`, `parla-con`, `segnala`, `riavvia`, `attacca`, `quote`). Le regole qui sotto prevalgono
+sulla sintassi dei comandi.
 
 ## Aprire una sessione su un'altra cartella
 
@@ -109,10 +109,10 @@ RTDB + FCM, `/state` cifrato nella forma del contratto, comandi eseguiti via CLI
 (`last` torna l'ultimo messaggio intero dal transcript, per la lettura vocale). `relay push --dry-run`
 mostra lo stato in chiaro senza toccare la rete.
 
-Telegram è a SENSO UNICO: il PC manda, nessuno risponde (il bot interattivo non c'è più: l'orologio
-fa le stesse cose in tempo reale). Su Telegram restano i testi lunghi che sul polso non si leggono
-(il diario delle 20:00, il rapporto della notte con `night run --send`), gli avvisi della guardia
-quota e la scorta per il polso quando il relay non risponde. `claude-master bot status` dice token, chat autorizzate e log.
+Telegram riceve soltanto: il PC manda, nessuno risponde da lì (si risponde dall'orologio, o alla
+master). Vi arrivano i testi lunghi che sul polso non si leggono (il diario delle 20:00, il rapporto
+della notte con `night run --send`), gli avvisi della guardia quota e la scorta per il polso quando il
+relay non risponde. `claude-master bot status` dice token, chat autorizzate e log.
 Il «cosa aspetta te» del mattino si guarda dall'orologio, che mostra senza sosta chi è ferma su una
 domanda.
 
@@ -130,17 +130,16 @@ mano.
 ## Rispondere alla domanda di un'altra sessione
 
 Una sessione ferma su `AskUserQuestion` (o su un permesso) aspetta una scelta nel suo terminale:
-un messaggio nell'inbox NON la sblocca. `claude-master answer NOME --show` legge la domanda e le
-opzioni numerate; `claude-master answer NOME 2` sceglie la 2 (più numeri = più domande di fila;
-`--text "…"` per «Type something.»). Dal telefono: «rispondi 2 a progetto-x» → la master esegue
-`answer progetto-x 2` e riferisce la riga «risposto 2. …». Mai scegliere al posto dell'utente.
+un messaggio nell'inbox NON la sblocca. Quando si ferma, l'hook `PermissionRequest` manda alle chat
+Telegram autorizzate un avviso «❓ «progetto-x» chiede — …» con le opzioni numerate e la riga
+«rispondi «2 a progetto-x» alla master» (`hooks.ask_notify` in config; testo, non tastiera inline: un
+tap arriverebbe al plugin telegram, non a noi).
 
-Quando una sessione si ferma, l'hook `PermissionRequest` manda da solo alle chat Telegram autorizzate
-un avviso «❓ «progetto-x» chiede — …» con le opzioni numerate e la riga «rispondi «2 a progetto-x»
-alla master» (`hooks.ask_notify` in config; testo, non tastiera inline: un tap arriverebbe al plugin
-telegram, non a noi). L'utente risponde a quell'avviso con «2 a progetto-x» o «rispondi 2 a
-progetto-x»: è un ordine da eseguire con `answer`, non una domanda da discutere. Se il numero non
-esiste più (`answer` lo dice), riferisci le opzioni con `--show` e aspetta.
+`claude-master answer NOME --show` legge la domanda e le opzioni numerate; `claude-master answer NOME 2`
+sceglie la 2 (più numeri = più domande di fila; `--text "…"` per «Type something.»). «2 a progetto-x»
+o «rispondi 2 a progetto-x» dal telefono è un ordine: esegui `answer progetto-x 2` e riferisci la riga
+«risposto 2. …». Se il numero non esiste più (`answer` lo dice), riferisci le opzioni con `--show` e
+aspetta. Mai scegliere al posto dell'utente.
 
 ## Lo schermo di una sessione dal telefono
 
@@ -223,8 +222,9 @@ vissuto, «oggi» nel calendario. Di' l'ora, non il giorno.
 
 ## Note
 
-- Le sessioni partono con gli argomenti di `session.claude_args` (qui `--dangerously-skip-permissions`):
-  il punto critico è *quale* cartella apri; verificare il percorso è il solo controllo che resta.
+- Le sessioni partono con gli argomenti di `session.claude_args`; se vi compare
+  `--dangerously-skip-permissions`, il punto critico è *quale* cartella apri: verificare il percorso è
+  il solo controllo che resta.
 - La radice dei workspaces fa eccezione: la sessione si chiama sempre `master` (config
   `workspace.root_session_name`): la plancia, non un progetto.
 - Il nome è quello della cartella con `.` e `:` convertiti in `-` (`sito.com` → `sito-com`,

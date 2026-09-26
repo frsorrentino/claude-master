@@ -45,7 +45,10 @@ M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
 T = CFG.get("tune") or {}
 WAIT_S = float(T.get("timeout_s") or 8)
 ORDER = ["low", "medium", "high", "xhigh", "max", "ultracode"]   # le posizioni del cursore, da sinistra
-PICK_ROW = re.compile(r"^\s*(❯)?\s*(\d+)\.\s+(.+?)(?:\s+✔)?(?:\s{2,}.*)?$")
+# Claude Code 2.1.283 (dal vivo il 26/09/2026): la lista di /model scorre — sette voci a schermo su undici, «↑ n.» sulla
+# prima riga visibile e «↓ n.» sull'ultima quando ce ne sono altre, «… +4 models» in coda; sulla riga del cursore la
+# freccia lascia il posto a «❯». Giu' oltre l'ultima voce torna alla prima.
+PICK_ROW = re.compile(r"^\s*[↑↓]?\s*(❯)?\s*[↑↓]?\s*(\d+)\.\s+(.+?)(?:\s+✔)?(?:\s{2,}.*)?$")
 DIM = re.compile(r"\x1b\[[0-9;]*m")
 
 
@@ -107,6 +110,14 @@ def wait_for(name, pred, timeout=None):
 
 def models():
     return [m for m in (T.get("models") or []) if m.get("id") and m.get("pick")]
+
+
+def picks(m):
+    """Le etichette del selettore che valgono per un modello: `pick` stringa o lista. Le etichette cambiano con la
+    versione di Claude Code («Opus (1M context)», «Fable», «Sonnet» fino alla 2.1.280; «Opus 5.5», «Fable 5.1»,
+    «Sonnet 5» dalla 2.1.283): una lista regge entrambe."""
+    p = m.get("pick")
+    return [p] if isinstance(p, str) else [x for x in (p or []) if isinstance(x, str)]
 
 
 def efforts():
@@ -223,7 +234,7 @@ def cancel(name):
 
 
 def _set_model(name, wanted):
-    choice = next((m for m in models() if wanted in (m["id"], m.get("label"), m["pick"])), None)
+    choice = next((m for m in models() if wanted in (m["id"], m.get("label")) or wanted in picks(m)), None)
     if not choice:
         print(M("tune.bad_model", model=wanted, choices=", ".join(m["id"] for m in models())))
         return 2
@@ -236,19 +247,24 @@ def _set_model(name, wanted):
         cancel(name)
         print(M("tune.no_picker", name=name, what="/model"))
         return 4
-    rows = picker_rows(scr)
-    target = next((n for n, label, _ in rows if label == choice["pick"]), 0)
-    current = next((n for n, _, cur in rows if cur), 0)
-    if not target or not current:
+    # verso la voce: di un salto quando e' a schermo, altrimenti una riga alla volta (la lista scorre e in fondo torna
+    # in cima: un numero di riga gia' visto sotto il cursore vuol dire che la voce non c'e' in tutta la lista)
+    seen, on = set(), None
+    for _ in range(40):
+        rows = picker_rows(screen(name))
+        cur = next(((n, label) for n, label, c in rows if c), None)
+        if not cur or cur[0] in seen:
+            break
+        if cur[1] in picks(choice):
+            on = cur[1]
+            break
+        seen.add(cur[0])
+        target = next((n for n, label, _ in rows if label in picks(choice)), 0)
+        keys(name, *((["Down" if target > cur[0] else "Up"] * abs(target - cur[0])) if target else ["Down"]))
+        time.sleep(0.3)
+    if not on:
         cancel(name)
-        print(M("tune.no_option", name=name, label=choice["pick"]))
-        return 4
-    keys(name, *(["Down" if target > current else "Up"] * abs(target - current)))
-    time.sleep(0.3)
-    on = [label for _, label, cur in picker_rows(screen(name)) if cur]
-    if on != [choice["pick"]]:
-        cancel(name)
-        print(M("tune.cursor_lost", name=name, label=choice["pick"]))
+        print(M("tune.no_option", name=name, label=picks(choice)[0]))
         return 4
     pat = r"Set model to (.+?) for this session only"
     before = len(re.findall(pat, flat(screen(name))))

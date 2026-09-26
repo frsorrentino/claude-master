@@ -1,6 +1,6 @@
 ---
 description: Forward a screenshot and a text to the session of a project (archives the image in the project's docs, launches the session if absent)
-allowed-tools: Bash
+allowed-tools: Bash(claude-master:*)
 ---
 
 If the user attached an image from the phone, Claude Code saved it on disk: use that path. Then:

@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.4.24-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.4.25-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 ![One master session runs all the others: the root session launches, watches, answers and closes the parallel sessions of every project, from the terminal and from the wrist — beside it, the session list of the Wear OS app (beta coming soon), rendered from the app's code, on the demo set.](assets/readme/card0-hero.png)
 
@@ -350,12 +350,21 @@ Each session is a Claude Code process (a few hundred MB each); the only
 process the plugin adds is the relay's daemon, a few MB waiting on a socket;
 the diary and the night queue are scheduled tasks that run for seconds.
 
+## Data handling
+
+- **Reads:** Claude Code's own session registry, transcripts and settings for each account, and the last lines of each session's tmux pane. It checks that `.credentials.json` exists to recognize an account folder; it never opens it.
+- **Writes on disk:** its state folder (`~/.local/state/claude-master/`: registry, inbox, restart log, night queue, relay key and paired devices), the report images in a project's `docs/segnalazioni/`, and, only after your yes to `init`, the shim, one shell line, crontab lines.
+- **Leaves the machine only if you turn it on:** the encrypted session state to *your own* Firebase project for the watch (`relay.enabled`), one-way notices through Claude Code's `telegram` plugin (`bot.enabled`), a `claude -p` call on your account to shorten a long question (`hooks.ask_notify.synth_model`), and the anonymized error report you approve in `observe send`.
+- **No telemetry, no update check, no account of its own.** The full page: [PRIVACY.md](PRIVACY.md).
+
 ## How it works
 
 Every session is a `tmux` session named after its folder, started with Claude
 Code's *Remote Control* (the feature that shows a session in the Claude app on
 your phone and lets you drive it from there), so it appears there under the
-same name. The plugin reads the session registry Claude Code already keeps
+same name. Since Claude Code 2.1.283 Remote Control also starts with telemetry
+off (`DISABLE_TELEMETRY`, `DO_NOT_TRACK`); on older versions a session started
+with those variables has no link, and `launch` prints none. The plugin reads the session registry Claude Code already keeps
 (`~/.claude/sessions/`, one per account) and talks to a session through the
 inbox socket Claude Code already opens. Six small *hooks* (actions Claude Code
 runs at events: a session starts or ends, a turn ends, a permission is asked)

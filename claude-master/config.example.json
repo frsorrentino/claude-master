@@ -254,22 +254,34 @@
       {
         "id": "claude-opus-5-5[1m]",
         "label": "Opus 5.5",
-        "pick": "Opus (1M context)"
+        "pick": [
+          "Opus 5.5",
+          "Opus (1M context)"
+        ]
       },
       {
         "id": "claude-fable-5-1",
         "label": "Fable 5.1",
-        "pick": "Fable"
+        "pick": [
+          "Fable 5.1",
+          "Fable"
+        ]
       },
       {
         "id": "claude-sonnet-5",
         "label": "Sonnet 5",
-        "pick": "Sonnet"
+        "pick": [
+          "Sonnet 5",
+          "Sonnet"
+        ]
       },
       {
         "id": "claude-haiku-4-5",
         "label": "Haiku 4.5",
-        "pick": "Haiku"
+        "pick": [
+          "Haiku 4.5",
+          "Haiku"
+        ]
       }
     ]
   },

@@ -170,10 +170,12 @@ DEFAULTS = {
     # Dalla 2.1.280 (catturato il 22/09/2026) «Opus (1M context)» e' Opus 5.5 e Opus 5 non ha piu' una voce: tenere
     # claude-opus-5[1m] su quell'etichetta avrebbe scelto Opus 5.5 senza errore
     "tune": {"timeout_s": 8, "file": "", "efforts": ["low", "medium", "high", "xhigh", "max"],
-             "models": [{"id": "claude-opus-5-5[1m]", "label": "Opus 5.5", "pick": "Opus (1M context)"},
-                        {"id": "claude-fable-5-1", "label": "Fable 5.1", "pick": "Fable"},
-                        {"id": "claude-sonnet-5", "label": "Sonnet 5", "pick": "Sonnet"},
-                        {"id": "claude-haiku-4-5", "label": "Haiku 4.5", "pick": "Haiku"}]},
+             # `pick`: le etichette nel selettore di /model, una lista perche' cambiano con Claude Code (le seconde fino
+             # alla 2.1.280, le prime dalla 2.1.283, dove la voce «(1M context)» non c'e' piu')
+             "models": [{"id": "claude-opus-5-5[1m]", "label": "Opus 5.5", "pick": ["Opus 5.5", "Opus (1M context)"]},
+                        {"id": "claude-fable-5-1", "label": "Fable 5.1", "pick": ["Fable 5.1", "Fable"]},
+                        {"id": "claude-sonnet-5", "label": "Sonnet 5", "pick": ["Sonnet 5", "Sonnet"]},
+                        {"id": "claude-haiku-4-5", "label": "Haiku 4.5", "pick": ["Haiku 4.5", "Haiku"]}]},
     # casella persistente (23/09/2026, docs/plans/2026-09-23-approvazioni-casella-registro-design.md): scadenza dei
     # messaggi in attesa. La coda degli ok e' stata tolta la sera stessa (decisione dell'utente, 22:39)
     "inbox": {"expires_h": 48},

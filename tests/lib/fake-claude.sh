@@ -147,21 +147,31 @@ case "$SCEN" in
   *,question3,*) menu3 "Procedo?" "Sì" "No" ;;
 esac
 # 1.12 (16/09/2026): i selettori di /model e /effort come in Claude Code 2.1.273, catturati dal vivo alle 11:30;
-# voci di /model aggiornate alla 2.1.280 (22/09/2026, 19:05): stesse etichette, Opus 5.5 al posto di Opus 5.
+# voci di /model aggiornate alla 2.1.280 (22/09/2026) e poi alla 2.1.283 (26/09/2026, lista che scorre: vedi sotto).
 # «s» sceglie SOLO per la sessione; Invio salverebbe il default: lo si annota in FAKE_CLAUDE_DEFAULT_LOG, cosi' un
 # test puo' dire che nessuno l'ha mai premuto.
 model_picker() {
-  local labels=("Default (recommended)" "Opus (1M context)" "Fable" "Sonnet" "Haiku")
-  local names=("Opus 5.5" "Opus 5.5" "Fable 5.1" "Sonnet 5" "Haiku 4.5")
-  local descs=("Opus 5.5 with 1M context · Best for everyday, complex tasks" "Opus 5.5 with 1M context · Best for everyday, complex tasks" "Fable 5.1 · Most capable for your hardest and longest-running tasks" "Sonnet 5 · Efficient for routine tasks" "Haiku 4.5 · Fastest for quick answers")
-  local sel=1 k k2 i
+  # 2.1.283 (26/09/2026, dal vivo all'01:20): undici voci con nome e versione («Opus 5.5», non piu' «Opus (1M context)»),
+  # sette a schermo; «↑ n.» sulla prima riga visibile quando sopra ce ne sono altre, «↓ n.» sull'ultima quando ce ne
+  # sono sotto, «… +4 models» in coda; Giu' oltre l'ultima voce torna alla prima.
+  local labels=("Default (recommended)" "Opus 5.5" "Fable 5.1" "Sonnet 5" "Haiku 4.5" "Opus 5" "Fable 5" "Opus 4.8" "Opus 4.7" "Opus 4.6" "Sonnet 4.6")
+  local names=("Opus 5.5" "Opus 5.5" "Fable 5.1" "Sonnet 5" "Haiku 4.5" "Opus 5" "Fable 5" "Opus 4.8" "Opus 4.7" "Opus 4.6" "Sonnet 4.6")
+  local descs=("Opus 5.5 · Best for everyday, complex tasks" "Most capable for ambitious work" "For your toughest challenges" "Most efficient for everyday tasks" "Fastest for quick answers" "Best for everyday, complex tasks" "Most capable for your hardest and longest-running tasks" "Best for everyday, complex tasks" "Best for everyday, complex tasks" "Best for everyday, complex tasks" "Efficient for routine tasks")
+  local sel=1 top=0 n=${#labels[@]} win=7 k k2 i
   draw() {
+    [ "$sel" -lt "$top" ] && top=$sel
+    [ "$sel" -ge $((top+win)) ] && top=$((sel-win+1))
     printf '\033[2J\033[H'
     printf '   Select model\n   Switch between Claude models. Your pick becomes the default for new sessions.\n'
-    for i in "${!labels[@]}"; do
-      local mark="  " tick=""; [ "$i" = "$sel" ] && mark="❯ "; [ "$i" = 1 ] && tick=" ✔"
+    for ((i=top; i<top+win && i<n; i++)); do
+      local mark="  " tick=""
+      [ "$i" = "$top" ] && [ "$top" -gt 0 ] && mark="↑ "
+      [ "$i" = $((top+win-1)) ] && [ $((top+win)) -lt "$n" ] && mark="↓ "
+      [ "$i" = "$sel" ] && mark="❯ "
+      [ "$i" = 1 ] && tick=" ✔"
       printf '   %s%d. %-22s %s\n' "$mark" $((i+1)) "${labels[$i]}$tick" "${descs[$i]}"
     done
+    [ "$n" -gt "$win" ] && printf '      … +%d models\n' $((n-win))
     # riquadro stretto: sotto le 40 colonne la lista scorre e la riga finale resta sotto il bordo (dal vivo, 34x48,
     # 16/09 11:55); fra 40 e 60 Claude Code va a capo da se' DENTRO la frase
     if [ "$(tput cols 2>/dev/null || echo 80)" -lt 40 ]; then
@@ -177,8 +187,8 @@ model_picker() {
     case "$k" in
       $'\x1b') read -rsn2 -t 0.2 k2 2>/dev/null || true
                case "${k2:-}" in
-                 '[B') [ "$sel" -lt 4 ] && sel=$((sel+1)); draw ;;
-                 '[A') [ "$sel" -gt 0 ] && sel=$((sel-1)); draw ;;
+                 '[B') sel=$(( (sel+1) % n )); draw ;;
+                 '[A') sel=$(( (sel-1+n) % n )); draw ;;
                  '[C'|'[D') draw ;;
                  *) printf '\033[2J\033[H  ⎿  Cancelled\n'; return ;;
                esac ;;

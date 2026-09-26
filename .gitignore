@@ -6,3 +6,6 @@ __pycache__/
 *.zip
 # test scratch
 tests/.scratch/
+
+# plugin eval: rapporti locali di `claude plugin eval` (tracce con prompt e costi), mai nel repo
+claude-master/evals/results/

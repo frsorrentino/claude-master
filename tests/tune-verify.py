@@ -2,7 +2,9 @@
 """Verifica cm-tune.py (claude-master model / effort, contratto 1.12) con il claude finto e un tmux privato.
 
 TU1  model: dal selettore di /model, «s» → «Set model to Sonnet 5 for this session only», uscita 0
-TU2  model per id, spostandosi verso l'alto (Sonnet → Fable); Opus 5.5 per id sulla voce «Opus (1M context)» (2.1.280)
+TU2  model per id, spostandosi verso l'alto (Sonnet → Fable); Opus 5.5 per id sulla voce «Opus 5.5» (2.1.283, prima
+     «Opus (1M context)»: `pick` e' una lista); una voce oltre le sette a schermo si raggiunge una riga alla volta;
+     una voce configurata ma assente dalla lista → uscita 4 dopo un giro intero, mai «s»
 TU3  effort: cursore tutto a sinistra e poi avanti, «s» → «(this session only)», per low e per max
 TU4  valori fuori dalle scelte (modello sconosciuto, ultracode) → uscita 2, nessun tasto mandato
 TU5  sessione al lavoro («esc to interrupt») → uscita 3, niente selettore aperto
@@ -29,7 +31,15 @@ home = tmp / "home"
 (home / ".claude").mkdir(parents=True)
 cfg = tmp / "config.json"
 cfg.write_text(json.dumps({"language": "it", "state_dir": str(tmp / "state"),
-                           "tune": {"timeout_s": 3, "file": str(tmp / "tuned.json")}}))
+                           "tune": {"timeout_s": 3, "file": str(tmp / "tuned.json"),
+                                    # i quattro default piu' una voce in fondo alla lista (riga 11, fuori dalle sette
+                                    # a schermo) e una che il selettore non ha
+                                    "models": [{"id": "claude-opus-5-5[1m]", "label": "Opus 5.5", "pick": ["Opus 5.5", "Opus (1M context)"]},
+                                               {"id": "claude-fable-5-1", "label": "Fable 5.1", "pick": ["Fable 5.1", "Fable"]},
+                                               {"id": "claude-sonnet-5", "label": "Sonnet 5", "pick": ["Sonnet 5", "Sonnet"]},
+                                               {"id": "claude-haiku-4-5", "label": "Haiku 4.5", "pick": ["Haiku 4.5", "Haiku"]},
+                                               {"id": "claude-sonnet-4-6", "label": "Sonnet 4.6", "pick": "Sonnet 4.6"},
+                                               {"id": "claude-nope-1", "label": "Nope 1", "pick": "Nope 1"}]}}))
 FAKE = T.ROOT / "tests" / "lib" / "fake-claude.sh"
 DEFAULT_LOG = tmp / "default.log"
 
@@ -63,10 +73,16 @@ with T.PrivateTmux() as tm:
     r = tune(tm, "model", "alfa", "claude-fable-5-1")
     T.check("TU2 model by id, moving up from the current entry: Fable 5.1", r.returncode == 0 and "Fable 5.1" in r.stdout, r.stdout + r.stderr)
     r = tune(tm, "model", "alfa", "claude-opus-5-5[1m]")
-    T.check("TU2 Opus 5.5 by id: the «Opus (1M context)» entry of the 2.1.280 picker", r.returncode == 0 and "Opus 5.5" in r.stdout
+    T.check("TU2 Opus 5.5 by id: the «Opus 5.5» entry of the 2.1.283 picker, second label of the pick list", r.returncode == 0 and "Opus 5.5" in r.stdout
             and "Set model to Opus 5.5 for this session only" in pane(tm, "alfa"), r.stdout + r.stderr + pane(tm, "alfa"))
+    r = tune(tm, "model", "alfa", "claude-sonnet-4-6")
+    T.check("TU2 an entry beyond the seven visible rows (2.1.283 list scrolls): reached row by row, «Sonnet 4.6»",
+            r.returncode == 0 and "Sonnet 4.6" in r.stdout and "Set model to Sonnet 4.6 for this session only" in pane(tm, "alfa"), r.stdout + r.stderr + pane(tm, "alfa"))
+    r = tune(tm, "model", "alfa", "claude-nope-1")
+    T.check("TU2 a configured entry the picker does not have: one full turn of the list, exit 4, no «s» pressed",
+            r.returncode == 4 and "Nope 1" in r.stdout and "Set model to Nope" not in pane(tm, "alfa") and "Cancelled" in pane(tm, "alfa"), r.stdout + r.stderr + pane(tm, "alfa"))
     r = tune(tm, "model", "alfa", "claude-opus-5[1m]")
-    T.check("TU4 Opus 5 is no longer a choice (no picker entry since 2.1.280) → exit 2", r.returncode == 2, r.stdout + r.stderr)
+    T.check("TU4 Opus 5 is not in tune.models → exit 2 (the picker has it, the config decides)", r.returncode == 2, r.stdout + r.stderr)
     r = tune(tm, "effort", "alfa", "low")
     T.check("TU3 effort low: cursor to the left end, «s» → «(this session only)»",
             r.returncode == 0 and "effort low" in r.stdout and "Set effort level to low (this session only)" in pane(tm, "alfa"), r.stdout + r.stderr + pane(tm, "alfa"))

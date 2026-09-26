@@ -1,6 +1,6 @@
 ---
 description: Close a Claude session by tmux name (refuses attached ones), or the detached sessions stuck on a question with --abandoned
-allowed-tools: Bash
+allowed-tools: Bash(claude-master:*)
 ---
 
 ```

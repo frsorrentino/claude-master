@@ -34,8 +34,8 @@ Alias: `affianca`, `riaffianca`, `unisci`, `sposta`; tasti tmux `Ctrl+b a` / `Ct
 - **Numero DISPARI di finestre con la master fra loro** (`tile.odd_layout` = `master-primary`): la master è la finestra grande a sinistra (60%), le altre impilate a destra
   in N-1 righe; `tile` lo dice («main-vertical»). Con un numero pari, con `--rows`/`--grid`, o
   se la master non è fra le affiancate: colonne/griglia uniformi come sempre. La colonna impilata
-  può scendere sotto `min_column_px`: consentito e segnalato, non rifiutato. `odd_layout: uniform`
-  ripristina il vecchio comportamento.
+  può scendere sotto `min_column_px`: consentito e segnalato, non rifiutato. `odd_layout: uniform`:
+  colonne uniformi anche con numero dispari.
 - **`merge` non è il contrario di `tile`**: tornare a schede passa da una scheda duplicata
   e da un segnaposto consumato dalla shell; se «nessuna scheda nuova attaccata entro N s»,
   le vecchie NON sono state chiuse e la sessione è salva. Non riprovare a raffica.
@@ -44,7 +44,7 @@ Alias: `affianca`, `riaffianca`, `unisci`, `sposta`; tasti tmux `Ctrl+b a` / `Ct
   in un popup nuovo, poi `close` lì. `launch`/`restart`/`restore` (scheda in una finestra aperta, o
   UNA finestra nuova via garcon per la prima), `tile` (una finestra app per sessione via garcon, mai
   popup) e `merge` (raccolta) la sfrattano da soli, sempre e solo per URL `#home`, mai per posizione,
-  e solo se la finestra ha altre schede. Le finestre `normal` restano RIFIUTATE (barra degli
+  e solo se la finestra ha altre schede. Le finestre `normal` sono rifiutate (barra degli
   indirizzi).
 - **Layout con nome**: `layout save NOME` fotografa tutte le finestre e le sessioni presenti;
   `layout restore NOME` riposiziona solo quelle che riconosce e dice quali mancano: allora
