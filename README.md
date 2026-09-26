@@ -1,35 +1,56 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.4.26-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.4.27-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
-![One master session runs all the others: the root session launches, watches, answers and closes the parallel sessions of every project, from the terminal and from the wrist — beside it, the session list of the Wear OS app (beta coming soon), rendered from the app's code, on the demo set.](assets/readme/card0-hero.png)
+[![claude-master in 40 seconds: a question from a Claude Code session on a Wear OS watch — «Staging is green. Deploy 2.8.0?» — answered with one tap.](assets/readme/promo-poster.jpg)](https://www.francescosorrentino.com/plugins/claude-master-watch)
 
 **Run several Claude Code sessions on one computer without losing track of
-them.** Each project gets its own terminal tab with a name and a colour; one
-list shows what is running; you can send a prompt from one session to another,
-or from your phone; a restart keeps the conversation; and after a reboot, the
-first shell you open offers to bring every session back. One session, the
-**master** on your workspace root, runs all the others: it is the one your
-phone talks to, and it launches, watches, answers and closes the rest.
+them.** Each project gets its own terminal tab; one list shows what is running
+and which session is waiting for you; you can answer it from another session,
+from your phone or from your watch; after a reboot every session comes back
+with its conversation. One session, the **master** on your workspace root,
+launches, watches, answers and closes the others.
 
-**Who it is for, honestly:** people who keep three or more Claude Code sessions
-open at once, on one machine, with one or two Claude accounts. If you open one
-session at a time, you do not need it. It runs daily on one workstation
-(ChromeOS, two accounts, up to eight sessions); the other terminals are
-supported in code but not yet tried on real hardware — the table further down
-says which.
+It is for people who keep three or more sessions open at once. If you open one
+at a time, you do not need it.
 
-## Before you start
+## Try it
 
-- Claude Code 2.1.263 or newer, `tmux`, `python3` 3.8+ and `bash` on the PATH.
-- A terminal from the list below. On ChromeOS the window commands also need
-  [chrome-bridge](https://github.com/frsorrentino/chrome-bridge), a small
-  extension-plus-server that lets scripts move Chrome windows.
-- Optional, for notices on your phone: Claude Code's own `telegram` plugin,
-  already configured with your bot and your chat. Telegram is one-way here: the
-  plugin sends, nobody talks back to it.
+**The plugin.** Claude Code 2.1.263 or newer, `tmux`, `python3` 3.8+, `bash`
+and a [supported terminal](#terminal-backends).
+
+```bash
+claude plugin marketplace add frsorrentino/claude-master && claude plugin install claude-master@claude-master-dev --scope user
+```
+
+Then `claude-master init --yes --shim --shell` and `claude-master doctor`:
+the [Quickstart](#quickstart) has each step.
+
+**Phone and watch: beta, testers welcome.** Sign up at [groups.google.com/g/claude-master-testers](https://groups.google.com/g/claude-master-testers) to get the
+phone and watch apps from Google Play. You need an Android 13+ phone, a Wear OS
+4+ watch, and on the PC `python3-cryptography`, `crontab` and the Firebase CLI
+logged in (`npm install -g firebase-tools`, `firebase login`). Then, on the PC:
+
+```bash
+claude-master relay setup     # your own Firebase project, guided; --dry-run shows the steps
+claude-master relay pair      # a QR: scan it with the phone app
+claude-master relay install   # keeps the relay running
+```
+
+The phone pairs with the PC and passes the key to the watch, which then works
+on its own. Everything is encrypted end to end; Firebase sees only blobs.
+Details: [Relay for the Wear OS app](#relay-for-the-wear-os-app).
+
+**No PC at hand?** On the watch's pairing screen, tap «Try the demo»: sessions,
+questions and quota of a demo set, with no PC and no pairing. Settings → «Demo
+mode» turns it off.
 
 ## Quickstart
+
+It runs daily on one workstation (ChromeOS, two accounts, up to eight
+sessions); the other terminals are supported in code but not yet tried on real
+hardware: [Terminal backends](#terminal-backends) says which. On ChromeOS the
+window commands also need [chrome-bridge](https://github.com/frsorrentino/chrome-bridge).
 
 ```bash
 claude plugin marketplace add frsorrentino/claude-master
@@ -49,6 +70,8 @@ named, coloured tab instead of an anonymous window. To undo everything:
 had turned those on.
 
 ## What you get
+
+![One master session runs all the others: the root session launches, watches, answers and closes the parallel sessions of every project, from the terminal and from the wrist — beside it, the session list of the Wear OS app (beta), rendered from the app's code, on the demo set.](assets/readme/card0-hero.png)
 
 Every function has a card; every card has a function behind it. The sessions
 in the pictures (`master`, `atlas-shop`, `ledger-api`, `field-notes`, `orbit-docs`) are a demo set.
@@ -140,8 +163,8 @@ layout. The Terminal's start tab is evicted, never left beside a session.
 
 The native Wear OS app is out in **beta**:
 [github.com/frsorrentino/claude-master-watch](https://github.com/frsorrentino/claude-master-watch).
-Install it by building it with your own Firebase — the relay runs on your PC and
-the steps are in the app's own README, under «Set up». The list shows every
+Sign up as a tester ([Try it](#try-it)), or build it yourself from the app's
+README. The relay runs on your PC, with your own Firebase. The list shows every
 session with its state and icon; a tap opens its card — state, outcome, next
 step; a question comes with its options, and one tap answers it. A list that is
 no longer fresh says so and never looks live, the watch is paired once with a
@@ -453,7 +476,7 @@ only sees a monitor that has a window on it: `move` tells you to drag one there.
 - tmux (tested with 3.3a), python3 ≥ 3.8, bash; Claude Code ≥ 2.1.263.
 - `crossSessionInbound: accept` in an account's settings, only to receive
   `talk` from the other account.
-- chrome-bridge ≥ 1.16.1, only for the window commands on ChromeOS.
+- [chrome-bridge](https://github.com/frsorrentino/chrome-bridge) ≥ 1.16.1, only for the window commands on ChromeOS.
 - `python3-cryptography` and `crontab`, only for the relay of the Wear OS app
   (`doctor` checks both when `relay.enabled` is true; `relay pair` and
   `relay install` stop before doing anything if one is missing).
@@ -503,7 +526,7 @@ The complete reference. Italian aliases (`lancia`, `chiudi`, `sessioni`,
 for t in tests/*-verify.py; do python3 "$t"; done
 ```
 
-Twenty-five suites, about 800 cases, none of which touch your real tmux, your real
+Twenty-nine suites, about 800 cases, none of which touch your real tmux, your real
 Claude or your browser: a private tmux server, a fake `claude` that draws the
 real dialogs and writes the real registry files, a fake browser that follows
 Chrome's rules, a fake Telegram. Every defect found on the real machine became

@@ -2,6 +2,9 @@
 
 ## 0.3.x
 
+- **0.4.27 — 2026-09-26: the README opens with the promo and a «Try it».**
+  - `README.md`: under the title, a poster of the 40-second promo that opens the video on francescosorrentino.com; then a two-paragraph pitch and «Try it» in three blocks — the plugin (one install line and its requirements), phone and watch (beta, testers sign up at groups.google.com/g/claude-master-testers; `relay setup`, `relay pair`, `relay install`: the phone pairs and passes the key to the watch), and the watch app's demo without a PC. The Quickstart follows; the cards, the relay and its contract, the configuration and the command reference are unchanged below it. «Before you start» is folded into the Quickstart and the Requirements; the test count says twenty-nine suites. No code change.
+
 - **0.4.26 — 2026-09-26: the icon at the repository root too, and the narrower observe command.**
   - `.claude-plugin/icon.svg` is also copied (a copy, not a symlink) to the root of the repository, where the directory portal seems to resolve the manifest's `icon` path; the file is the same.
   - claude-observe copy synced to source commit `2b148c0`: one name per MCP tool (plugin-scoped calls match `known` and dedupe with bare ones), and `/claude-master:observe` pre-approves only `Bash(claude-master observe *)` instead of every Bash command.
