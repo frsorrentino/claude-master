@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.4.27-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.4.28-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 [![claude-master in 40 seconds: a question from a Claude Code session on a Wear OS watch — «Staging is green. Deploy 2.8.0?» — answered with one tap.](assets/readme/promo-poster.jpg)](https://www.francescosorrentino.com/plugins/claude-master-watch)
 
@@ -17,7 +17,8 @@ at a time, you do not need it.
 ## Try it
 
 **The plugin.** Claude Code 2.1.263 or newer, `tmux`, `python3` 3.8+, `bash`
-and a [supported terminal](#terminal-backends).
+and a [supported terminal](#terminal-backends), on Linux, macOS, ChromeOS or
+WSL2 ([not native Windows](#windows)).
 
 ```bash
 claude plugin marketplace add frsorrentino/claude-master && claude plugin install claude-master@claude-master-dev --scope user
@@ -483,6 +484,19 @@ only sees a monitor that has a window on it: `move` tells you to drag one there.
 - Claude Code's `telegram` plugin, only to send: the diary, the night summary,
   the quota warnings and the watch's backup.
 
+### Windows
+
+claude-master runs sessions in tmux and reads processes from `/proc`, so it
+does not run on native Windows: use it inside WSL2, where it is Linux. On
+native Windows, installed by mistake or through a shared settings file, it stays
+quiet instead of failing. Claude Code runs its hooks through Git Bash; they
+start Python through `scripts/py.sh` (`python3`, then `python`, then `py -3`,
+skipping the Microsoft Store alias) and stop at once: the first session prints
+one line saying WSL2 is needed, later ones print nothing, and with no Python at
+all each hook writes one line to its log and exits 0. The `claude-master`
+command prints the same line and exits 3; only `version` and `root` answer.
+`claude plugin disable claude-master` removes it.
+
 ## Commands
 
 The complete reference. Italian aliases (`lancia`, `chiudi`, `sessioni`,
@@ -526,7 +540,7 @@ The complete reference. Italian aliases (`lancia`, `chiudi`, `sessioni`,
 for t in tests/*-verify.py; do python3 "$t"; done
 ```
 
-Twenty-nine suites, about 800 cases, none of which touch your real tmux, your real
+Thirty suites, about 800 cases, none of which touch your real tmux, your real
 Claude or your browser: a private tmux server, a fake `claude` that draws the
 real dialogs and writes the real registry files, a fake browser that follows
 Chrome's rules, a fake Telegram. Every defect found on the real machine became

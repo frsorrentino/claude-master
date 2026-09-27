@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" SessionStart",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/py.sh\" \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" SessionStart",
             "timeout": 10
           }
         ]
@@ -14,7 +14,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/observe/observe.py\" session-start",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/observe/py.sh\" \"${CLAUDE_PLUGIN_ROOT}/observe/observe.py\" session-start",
             "timeout": 10
           }
         ]
@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" SessionEnd",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/py.sh\" \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" SessionEnd",
             "timeout": 10
           }
         ]
@@ -36,7 +36,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" UserPromptSubmit",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/py.sh\" \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" UserPromptSubmit",
             "timeout": 5
           }
         ]
@@ -47,7 +47,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" PermissionRequest",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/py.sh\" \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" PermissionRequest",
             "timeout": 5
           }
         ]
@@ -58,7 +58,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" PostToolUse",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/py.sh\" \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" PostToolUse",
             "timeout": 5
           }
         ]
@@ -70,7 +70,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/observe/observe.py\" hook",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/observe/py.sh\" \"${CLAUDE_PLUGIN_ROOT}/observe/observe.py\" hook",
             "timeout": 5
           }
         ]
@@ -81,7 +81,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" Stop",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/py.sh\" \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" Stop",
             "timeout": 20
           }
         ]
@@ -90,7 +90,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/observe/observe.py\" stop",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/observe/py.sh\" \"${CLAUDE_PLUGIN_ROOT}/observe/observe.py\" stop",
             "timeout": 5
           }
         ]
@@ -101,7 +101,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" StopFailure",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/py.sh\" \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" StopFailure",
             "timeout": 10
           }
         ]

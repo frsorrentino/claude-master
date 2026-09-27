@@ -23,13 +23,41 @@ sessione. Tutto cio' che scrive sta in `state_dir`:
   UNA con {"decision":"block","reason":...} (E5) — con tetto per turno e scadenza,
   mai un loop.
 - StopFailure: ledger + il riavvio armato resta visibile come fallito.
+
+Windows nativo (test del 27/09/2026): niente tmux, niente /proc, i .sh non si eseguono da Python. Ogni evento esce
+subito con 0 PRIMA di caricare la config; solo il primo SessionStart su quella macchina dice, in una riga, che serve
+WSL2. Prima il kernel veniva iniettato (inutilizzabile) e lo Stop dava un traceback a ogni turno.
 """
+import os
+import sys
+
+
+def windows_notice(argv):
+    """Il primo SessionStart stampa una riga (va nel contesto: il modello la riferisce), poi silenzio. Solo os.path:
+    gira prima di ogni altro import."""
+    if (argv[:1] or [""])[0] != "SessionStart":
+        return 0
+    base = os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state")
+    mark = os.path.join(base, "claude-master", "windows-notice-shown")
+    if os.path.exists(mark):
+        return 0
+    try:
+        os.makedirs(os.path.dirname(mark), exist_ok=True)
+        open(mark, "w", encoding="utf-8").close()
+    except OSError:
+        pass
+    sys.stdout.write("claude-master: needs Linux or macOS with tmux; on Windows use it inside WSL2. Its hooks are off "
+                     "on native Windows (`claude plugin disable claude-master` removes it).\n")
+    return 0
+
+
+if os.name == "nt" and __name__ == "__main__":
+    sys.exit(windows_notice(sys.argv[1:]))
+
 import datetime
 import importlib.util
 import json
-import os
 import subprocess
-import sys
 import time
 from pathlib import Path
 

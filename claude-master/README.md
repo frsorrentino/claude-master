@@ -25,7 +25,7 @@ Inside a session the same things are slash commands (`/claude-master:sessions`, 
 
 ## Requirements
 
-Claude Code 2.1.263 or newer, `tmux`, `python3` 3.8+ and `bash`. A terminal from the supported list (ChromeOS Terminal, gnome-terminal, kitty, iTerm2, Terminal.app, Windows Terminal). The window commands on ChromeOS also need [chrome-bridge](https://github.com/frsorrentino/chrome-bridge). Setup after the install: `claude-master init --dry-run` shows every value it found on your machine, `init --yes --shim --shell` writes the config, `claude-master doctor` says what is left.
+Claude Code 2.1.263 or newer, `tmux`, `python3` 3.8+ and `bash`, on Linux, macOS, ChromeOS or WSL2. Not on native Windows: there its hooks stay quiet (one line at the first session) and the command says to use WSL2. A terminal from the supported list (ChromeOS Terminal, gnome-terminal, kitty, iTerm2, Terminal.app, Windows Terminal). The window commands on ChromeOS also need [chrome-bridge](https://github.com/frsorrentino/chrome-bridge). Setup after the install: `claude-master init --dry-run` shows every value it found on your machine, `init --yes --shim --shell` writes the config, `claude-master doctor` says what is left.
 
 ## What it runs
 
@@ -40,6 +40,6 @@ Eight small hooks (a session starts or ends, a prompt is sent, a permission is a
 
 ## More
 
-The full README, with a card per function, the configuration reference, the terminal backends and the complete command table, is at [github.com/frsorrentino/claude-master](https://github.com/frsorrentino/claude-master#readme). Twenty-nine test suites, about 800 cases, run on a private tmux with a fake `claude`; none touches your real sessions.
+The full README, with a card per function, the configuration reference, the terminal backends and the complete command table, is at [github.com/frsorrentino/claude-master](https://github.com/frsorrentino/claude-master#readme). Thirty test suites, about 800 cases, run on a private tmux with a fake `claude`; none touches your real sessions.
 
 MIT license.

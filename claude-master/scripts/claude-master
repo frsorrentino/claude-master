@@ -13,6 +13,24 @@ S="$CM_ROOT/scripts"
 cmd="${1:-help}"
 [ $# -gt 0 ] && shift
 
+# Windows nativo (Git Bash, MSYS, Cygwin; test del 27/09/2026): tmux e /proc non ci sono, python3 e' spesso l'alias
+# dello Store e la console e' cp1252. Una riga chiara e uscita 3, prima di ogni python: prima uscivano traceback
+# (WinError 193, UnicodeEncodeError) o «nessuna sessione» con la sessione aperta. WSL riporta Linux: li' funziona.
+case "$(uname -s 2>/dev/null)" in
+  MINGW*|MSYS*|CYGWIN*)
+    case "$cmd" in
+      version|--version|-v|root) ;;
+      *)
+        if printf '%s' "${LANG:-}" | grep -qi '^it' \
+          || grep -qi '"language" *: *"ital' "$HOME/.claude/settings.json" 2>/dev/null; then
+          echo "claude-master richiede Linux o macOS con tmux; su Windows usalo dentro WSL2." >&2
+        else
+          echo "claude-master needs Linux or macOS with tmux; on Windows use it inside WSL2." >&2
+        fi
+        exit 3 ;;
+    esac ;;
+esac
+
 unported() {  # <cmd> <fase> <equivalente legacy>
   python3 "$S/cm-config.py" --msg cli.unported "cmd=$1" "phase=$2" "legacy=$3" >&2
   exit 64
