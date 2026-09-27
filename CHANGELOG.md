@@ -2,6 +2,9 @@
 
 ## 0.3.x
 
+- **0.4.29 — 2026-09-27: the observe copy follows the second Windows round.**
+  - claude-observe copy synced to source commit `f01376e`. `/claude-master:observe send` works as documented, without the plugin name (it used to exit 2 with the usage). The note added with `add --on` goes into the draft. In the text that leaves the machine, file names become `<file>.ext` and the folders under the home that the user named become `<dir>`: standard folders and the plugin's own stay. The command and the option list no longer promise «Send anonymously»: that service does not exist yet. The options are «Send from my GitHub» (gh or a prefilled link) and «Not now». No change to claude-master's own code.
+
 - **0.4.28 — 2026-09-27: on native Windows it stays quiet and says WSL2, once.**
   - From the compatibility test on a Windows laptop (27/09, Claude Code 2.1.283, hooks through Git Bash): every hook failed with the Microsoft Store's «Python was not found» (`python3` there is the Store alias), and with a real Python the kernel was injected into a session that has no tmux while the Stop hook raised `OSError: [WinError 193]` on every turn (it ran `cm-restart.sh` directly). The CLI crashed on cp1252 (`UnicodeEncodeError` on `←` and `🔴`) before it could say anything useful, and `sessions` reported no sessions because `/proc` does not exist.
   - Hooks: `hooks.json` runs `cm-hook.py` through `scripts/py.sh`, the launcher shared with claude-observe and fable-director: the first real Python 3.8+ among `python3`, `python` and `py -3` (the Store alias is run and skipped, never just looked up), cached in `~/.cache/claude-master/python` (`CLAUDE_MASTER_PY` overrides it), with `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8`; with no Python at all it writes one line to stderr and exits 0.
