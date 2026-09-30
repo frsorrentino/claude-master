@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.4.29-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.5.0-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 [![claude-master in 40 seconds: a question from a Claude Code session on a Wear OS watch — «Staging is green. Deploy 2.8.0?» — answered with one tap.](assets/readme/promo-poster.jpg)](https://www.francescosorrentino.com/plugins/claude-master-watch)
 
@@ -209,7 +209,7 @@ service account JSON in `~/.claude-master/relay/service-account.json` (0600,
 never in the repo), `relay.enabled`, `relay.firebase_url` and `relay.fcm_topic`
 in the config, then `relay pair`, `relay install`. RTDB rules: `/state`,
 `/events` and `/result` readable only by a uid present in `/allowed`, `/cmd`
-writable only by those, `/pair/<code>/watch` and `/pair/<id>/watch` writable by
+and `/share/<id>` writable only by those, `/pair/<code>/watch` and `/pair/<id>/watch` writable by
 an anonymous user; the PC writes with the service account. `relay push
 --dry-run` prints the clear state without touching the network.
 
@@ -219,6 +219,33 @@ Contract 1.16 adds two fields to every session in `/state`: `low_priority`
 read it from — that state lives only in the session's memory) and `goal`
 (`{text, since, met}` from the last `goal_status` of the transcript, `null`
 without a `/goal`).
+
+Contract 1.17 lets the app edit tonight's queue: `night_add` (the folder of a
+published project and the prompt, run as `claude-master night add`) and
+`night_remove` (the job id), and `/state` carries `night.items`, the queue in
+run order with each prompt cut to 160 characters. The field is there even when
+the queue is empty: its absence tells the app to ask for an update. The queue
+holds at most `night.max_queued` jobs (8), and a job that has started cannot be
+removed.
+
+Contract 1.18 sends the long texts to the app too, as events with the FCM
+wake-up: `recap` (the 20:00 diary) and `night_report` (the night shift's
+summary), with the Telegram text without markup, cut at a line end within 4000
+characters, and the day in `ref`; the quota guard's resume at the reset is a
+`quota` event like the threshold warning.
+
+Contract 1.19 is «Share» from the phone: the phone writes an image, encrypted
+like a command, in `/share/<id>` (at most 1.5 MB, JPEG or PNG), then sends
+`report` with the session, the text and that id; the relay runs
+`claude-master report <session folder> <image|-> "<text>" --session <name>` and
+deletes the node, whatever the outcome (unread nodes go after 10 minutes).
+`/state` carries `share: {max_bytes}` so the app knows it can.
+
+Contract 1.20 counts the phone as well as the watch before falling back to
+Telegram. Each paired device writes `/seen/<uid>` (the Firebase server time)
+when it reads `/state`; if no paired device has read an event within
+`relay.telegram_fallback_after_s`, the event goes to Telegram once. Until some
+device writes `/seen`, only the old rule applies (the bus refusing the push).
 
 The QR (contract 1.15) carries the pairing id, the PC's public key, the host,
 the expiry and the data the phone needs to join the Firebase project: the
@@ -290,6 +317,60 @@ appended to the project's `docs/recap.md`. At 02:00 the night queue runs one
 job at a time, only while free memory and quota allow, leaving a report in the
 project. What waits for you in the morning is on the watch, which never stops
 showing it.
+
+### More machines
+
+One control machine, other computers doing the heavy work. You declare a host
+by name and ssh alias; claude-master measures it and proposes what it can do:
+
+```bash
+claude-master host add laptop --ssh laptop     # pins the host key, asks before installing a 3-file helper
+claude-master host doctor laptop               # OS, cores, RAM, GPU, WebGL, tools, a 20 s benchmark, bandwidth
+claude-master host confirm laptop              # roles, limits and trust, as proposed or edited
+claude-master offload ~/film --recipe render   # the exact commit, the declared assets, the result back
+```
+
+- **Measured, not guessed.** `doctor` runs one remote command that returns
+  JSON: system, GPU (`nvidia-smi`, `lspci`, `Win32_VideoController`), WebGL
+  from a headless Chrome (hardware or software renderer), tool versions, which
+  Claude accounts are logged in, foreign credentials (named, never read), and a
+  micro-benchmark relative to the control machine. It proposes roles
+  (`compute`, `render`, `sessions`), per-host limits from a written formula,
+  and trust `work` without secrets and without client folders. Until you
+  confirm, the host gets nothing.
+- **Jobs declare needs, not hosts.** A recipe in `<project>/.cm-offload.json`
+  says role, threads, RAM, GPU, tools, operating systems and a command per host
+  kind (`{threads}` takes the host's value). The scheduler filters hosts by
+  trust and requirements, drops those without a free slot or above the load
+  gate, and chooses: a light job stays here while this machine has room; a
+  heavy one goes out when the measured time saved beats the copy cost (bytes to
+  send ÷ measured bandwidth, plus setup). `--explain` prints the whole table;
+  `--host` forces the choice but never trust or hard requirements.
+- **What travels.** `git archive` of the exact commit (a dirty tree is refused,
+  or sent as `git stash create` with `--dirty`); `.env*`, keys and credentials
+  never leave, and a scan for private keys and known tokens blocks the send
+  naming the file. Ignored assets travel once: the host keeps a content-addressed
+  cache. Dependencies install once per lockfile hash. Results come back with
+  their sha256 checked, into an ignored output folder or the state directory,
+  never over a tracked file.
+- **Surviving the link.** Jobs are detached so a dropped ssh does not kill
+  them: `systemd-run --user` or `setsid` on Linux, a one-shot scheduled task on
+  Windows. `offload wait <id>` blocks until the end, from a background shell.
+  Claude Code 2.1.285 stops a background command at its `timeout` (30 minutes
+  unless given, two hours at most), so `wait` gives up by itself after 110
+  minutes (`--max-min`) with exit 4 and says the job is still running: launch it
+  with `timeout` 7200000 and run it again until it exits 0 or 1.
+- **Seeing it.** `hosts poll` (cron, every minute; every 30 s while something
+  runs) writes one snapshot per host. `sessions` shows the other hosts'
+  sessions as `HOST:name` and one line per host with load, RAM, disk and the
+  heavy job's progress; `quota` merges the readings of every host and says
+  where the freshest came from. An unreachable host is a line with the age of
+  its last good read, never a hang.
+
+Host kinds: `linux-tmux` (this machine or over ssh), `windows-native` (OpenSSH,
+PowerShell 5.1+), `macos-tmux` and `wsl` over ssh. ssh options always go on the
+command line with a dedicated `known_hosts`; `~/.ssh/config` is never touched.
+Remote sessions (launch, talk and wait across machines) are the next step.
 
 ### Doctor, for both accounts
 
@@ -533,6 +614,10 @@ The complete reference. Italian aliases (`lancia`, `chiudi`, `sessioni`,
 | `claude-master inbox [NAME] [--all]` · `claude-master talk --status ID` | the durable inbox: `talk` writes each message to disk before delivering it; a session that was closed gets its messages when it starts again, a busy one at the end of its turn |
 | `claude-master observe add\|list\|show\|mark\|export\|report` | the local record of claude-master's own errors (see «What you are trusting»): add a workaround or a verdict, triage, or send them as one anonymized issue |
 | `claude-master night add <dir> "prompt" [--model M] [--effort E] [--max-turns N]` · `list` · `remove <id>` · `run [--dry-run\|--one] [--send]` · `install\|uninstall\|status` | the overnight queue |
+| `claude-master host add NAME --ssh ALIAS [--kind K] [--yes]` · `host doctor NAME\|local [--no-bench] [--force-bench]` · `host confirm NAME [--roles …] [--trust work\|full] [--limits …]` · `host list\|remove\|update NAME` | declare another machine, measure it, confirm roles, limits and trust; the remote helper is installed only on a yes |
+| `claude-master hosts [poll [--cron]\|install\|uninstall]` | the host table; one round of the poller, or its crontab line |
+| `claude-master offload <dir> --recipe NAME [--host H] [--explain] [--dirty]` · `offload --needs k=v,… -- <command>` · `offload list\|status\|log [-f]\|wait\|fetch\|cancel\|clean <id>` | a heavy job on the host that does it best: exact commit, declared assets, results back with sha256 |
+| `claude-master heavy run [--needs …] -- <command>` · `heavy status` | the same scheduler for a command a session would run here: it stays here inside a lease, or becomes an offload and waits |
 
 ## Tests
 

@@ -133,9 +133,14 @@ if [ -n "$_cm_interactive" ] && [ -z "${TMUX:-}" ]; then
   # Ripristino dopo un riavvio (T20): macchina su da poco, nessun server tmux, registro
   # non vuoto. Una chiusura volontaria (uptime alto) non conta: l'utente chiude spesso
   # sessioni a mano, e un avviso su sessioni mancanti sarebbe rumore.
+  # Una sola domanda per accensione: `mkdir` e' atomico, la prima shell prende il segno e le
+  # altre tacciono. Prima ogni scheda aperta nei primi 15 minuti richiedeva, e quella lasciata
+  # senza risposta ripartiva da sola dopo il timeout anche se l'utente aveva detto n in un'altra.
   if [ "${CM_SHELL_RESTORE_PROMPT:-true}" = true ] && ! _cm_tmux has-session 2>/dev/null \
      && [ "$(awk '{print int($1/60)}' "${CM_UPTIME_FILE:-/proc/uptime}" 2>/dev/null)" -lt "${CM_RESTORE_UPTIME_MAX_MIN:-15}" ] \
-     && [ -s "${CM_REGISTRY_FILE:-}" ] && grep -q '"nome"' "$CM_REGISTRY_FILE"; then
+     && [ -s "${CM_REGISTRY_FILE:-}" ] && grep -q '"nome"' "$CM_REGISTRY_FILE" \
+     && mkdir -p "${CM_STATE_DIR:-$HOME/.claude}/restore" \
+     && mkdir "${CM_STATE_DIR:-$HOME/.claude}/restore/asked-$(cat "${CM_BOOT_ID_FILE:-/proc/sys/kernel/random/boot_id}" 2>/dev/null)" 2>/dev/null; then
     python3 "$_cm_root/scripts/cm-config.py" --msg shell.restore_prompt
     ${CM_RESTORE_CMD:-"$_cm_root/scripts/claude-master" restore}
   fi

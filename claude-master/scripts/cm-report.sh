@@ -5,9 +5,12 @@
 # va archiviato nel progetto giusto e la sessione di quel progetto deve
 # riceverlo con il testo. Tre passi che diventano uno.
 #
-# Uso: claude-master report <progetto> <immagine|-> "testo" [--no-launch]     (it: --senza-lancio)
+# Uso: claude-master report <progetto> <immagine|-> "testo" [--no-launch] [--session NOME]     (it: --senza-lancio)
 #   <progetto>   nome o pezzo del nome della cartella (sito, cliente-a): si cerca in
-#                `workspace.project_dirs` sotto la radice, prima esatto, poi prefisso, poi sottostringa
+#                `workspace.project_dirs` sotto la radice, prima esatto, poi prefisso, poi sottostringa;
+#                un percorso assoluto di una cartella esistente si prende cosi' com'e' (il relay, contratto 1.19)
+#   --session    consegna a quella sessione tmux invece che a quella col nome di launch (field-notes-2 accanto a
+#                field-notes): deve esistere, non si lancia
 #   <immagine>   percorso del file (png/jpg/webp/gif); "-" per nessuna immagine
 #   --no-launch  se la sessione non c'e', non la lancia: archivia e basta
 #
@@ -19,8 +22,9 @@
 set -u
 source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/cm-lib.sh"
 
-PROGETTO="${1:-}"; IMG="${2:-}"; TESTO="${3:-}"; LANCIO=si
-for a in "${@:4}"; do case "$a" in --no-launch|--senza-lancio) LANCIO=no ;; esac; done
+PROGETTO="${1:-}"; IMG="${2:-}"; TESTO="${3:-}"; LANCIO=si; SESSIONE=""
+set -- "${@:4}"
+while [ $# -gt 0 ]; do case "$1" in --no-launch|--senza-lancio) LANCIO=no ;; --session) SESSIONE="${2:-}"; shift ;; esac; shift; done
 [ -n "$PROGETTO" ] && [ -n "$IMG" ] && [ -n "$TESTO" ] || { cm_msg report.usage >&2; exit 2; }
 ROOT="$(eval echo "$CM_WORKSPACE_ROOT")"
 
@@ -30,7 +34,9 @@ trova() {  # le cartelle di progetto candidate (figlie dirette di ogni project_d
     find "$ROOT/$d" -mindepth 1 -maxdepth 1 -type d 2>/dev/null
   done | grep -v -E "/($(echo "$CM_WORKSPACE_EXCLUDED_DIRS" | tr ' ' '|'))$" | sort -u
 }
-CAND=$(trova | grep -iE "/$PROGETTO$" | head -1)
+CAND=""
+case "$PROGETTO" in /*) [ -d "$PROGETTO" ] && CAND="$(cd "$PROGETTO" && pwd -P)" ;; esac
+[ -n "$CAND" ] || CAND=$(trova | grep -iE "/$PROGETTO$" | head -1)
 [ -n "$CAND" ] || CAND=$(trova | grep -iE "/$PROGETTO[^/]*$" | head -1)
 [ -n "$CAND" ] || CAND=$(trova | grep -iE "/[^/]*$PROGETTO[^/]*$" | head -1)
 if [ -z "$CAND" ]; then
@@ -63,6 +69,10 @@ while IFS=$'\t' read -r p a; do
   case "$CARTELLA/" in "$p"/*) [ "${#p}" -gt "$bestlen" ] && { ACC="$a"; bestlen="${#p}"; } ;; esac
 done <<<"$CM_FOLDER_MAP"
 NOME="$(cm_get "$ACC" TMUX_PREFIX)$(printf '%s' "$NOME_CARTELLA" | sed 's/[^A-Za-z0-9]/-/g')"
+if [ -n "$SESSIONE" ]; then
+  cm_tmux has-session -t "=$SESSIONE" 2>/dev/null || { cm_msg report.no_session "name=$SESSIONE" >&2; exit 6; }
+  NOME="$SESSIONE"
+fi
 if ! cm_tmux has-session -t "=$NOME" 2>/dev/null; then
   if [ "$LANCIO" = no ]; then
     cm_msg report.archived "path=${PERCORSO_IMG:-(-)}"

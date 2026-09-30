@@ -101,8 +101,9 @@ with T.PrivateTmux() as tm:
     # restore: solo le 5 del mattino (eta tolta a mano dalla fotografia per la prova)
     g = json.loads(good.read_text()) if good.is_file() else {"sessioni": []}; g["sessioni"] = [s for s in g["sessioni"] if s["nome"] != "eta"]; good.write_text(json.dumps(g))
     # G5: riavvio
-    tm("kill-server"); time.sleep(0.5)
-    r = run("cm-restore.sh", "--dry-run")
+    tm("kill-server"); time.sleep(1.5)
+    upf = tmp / "uptime"; upf.write_text("0.5 0.0\n")   # la macchina e' appena ripartita: le voci sono tutte di prima
+    r = run("cm-restore.sh", "--dry-run", CM_UPTIME_FILE=str(upf))
     out = r.stdout
     T.check("G5 restore proposes all 5", r.returncode == 0 and "(5)" in out and all(n in out for n in NAMES), out + r.stderr)
     T.check("G5 says which come from the snapshot (4) and which from the registry (1), each with a date", out.count("fotografia") >= 4 and out.count("registro") >= 1 and "delta" in [l.split()[0] for l in out.splitlines() if "registro" in l], out)

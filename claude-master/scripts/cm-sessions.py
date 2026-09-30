@@ -497,6 +497,29 @@ def collect(read_screen=True):
     return rows
 
 
+_HOSTS = None
+
+
+def hosts_mod():
+    global _HOSTS
+    if _HOSTS is None:
+        spec = importlib.util.spec_from_file_location("cm_hosts", HERE / "cm-hosts.py")
+        _HOSTS = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(_HOSTS)
+    return _HOSTS
+
+
+def remote_rows():
+    """Le sessioni degli altri host (piano multi-PC 4.3), lette dagli snapshot del sondatore: mai dal trasporto, cosi'
+    `sessions` resta veloce anche con un host spento. Solo per la tabella e --json: talk, next e park restano locali."""
+    if not CFG.get("hosts"):
+        return []
+    try:
+        return hosts_mod().remote_session_rows()
+    except Exception:   # noqa: BLE001 — le righe remote sono in piu': mai far cadere l'elenco locale
+        return []
+
+
 def status_age_min(row):
     try:
         d = json.load(open(Path(row["registry"]) / f"{row['pid']}.json"))
@@ -529,7 +552,7 @@ def render(rows):
     # S03 (14/09/2026): intestazione, canali e stato nella lingua della config (prima fissi in italiano). Nel JSON
     # `channel` resta «(questa)»/«nativo»/«talk»: talk, next e park lo confrontano.
     hdr = " ".join(f"{c:<{w}}" for c, w in zip(m("sessions.columns").split(), (8, 13, 22, 6, 24, 9, 9, 9, 9)))
-    channel = {"(questa)": m("sessions.channel_self"), "nativo": m("sessions.channel_native")}
+    channel = {"(questa)": m("sessions.channel_self"), "nativo": m("sessions.channel_native"), "remoto": m("sessions.channel_remote")}
     lines.append(hdr)
     lines.append("-" * len(hdr))
     abandoned = 0
@@ -563,7 +586,12 @@ def render(rows):
         # S03: uno stato solo (prima «busy» e «<- aspetta una risposta» insieme); il processo fuori registro (T11)
         # ha un'etichetta invece del nome vuoto e del «?»
         state = r["status"]
-        if not r["registry"] and r.get("agent") != "codex":
+        if r.get("host"):
+            if r.get("unreachable"):
+                note += "  <- " + m("sessions.remote_unreachable", age=round(r["read_age_s"] / 60))
+            elif r.get("read_age_s", 0) > 180:
+                note += "  <- " + m("sessions.remote_age", age=round(r["read_age_s"] / 60))
+        elif not r["registry"] and r.get("agent") != "codex":
             shown, state = shown or m("sessions.unregistered"), "-"
         if r["waiting"]:
             state = m("sessions.state_waiting")
@@ -578,6 +606,13 @@ def render(rows):
                      f"{(r.get('version') or '-') + ('*' if r.get('outdated') else ''):<9}{note}")
     if not rows:
         lines.append("  " + m("sessions.none"))
+    if CFG.get("hosts"):
+        try:
+            hl = hosts_mod().host_summary_lines()
+        except Exception:   # noqa: BLE001
+            hl = []
+        if hl:
+            lines += [""] + ["  " + x for x in hl]
     if abandoned:
         lines += ["", "  " + m("sessions.abandoned_hint", n=abandoned)]
     if any(r.get("outdated") for r in rows):
@@ -596,7 +631,7 @@ def active_count(rows):
     """Le sessioni «al lavoro» per il tetto di launch: busy o idle (non «?» ne' gone), esclusa la master
     (workspace.root_session_name) e i processi fuori registro; Codex non conta (e' un'altra memoria)."""
     root = CFG["workspace"].get("root_session_name") or "master"
-    return sum(1 for r in rows if r.get("registry") and r.get("agent") != "codex" and r["status"] in ("busy", "idle", "waiting")
+    return sum(1 for r in rows if r.get("registry") and not r.get("host") and r.get("agent") != "codex" and r["status"] in ("busy", "idle", "waiting")
                and (r["tmux"] or r["name"]) != root)
 
 
@@ -612,20 +647,20 @@ def main(argv):
         return 0
     read_screen = "--no-screen" not in argv
     if "--json" in argv:
-        print(json.dumps(collect(read_screen), ensure_ascii=False, indent=1))
+        print(json.dumps(collect(read_screen) + remote_rows(), ensure_ascii=False, indent=1))
         return 0
     if "--watch" in argv:
         i = argv.index("--watch")
         every = int(argv[i + 1]) if len(argv) > i + 1 and argv[i + 1].isdigit() else 5
         try:
             while True:
-                out = render(collect(read_screen))
+                out = render(collect(read_screen) + remote_rows())
                 sys.stdout.write("\033[H\033[2J" + time.strftime("%H:%M:%S") + "\n" + out)
                 sys.stdout.flush()
                 time.sleep(every)
         except KeyboardInterrupt:
             return 0
-    sys.stdout.write(render(collect(read_screen)))
+    sys.stdout.write(render(collect(read_screen) + remote_rows()))
     return 0
 
 

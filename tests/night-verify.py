@@ -7,6 +7,8 @@ NI3 run: claude -p nella cartella con --permission-mode e --max-turns, CLAUDE_CO
     il secondo account, rapporto in docs/notte, voce spostata in done, riassunto --send su Telegram
 NI4 guardie: RAM sotto soglia → voce saltata con motivo, resta in coda; --one esegue una sola voce
 NI5 install (riga cron alle 02:00), status, uninstall
+NI6 (contratto 1.17 del relay) prompt vuoto e coda piena rifiutati; durante `run` la voce in corso porta `started`
+    e `remove` la rifiuta, una voce tolta non parte, una voce aggiunta resta in coda
 """
 import json
 import os
@@ -65,13 +67,13 @@ cfg.write_text(json.dumps({
     "default_account": "personale",
     "folder_map": [{"path": str(ws / "agenzia"), "account": "professionale"}],
     "bot": {"api_base": f"http://127.0.0.1:{srv.server_port}", "token_file": str(tg / ".env"), "access_file": str(tg / "access.json")},
-    "night": {"cron_time": "02:00", "min_free_mb": 500, "max_quota_pct": 80, "max_items_per_run": 3, "max_turns": 12},
+    "night": {"cron_time": "02:00", "min_free_mb": 500, "max_quota_pct": 80, "max_items_per_run": 3, "max_turns": 12, "max_queued": 3},
 }))
 
 
-def night(*args, free_mb="4000"):
+def night(*args, free_mb="4000", claude=FAKE):
     env = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg),
-           "CM_CRONTAB_CMD": str(fake_crontab), "CM_CLAUDE_BIN": str(FAKE), "FAKE_CLAUDE_ARGS_LOG": str(argslog),
+           "CM_CRONTAB_CMD": str(fake_crontab), "CM_CLAUDE_BIN": str(claude), "FAKE_CLAUDE_ARGS_LOG": str(argslog),
            "FAKE_CLAUDE_ECHO_ENV": "CLAUDE_CONFIG_DIR", "CM_NIGHT_FREE_MB": free_mb}
     return subprocess.run([sys.executable, str(T.SCRIPTS / "cm-night.py"), *args], capture_output=True, text=True, env=env, timeout=120)
 
@@ -118,11 +120,48 @@ T.check("NI4 --one runs a single item, one stays queued", r.returncode == 0 and 
 r = night("clear")
 T.check("NI4 clear empties the queue", queue.read_text().strip() == "", r.stdout)
 
+# NI6
+def ids():
+    return [json.loads(l)["id"] for l in queue.read_text().splitlines() if l.strip()]
+
+
+r = night("add", str(ws / "personali" / "alfa"), "   ")
+T.check("NI6 add: empty prompt refused (exit 2), queue untouched", r.returncode == 2 and ids() == [] and "vuoto" in r.stderr, r.stdout + r.stderr)
+for w in ("uno", "due", "tre"):
+    night("add", str(ws / "personali" / "alfa"), w)
+r = night("add", str(ws / "personali" / "alfa"), "quattro")
+T.check("NI6 add: past night.max_queued (3) → exit 4 «coda piena», three still queued", r.returncode == 4 and "piena" in r.stderr and len(ids()) == 3, r.stdout + r.stderr)
+first, second, third = ids()
+# claude finto che, mentre gira la PRIMA voce, fa quello che farebbe il telefono: prova a togliere la voce in corso,
+# toglie la seconda, ne aggiunge una nuova (il lock della coda li serializza con run)
+probe = tmp / "probe.log"
+busy = tmp / "busy-claude.sh"
+busy.write_text(f"""#!/bin/sh
+if [ ! -f "{probe}" ]; then
+  {sys.executable} "{T.SCRIPTS / 'cm-night.py'}" remove {first} > /dev/null 2>&1; echo "remove-running rc=$?" >> "{probe}"
+  grep -c '"started"' "{queue}" >> "{probe}"
+  {sys.executable} "{T.SCRIPTS / 'cm-night.py'}" remove {second} > /dev/null 2>&1; echo "remove-second rc=$?" >> "{probe}"
+  {sys.executable} "{T.SCRIPTS / 'cm-night.py'}" add "{ws / 'personali' / 'alfa'}" "aggiunta di notte" > /dev/null 2>&1; echo "add rc=$?" >> "{probe}"
+fi
+exec "{FAKE}" "$@"
+""")
+busy.chmod(0o755)
+argslog.unlink()
+r = night("run", claude=busy)
+pl = probe.read_text().splitlines() if probe.exists() else []
+ran = argslog.read_text().splitlines() if argslog.exists() else []
+T.check("NI6 during run the running job carries `started` and `remove` refuses it (exit 5)", len(pl) == 4 and pl[0].endswith("rc=5") and pl[1] == "1", str(pl))
+T.check("NI6 a job removed during the run does not start; the job added during the run stays queued; the others ran",
+        r.returncode == 0 and len(pl) == 4 and pl[2].endswith("rc=0") and pl[3].endswith("rc=0") and len(ran) == 2 and "-p uno " in ran[0] and "-p tre " in ran[1]
+        and not any("-p due " in a for a in ran) and [json.loads(l)["prompt"] for l in queue.read_text().splitlines()] == ["aggiunta di notte"], r.stdout + r.stderr + str(ran) + queue.read_text())
+T.check("NI6 done holds the two jobs that ran", [json.loads(l)["prompt"] for l in (state / "night-done.jsonl").read_text().splitlines()][-2:] == ["uno", "tre"], (state / "night-done.jsonl").read_text()[-300:])
+night("clear")
+
 # NI5
 r = night("install")
 T.check("NI5 install: cron at 02:00 with run --send", r.returncode == 0 and "0 2 * * *" in cron.read_text() and "night run --send" in cron.read_text(), r.stdout + cron.read_text())
 r = night("status")
-T.check("NI5 status: cron yes, queue 0, done 3", "yes" in r.stdout and "0" in r.stdout and "3" in r.stdout, r.stdout + r.stderr)
+T.check("NI5 status: cron yes, queue 0, done 5", "yes" in r.stdout and "0" in r.stdout and "5" in r.stdout, r.stdout + r.stderr)
 r = night("uninstall")
 T.check("NI5 uninstall", r.returncode == 0 and "night" not in cron.read_text(), r.stdout + cron.read_text())
 

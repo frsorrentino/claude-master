@@ -38,6 +38,12 @@ import pty
 import subprocess
 import sys
 import time
+
+# S21 legge l'account di questo processo dal suo ambiente (/proc/<pid>/environ): lanciato da una sessione di un altro
+# account, CLAUDE_CONFIG_DIR puntava a una cartella vera fuori dalla config del test e l'account non era dei due.
+# Il test riparte senza, cosi' il suo ambiente iniziale e' pulito
+if "CLAUDE_CONFIG_DIR" in os.environ:
+    os.execve(sys.executable, [sys.executable, *sys.argv], {k: v for k, v in os.environ.items() if k != "CLAUDE_CONFIG_DIR"})
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))

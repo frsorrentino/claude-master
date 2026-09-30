@@ -11,6 +11,7 @@ T7  wait: torna quando il registro dice idle e stampa l'ultima risposta; T7b con
 R1  report: progetto per nome esatto, prefisso, sottostringa; immagine copiata in <subdir>/<data>-<slug>.<ext> con chmod 644
 R2  report: consegna alla sessione via talk --no-wait; --no-launch archivia e basta se la sessione manca
 R3  report: sessione assente → la lancia (claude finto) e consegna
+R4  report: cartella come percorso assoluto; --session consegna a quella sessione, exit 6 se non c'e'
 """
 import json
 import os
@@ -205,6 +206,13 @@ print(repr(filt("❯ \\x1b[2msolo suggerimento fino a fine riga")))        # non
     T.check("R3 missing session launched and text delivered", r.returncode == 0 and tm("has-session", "-t", "=shopfront").returncode == 0 and "consegnata" in r.stdout, r.stdout + r.stderr)
     screen = tm("capture-pane", "-p", "-t", "shopfront").stdout
     T.check("R3 the fake session shows the delivered text", "lancia e consegna" in screen, screen[-400:])
+    # R4 (contratto 1.19 del relay, «Condividi» dal telefono): la cartella come percorso assoluto e la sessione per nome
+    shop = home / "ws" / "personali" / "shopfront"
+    r = subprocess.run([str(T.SCRIPTS / "cm-report.sh"), str(shop), "-", "nessuna sessione", "--session", "inesistente"], capture_output=True, text=True, env=env(), timeout=60)
+    T.check("R4 --session of a session that does not exist → exit 6, nothing launched", r.returncode == 6 and "inesistente" in r.stderr and tm("has-session", "-t", "=inesistente").returncode != 0, r.stdout + r.stderr)
+    r = subprocess.run([str(T.SCRIPTS / "cm-report.sh"), str(shop), "-", "per percorso e nome", "--session", "shopfront"], capture_output=True, text=True, env=env(), timeout=120)
+    time.sleep(1)
+    T.check("R4 absolute folder + --session → delivered to that session", r.returncode == 0 and "consegnata" in r.stdout and "per percorso e nome" in tm("capture-pane", "-p", "-t", "shopfront").stdout, r.stdout + r.stderr)
 
 peer.proc.kill()
 T.rm(str(tmp))

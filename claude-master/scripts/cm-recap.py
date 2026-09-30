@@ -526,6 +526,12 @@ def write_project_log(groups, said, day):
     return n, rel
 
 
+def to_app(text, day):
+    """Il diario anche all'app, come evento `recap` del relay (contratto 1.18): lo stesso testo, senza l'HTML di
+    Telegram; `ref` = il giorno, cosi' l'app tiene i diari dei giorni prima."""
+    _load("cm-core").relay_event("recap", M("recap.event_title", d=day.strftime("%d/%m")), text, ref=day.isoformat())
+
+
 def send(text, as_html):
     bot = _load("cm-bot")
     if not bot.token():
@@ -620,18 +626,23 @@ def main(argv):
                     "link": link_url(g["link"])}
         print(json.dumps([ser(g) for g in groups], ensure_ascii=False, indent=1))
         return 0
+    day = None if a.since else (dt.date.fromisoformat(a.date) if a.date else dt.date.today())
     if a.full:
         text = render_full(sessions, label)
         print(text)
+        if a.send and day:
+            to_app(text, day)
         return send(text, False) if a.send else 0
     between = between_sessions(getattr(a, "events", None))
-    print(render_short(groups, label, as_html=False, between=between))
-    if not a.since:
-        day = dt.date.fromisoformat(a.date) if a.date else dt.date.today()
+    plain = render_short(groups, label, as_html=False, between=between)
+    print(plain)
+    if day:
         n, rel = write_project_log(groups, summaries(groups, label), day)
         if n:
             print(M("recap.log_written", n=n, file=rel))
     if a.send:
+        if day:
+            to_app(plain, day)
         return send(render_short(groups, label, as_html=True, between=between), True)
     return 0
 

@@ -2,6 +2,7 @@
 """relay setup (R2, 24/09/2026): il progetto Firebase guidato e idempotente, provato su una CLI di Firebase finta
 e su Identity Toolkit e IAM finti — nessuna chiamata vera.
 
+S0  --help/-h stampa l'uso ed esce 0; un'opzione sconosciuta (o --project senza valore) esce 2; in entrambi i casi nulla
 S1  --dry-run su un account vuoto: legge (login:list, projects:list, instances:list, apps:list), non crea, non scrive
 S2  corsa vera con --yes: progetto, istanza, regole pubblicate (deploy con il file delle regole), accesso anonimo
     (PATCH), app Android senza SHA, google-services.json, chiave del service account 0600, config scritta (.bak)
@@ -129,6 +130,17 @@ def setup(*args, env=None, stdin=""):
 def calls():
     return [json.loads(l)[0] for l in fblog.read_text().splitlines()] if fblog.exists() else []
 
+
+# S0 (30/09): --help e le opzioni sconosciute non avviano la configurazione vera
+cfg0 = cfg.read_text()
+outs = [setup(h) for h in ("--help", "-h")] + [setup("--yes", "--help")]
+T.check("S0 --help, -h (also after --yes) → exit 0 with the usage, no call to the CLI or the APIs, nothing written",
+        all(o.returncode == 0 and "uso: claude-master relay setup" in o.stdout for o in outs) and calls() == [] and API["calls"] == [] and cfg.read_text() == cfg0 and not rdir.exists(),
+        str([(o.returncode, o.stdout[:80], o.stderr[:80]) for o in outs]) + str(calls()))
+outs = [setup("--hepl"), setup("--yes", "--force"), setup("--project"), setup("--project", "--yes")]
+T.check("S0 an unknown option or --project without a value → exit 2 naming it, the usage on stderr, nothing done",
+        all(o.returncode == 2 and "opzione sconosciuta" in o.stderr and "uso:" in o.stderr for o in outs) and "--hepl" in outs[0].stderr and "--force" in outs[1].stderr
+        and calls() == [] and API["calls"] == [] and cfg.read_text() == cfg0 and not rdir.exists(), str([(o.returncode, o.stderr[:120]) for o in outs]))
 
 # S1
 r = setup("--dry-run", "--yes")

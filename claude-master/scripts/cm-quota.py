@@ -113,8 +113,33 @@ def bassa_priorita():
     return out
 
 
+def unisci_remote(nome, q):
+    """Lettura unita (piano multi-PC 6): i limiti sono per account, non per macchina. Fra la lettura locale e quelle
+    degli altri host (negli snapshot del sondatore) vince la piu' fresca, e se ne dice la provenienza."""
+    if not CFG.get("hosts"):
+        return q
+    try:
+        spec = importlib.util.spec_from_file_location("cm_hosts", HERE / "cm-hosts.py")
+        hm = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hm)
+        remote = hm.remote_quota(nome)
+        q["consumatori"] = hm.remote_consumers().get(nome, {})
+    except Exception:  # noqa: BLE001 — la quota locale si stampa comunque
+        return q
+    q.setdefault("provenienza", "local")
+    for host, mtime, d in remote:
+        eta = time.time() - mtime
+        if q.get("stato") != "ok" or eta < q["eta_secondi"]:
+            reset = d.get("weekly_resets_at")
+            q.update({"stato": "ok", "cinque_ore_pct": d.get("five_hour_used_pct"), "settimana_pct": d.get("weekly_used_pct"),
+                      "reset_settimanale": reset, "reset_cinque_ore": d.get("five_hour_resets_at"), "eta_secondi": round(eta),
+                      "vecchia": eta > SOGLIA_VECCHIA, "finestra_scaduta": bool(reset) and reset < time.time(),
+                      "provenienza": host})
+    return q
+
+
 def main():
-    letture = [(name, leggi(cm.expand(a["config_dir"]))) for name, a in CFG["accounts"].items()]
+    letture = [(name, unisci_remote(name, leggi(cm.expand(a["config_dir"])))) for name, a in CFG["accounts"].items()]
     lente = {} if "--no-screen" in sys.argv else bassa_priorita()
     for n, q in letture:
         q["bassa_priorita"] = lente.get(n, 0)
@@ -131,7 +156,25 @@ def main():
             continue
         r = data_breve(q["reset_settimanale"]) if q["reset_settimanale"] else "-"
         eta = eta_umana(q["eta_secondi"]) + ("  " + m("quota.old_mark") if q["vecchia"] else "")
+        if q.get("provenienza") not in (None, "local"):
+            eta += "  " + m("quota.from_host", host=q["provenienza"])
         print(f"{nome:<14} {pct(q['cinque_ore_pct']):>7} {pct(q['settimana_pct']):>10}  {r:<17} {eta}")
+    if CFG.get("hosts"):
+        loc = {}
+        try:
+            spec = importlib.util.spec_from_file_location("cm_sessions", HERE / "cm-sessions.py")
+            ses = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(ses)
+            for r in ses.collect(read_screen=False):
+                if r.get("registry") and r["status"] in ("busy", "idle", "waiting"):
+                    loc[r["account"]] = loc.get(r["account"], 0) + 1
+        except Exception:  # noqa: BLE001
+            pass
+        for n, q in letture:
+            parts = ([f"{loc[n]} {m('quota.on')} local"] if loc.get(n) else []) + \
+                    [f"{k} {m('quota.on')} {h}" for h, k in (q.get("consumatori") or {}).items()]
+            if parts:
+                print(f"  {n}: " + " · ".join(parts))
     for n, q in letture:
         if q.get("bassa_priorita"):
             print()

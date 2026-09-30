@@ -11,7 +11,7 @@ Niente I/O qui: cm-relay.py raccoglie e scrive, questo modulo costruisce. Testat
   ledger: le righe del ledger (event, session_id, ts iso, last/tail/esito/watch)
   questions: {tmux: {kind, tool, text, options[etichette], asked_at}}
   quota: {account: {cinque_ore_pct, settimana_pct, reset_settimanale, vecchia}}
-  projects: [{path, name, account}] · night: {queued, running} · recap: {date, items[{project, done, next}]}
+  projects: [{path, name, account}] · night: {queued, running, items} · recap: {date, items[{project, done, next}]}
   follow: nomi seguiti · awaiting: nomi in attesa di risposta a un prompt dal watch
 
 Tempi di una sessione in `/state` (chiesto dall'app il 13/09/2026, qui perche' non si reinterpreti):
@@ -55,6 +55,53 @@ def epoch(ts):
         return int(_dt.datetime.fromisoformat(str(ts)[:19]).timestamp())
     except ValueError:
         return 0
+
+
+SHARE_MAX_BYTES = 1500000   # 1.19: la busta cifrata di /share/<id> (lunghezza di `enc`), un'immagine per comando
+EVENT_BODY_MAX = 4000   # 1.18: il testo di recap, night_report e quota (ripresa) negli eventi
+
+
+def cut_lines(text, cap):
+    """Il testo intero se ci sta; altrimenti le righe intere che stanno entro cap caratteri, senza «…». Una prima
+    riga piu' lunga di cap si taglia a fine parola."""
+    t = str(text or "").strip("\n")
+    if len(t) <= cap:
+        return t
+    out = ""
+    for line in t.split("\n"):
+        nxt = line if not out else out + "\n" + line
+        if len(nxt) > cap:
+            break
+        out = nxt
+    return out or cut_words(t.split("\n", 1)[0], cap)
+
+
+NIGHT_PROMPT_MAX = 160   # 1.17: il prompt di un lavoro della notte nello stato (intero nel file della coda)
+
+
+def cut_words(text, cap):
+    """Il testo su una riga, tagliato a fine parola entro cap caratteri, senza «…»; una parola sola piu' lunga si
+    taglia a cap."""
+    t = " ".join(str(text or "").split())
+    if len(t) <= cap:
+        return t
+    head = t[:cap + 1]
+    sp = head.rfind(" ")
+    return (head[:sp] if sp > 0 else t[:cap]).rstrip()
+
+
+def night_items(rows):
+    """1.17: la coda di stanotte nell'ordine di esecuzione: {id, dir, name, prompt, added, started}. `added` e
+    `started` in epoch (started null finche' il lavoro non parte). Il campo c'e' sempre, anche vuoto: all'app dice
+    che il relay sa modificare la coda."""
+    out = []
+    for r in rows or []:
+        d = str(r.get("dir") or "")
+        out.append({"id": str(r.get("id") or ""), "dir": d, "name": d.rstrip("/").rsplit("/", 1)[-1],
+                    "prompt": cut_words(r.get("prompt"), NIGHT_PROMPT_MAX),
+                    "added": r["added"] if isinstance(r.get("added"), int) else (epoch(r.get("added")) or None),
+                    "started": r["started"] if isinstance(r.get("started"), int) and r["started"] else None})
+    return out
 
 
 def strip_markdown(text):
@@ -291,10 +338,13 @@ def build_state(src, now, fit=True):
         "sessions": sessions,
         "quota": build_quota(src.get("quota"), src.get("account_kinds")),
         "projects": projects,
-        "night": {"queued": int(night.get("queued") or 0), "running": night.get("running") or None},
+        "night": {"queued": int(night.get("queued") or 0), "running": night.get("running") or None,
+                  "items": night_items(night.get("items"))},
         "recap": {"date": recap.get("date") or "", "items": [{"project": i.get("project", ""), "done": i.get("done", ""), "next": i.get("next", "")} for i in (recap.get("items") or [])]},
         # 1.12: modelli ed effort che il polso puo' chiedere per una sessione; null se il relay non li conosce
-        "choices": src.get("choices") or None
+        "choices": src.get("choices") or None,
+        # 1.19: il relay sa ricevere «Condividi» (op report con /share); presente = l'app accende il pulsante
+        "share": {"max_bytes": SHARE_MAX_BYTES}
     }
     # fit=False: lo stato intero, su cui il relay calcola gli eventi (23/09: gli eventi sullo stato tagliato davano
     # «Session closed» al polso per sessioni vive che fit_state aveva tolto per la dimensione)
@@ -410,7 +460,8 @@ def events_between(prev, cur, now, seq=1, warn_pct=95):
         for k, label in (("h5", "5 h"), ("w7", "settimana")):
             v, pvv = q.get(k), pq.get(k)
             if v is not None and v >= warn_pct and (pvv is None or pvv < warn_pct):
-                add("quota", None, f"⚠ {v} % {acc}", f"reset {_hm(q.get('reset_w7'))}")
+                # l'ora del reset della finestra che ha passato la soglia (prima: sempre quello settimanale)
+                add("quota", None, f"⚠ {v} % {acc}", f"reset {_hm(q.get('reset_h5' if k == 'h5' else 'reset_w7'))}")
                 out[-1]["account"] = acc
     return out, seq
 

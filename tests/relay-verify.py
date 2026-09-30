@@ -43,10 +43,20 @@ import cm_test as T  # noqa: E402
 WATCH = Path.home() / "Desktop" / "workspaces" / "personali" / "claude-master-watch"   # percorso vero della macchina, non un nome del set demo
 FIX = T.ROOT / "tests" / "fixtures" / "relay"
 
-# R0: fixture identiche al contratto
+# R0: fixture identiche al contratto, quello del branch master dell'app (30/09): il worktree puo' stare su un branch di
+# lavoro rimasto indietro, e i test del PC davano rosso per un contratto gia' pubblicato
+
+
+def app_contract(name):
+    if not (WATCH / ".git").exists():
+        return None
+    r = subprocess.run(["git", "-C", str(WATCH), "show", f"master:contract/{name}"], capture_output=True)
+    return r.stdout if r.returncode == 0 else None
+
+
 for f in ("state-1-question", "state-2-idle", "state-3-stale", "events-sample", "cmd-result-sample", "pair-qr", "pair-response"):
-    a = FIX / f"{f}.json"; b = WATCH / "contract" / f"{f}.json"
-    T.check(f"R0 fixture {f} identical to the app contract (skipped if the app repo is absent)", a.is_file() and ((not b.is_file()) or a.read_bytes() == b.read_bytes()), str(b))
+    a = FIX / f"{f}.json"; b = app_contract(f"{f}.json")
+    T.check(f"R0 fixture {f} identical to the app contract on its master (skipped if the app repo is absent)", a.is_file() and (b is None or a.read_bytes() == b), f"{WATCH}@master:contract/{f}.json")
 
 # R0b: il RTDB finto
 URL, CALLS, STORE = T.fake_rtdb()
@@ -169,7 +179,10 @@ SRC1 = {
     "quota": {"personal": {"cinque_ore_pct": 11, "settimana_pct": 36, "reset_settimanale": 1789610400, "reset_cinque_ore": 1789228800, "vecchia": False},
               "work": {"cinque_ore_pct": None, "settimana_pct": 75.2, "reset_settimanale": 1789444800, "reset_cinque_ore": 1789225200, "vecchia": True}},
     "projects": [{"path": ROOT_WS + "/work/own/orbit-docs", "name": "orbit-docs", "account": "work", "last_used": 1789203600}, {"path": ROOT_WS + "/personal/atlas-shop", "name": "atlas-shop", "account": "personal", "last_used": 1789210700}, {"path": ROOT_WS + "/work/clients/ledger-api", "name": "ledger-api", "account": "work", "last_used": 1789210500}],
-    "night": {"queued": 2, "running": None},
+    # 1.17: le righe della coda come le scrive `night add` (added ISO locale, prompt intero)
+    "night": {"queued": 2, "running": None, "items": [
+        {"id": "a3f09c1e", "dir": ROOT_WS + "/personal/atlas-shop", "prompt": "Go through the open issues labelled flaky, reproduce each one locally with the seed from its report, fix the ones that are real and write a short note in docs/notte for the others, then run the full suite twice", "account": "personal", "model": "", "effort": "", "max_turns": 40, "added": iso(1789207200)},
+        {"id": "7b21d4e8", "dir": ROOT_WS + "/work/clients/ledger-api", "prompt": "Update the changelog for 2.4 and check the migration notes", "account": "work", "model": "", "effort": "", "max_turns": 40, "added": iso(1789210620)}]},
     "recap": {"date": "2026-09-12", "items": [{"project": "atlas-shop", "done": "Migrations 008-011 applied, tests green", "next": "Review the seeds and the admin page"}, {"project": "ledger-api", "done": "Deploy ready", "next": "Wait for the go"}]},
     "follow": {"work-ledger-api"}, "awaiting": set(),
     "next": {"work-ledger-api": "Wait for the go", "atlas-shop": "Review the seeds and the admin page", "work-orbit-docs": "Pick up the pricing page"},
@@ -209,6 +222,17 @@ def diff(a, b, path=""):
 
 T.check("R2 build_state(src) == state-1-question.json (four sessions, two accounts, quota, projects, night, recap)", st1 == F1, diff(st1, F1) or "equal")
 # R12 (contratto 1.16, 25/09): low_priority («off» | «offered» | «active» | null) e goal ({text, since, met} | null) per sessione
+# R13 (contratto 1.17, 29/09): la coda di stanotte nello stato, sempre presente; prompt a fine parola entro 160, senza «…»
+T.check("R13 (1.17) state-1: night.items in queue order with id, dir, name (as projects[].name), prompt, added (epoch), started null",
+        [(i["id"], i["name"], i["added"], i["started"]) for i in st1["night"]["items"]] == [("a3f09c1e", "atlas-shop", 1789207200, None), ("7b21d4e8", "ledger-api", 1789210620, None)]
+        and set(st1["night"]["items"][0]) == {"id", "dir", "name", "prompt", "added", "started"}, str(st1["night"]))
+_p0 = st1["night"]["items"][0]["prompt"]
+T.check("R13 (1.17) a long prompt is cut at a word end within 160 characters, no «…»; a short one stays whole",
+        len(_p0) <= 160 and SRC1["night"]["items"][0]["prompt"].startswith(_p0 + " ") and "…" not in _p0 and st1["night"]["items"][1]["prompt"] == SRC1["night"]["items"][1]["prompt"], _p0)
+T.check("R13 (1.17) cut_words: newlines folded, exactly 160 kept, one word longer than 160 cut at 160",
+        S.cut_words("a\n b", 160) == "a b" and S.cut_words("x" * 160, 160) == "x" * 160 and S.cut_words("y" * 200, 160) == "y" * 160 and S.cut_words(("w" * 9 + " ") * 16 + "z", 160) == " ".join(["w" * 9] * 16), S.cut_words(("w" * 9 + " ") * 16 + "z", 160))
+T.check("R13 (1.17) an empty queue still carries night.items = [] (its presence tells the app the relay can edit the queue)",
+        S.build_state({"night": {"queued": 0}}, 1)["night"] == {"queued": 0, "running": None, "items": []}, str(S.build_state({"night": {"queued": 0}}, 1)["night"]))
 T.check("R12 (1.16) state-1: low_priority offered/active/off/null and goal {text, since, met} on the busy session, null elsewhere",
         [x["low_priority"] for x in st1["sessions"]] == ["offered", "active", "off", None] and st1["sessions"][1]["goal"] == {"text": "All checkout tests green and the release tagged", "since": 1789210700, "met": False} and all(x["goal"] is None for i, x in enumerate(st1["sessions"]) if i != 1), str([(x["low_priority"], x["goal"]) for x in st1["sessions"]]))
 _lp = SES.low_priority_on_screen
@@ -345,6 +369,11 @@ case "$1" in
   talk) echo "consegnato" ;;
   model) echo "$2: model Sonnet 5, this session only" ;;
   effort) if [ "$2" = "atlas-shop" ]; then echo "atlas-shop is working: try again when it is idle"; exit 3; else echo "$2: effort $3, this session only"; fi ;;
+  report) if [ "$3" != "-" ]; then cp "$3" "{tmp / 'report-img'}"; echo "segnalazione consegnata a «$6»"; echo "  immagine: $2/docs/segnalazioni/2026-09-12-the-client-says-the-checkout-button-is-g.jpg"; else echo "segnalazione consegnata a «$6»"; fi ;;
+  night) case "$2" in
+      add) if [ "$4" = "FULL" ]; then echo "coda piena: 8 lavori, night.max_queued è 8" >&2; exit 4; fi; echo "in coda: 7b21d4e8 · $3 · account «work» (2 in coda)" ;;
+      remove) case "$3" in 5d0e6b92) echo "tolta: $3" ;; a3f09c1e) echo "$3 è già partito: non si può togliere" >&2; exit 5 ;; *) echo "nessuna voce con id $3" >&2; exit 1 ;; esac ;;
+    esac ;;
   launch) echo "sessione avviata"; echo "  link: https://claude.ai/code/session_01NEW"; if [ -f "{launch_adds}" ]; then cp "{launch_adds}" "{alive}"; fi ;;
 esac
 """)
@@ -423,7 +452,7 @@ ledger.write_text(ledger_bak)
 n_req = len(CALLS["requests"])
 r = relay("push", "--dry-run")
 dry = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip().startswith("{") else {}
-T.check("R4 push --dry-run: clear JSON on stdout, no HTTP; sessions ordered ❓ ▶ ✓ ✗ with short names, the question whole with kind ask and options 1-2, the busy session's outcome from the ledger (short = Watch line), gone from the snapshot, quota, projects with accounts from folder_map, recap, night", r.returncode == 0 and len(CALLS["requests"]) == n_req and [(x["name"], x["state"]) for x in dry.get("sessions", [])] == [("ledger-api", "waiting"), ("atlas-shop", "busy"), ("field-notes", "idle"), ("orbit-docs", "gone")] and dry["sessions"][0]["question"]["text"] == "Deploy ready, waiting for the client ok. Deploy now?" and dry["sessions"][0]["question"]["kind"] == "ask" and [o["label"] for o in dry["sessions"][0]["question"]["options"]] == ["yes", "no"] and dry["sessions"][0]["question"]["asked_at"] == 1789210500 and dry["sessions"][0]["followed"] is True and dry["sessions"][0]["project"] == "work/clients/ledger-api" and dry["sessions"][1]["outcome"]["short"] == "Migrazioni applicate, test verdi" and dry["sessions"][1]["turn_started"] == 1789210700 and dry["sessions"][1]["next"] == "Review the seeds and the admin page" and dry["sessions"][3]["since"] == S.epoch("2026-09-12T09:00:00") and dry["quota"]["work"] == {"h5": None, "w7": 75, "reset_w7": 1789444800, "reset_h5": 1789225200, "stale": True, "kind": "work"} and {(p["name"], p["account"]) for p in dry["projects"]} == {("atlas-shop", "personal"), ("field-notes", "personal"), ("ledger-api", "work"), ("orbit-docs", "work")} and dry["host"] == "crostini-test" and dry["night"] == {"queued": 0, "running": None} and dry["v"] == 1, r.stdout[:600] + r.stderr)
+T.check("R4 push --dry-run: clear JSON on stdout, no HTTP; sessions ordered ❓ ▶ ✓ ✗ with short names, the question whole with kind ask and options 1-2, the busy session's outcome from the ledger (short = Watch line), gone from the snapshot, quota, projects with accounts from folder_map, recap, night", r.returncode == 0 and len(CALLS["requests"]) == n_req and [(x["name"], x["state"]) for x in dry.get("sessions", [])] == [("ledger-api", "waiting"), ("atlas-shop", "busy"), ("field-notes", "idle"), ("orbit-docs", "gone")] and dry["sessions"][0]["question"]["text"] == "Deploy ready, waiting for the client ok. Deploy now?" and dry["sessions"][0]["question"]["kind"] == "ask" and [o["label"] for o in dry["sessions"][0]["question"]["options"]] == ["yes", "no"] and dry["sessions"][0]["question"]["asked_at"] == 1789210500 and dry["sessions"][0]["followed"] is True and dry["sessions"][0]["project"] == "work/clients/ledger-api" and dry["sessions"][1]["outcome"]["short"] == "Migrazioni applicate, test verdi" and dry["sessions"][1]["turn_started"] == 1789210700 and dry["sessions"][1]["next"] == "Review the seeds and the admin page" and dry["sessions"][3]["since"] == S.epoch("2026-09-12T09:00:00") and dry["quota"]["work"] == {"h5": None, "w7": 75, "reset_w7": 1789444800, "reset_h5": 1789225200, "stale": True, "kind": "work"} and {(p["name"], p["account"]) for p in dry["projects"]} == {("atlas-shop", "personal"), ("field-notes", "personal"), ("ledger-api", "work"), ("orbit-docs", "work")} and dry["host"] == "crostini-test" and dry["night"] == {"queued": 0, "running": None, "items": []} and dry["v"] == 1, r.stdout[:600] + r.stderr)
 T.check("R4 (1.1) every live session carries icon (from cm-color's registry, stable) and color «#RRGGBB»; the gone one has none on the first push", all(x["icon"] and re.match(r"^#[0-9A-F]{6}$", x["color"] or "") for x in dry["sessions"] if x["state"] != "gone") and dry["sessions"][3]["icon"] is None, str([(x["name"], x["icon"], x["color"]) for x in dry["sessions"]]))
 r = relay("push")
 T.check("R4 push: exit 0, /state on the bus is {v:1, enc} and decrypts to the same document as the dry-run (but ts)", r.returncode == 0 and set(STORE.get("state", {})) == {"v", "enc"} and STORE["state"]["v"] == 1 and {kk: v for kk, v in C.decrypt(STORE["state"], k).items() if kk != "ts"} == {kk: v for kk, v in dry.items() if kk != "ts"}, r.stdout + r.stderr + str(STORE.get("state"))[:100])
@@ -666,7 +695,7 @@ def send_cmd(cmd, wait=20):   # sotto carico il daemon impiega di piu' (build in
 
 n_state_puts = len([x for x in CALLS["requests"] if x == ("PUT", "/state.json")])
 res = send_cmd(CMDS[0])   # answer ledger-api 1
-T.check("R6 answer → `answer work-ledger-api 1` (name mapped to tmux), /result {ok, text «answered 1. yes», at}, /cmd/<id> deleted", res and res["ok"] is True and res["text"] == "answered 1. yes" and isinstance(res["at"], int) and "answer work-ledger-api 1" in cm_calls() and CMDS[0]["id"] not in (STORE.get("cmd") or {}), str(res) + str(cm_calls()[-4:]))
+T.check("R6 answer → `answer work-ledger-api 1` (name mapped to tmux), /result {ok, text «answered 1. yes», at}, /cmd/<id> deleted", res and res["ok"] is True and res["text"] == "answered 1. yes" and isinstance(res["at"], int) and "answer work-ledger-api 1" in cm_calls() and T.wait_until(lambda: CMDS[0]["id"] not in (STORE.get("cmd") or {}), 5), str(res) + str(cm_calls()[-4:]))   # il daemon scrive /result e POI cancella /cmd: si aspetta
 T.check("R6 a successful answer removes the hook's waiting flag (else «waiting» until the next prompt: answered and outcome 3 min late, 14/09)", not (state_dir / "waiting" / "S-L").exists(), str(list((state_dir / "waiting").iterdir())))
 led_rows = lambda: [json.loads(l) for l in ledger.read_text().splitlines() if l.strip()]  # noqa: E731
 T.check("R6 the command is annotated in the ledger: event watch-cmd with op, name, by (who answered) and ok", any(x.get("event") == "watch-cmd" and x.get("op") == "answer" and x.get("name") == "ledger-api" and x.get("by") == "watch-pixel5" and x.get("ok") is True for x in led_rows()), str([x for x in led_rows() if x.get("event") == "watch-cmd"][-2:]))
@@ -768,6 +797,112 @@ T.check("R11 (1.13) launch with text → `launch PATH --window`, then `talk` wit
 T.check("R11 (1.13) /result ok with the fixture's text and `session` = field-notes-2, the name the watch will see in sessions[].name",
         res and res["ok"] is True and res["text"] == RES[11]["text"] and res.get("session") == RES[11]["session"] == "field-notes-2", str(res))
 launch_adds.unlink()
+# R13 (contratto 1.17, 29/09): la coda di stanotte dall'app, via `claude-master night add|remove`
+led = ws / "work" / "clients" / "ledger-api"
+n_calls = len(cm_calls())
+res = send_cmd(dict(CMDS[12], arg=str(led)))
+T.check("R13 (1.17) night_add → `night add PATH PROMPT`, /result ok with the fixture's text and `job` = the new id",
+        res and res["ok"] is True and res["text"] == RES[12]["text"] and res.get("job") == RES[12]["job"] == "7b21d4e8"
+        and f"night add {led} Update the changelog for 2.4 and check the migration notes" in cm_calls()[n_calls:], str(res) + str(cm_calls()[n_calls:]))
+res = send_cmd(dict(CMDS[12], id="6f1c2d3e-0123-4000-8000-000000000201"))
+res2 = send_cmd(dict(CMDS[12], id="6f1c2d3e-0123-4000-8000-000000000202", arg=str(led), text="   "))
+res3 = send_cmd(dict(CMDS[12], id="6f1c2d3e-0123-4000-8000-000000000203", arg=str(led), text="FULL"))
+T.check("R13 (1.17) night_add refusals in plain words: a folder outside the published projects, an empty prompt (no `night` run for either), a full queue",
+        res and res["ok"] is False and "not a published project" in res["text"] and res2 and res2["ok"] is False and res2["text"] == "empty prompt: nothing to queue"
+        and res3 and res3["ok"] is False and res3["text"] == "tonight's queue is full (8 jobs): remove one first"
+        and len([c for c in cm_calls()[n_calls:] if c.startswith("night add")]) == 2, str(res) + str(res2) + str(res3))
+res = send_cmd(CMDS[13])
+T.check("R13 (1.17) night_remove → `night remove ID`, /result ok with the fixture's text",
+        res and res["ok"] is True and res["text"] == RES[13]["text"] and "night remove 5d0e6b92" in cm_calls(), str(res))
+res = send_cmd(dict(CMDS[13], id="6f1c2d3e-0124-4000-8000-000000000201", arg="deadbeef"))
+res2 = send_cmd(dict(CMDS[13], id="6f1c2d3e-0124-4000-8000-000000000202", arg="a3f09c1e"))
+T.check("R13 (1.17) night_remove refusals in plain words: unknown id, job already started",
+        res and res["ok"] is False and res["text"] == "no job deadbeef in tonight's queue" and res2 and res2["ok"] is False and res2["text"] == "job a3f09c1e has already started: it cannot be removed", str(res) + str(res2))
+nq = state_dir / "night-queue.jsonl"
+nq.write_text(json.dumps({"id": "a3f09c1e", "dir": str(ws / "personal" / "atlas-shop"), "prompt": "fix the flaky tests", "account": "personal", "added": iso(1789207200), "started": 1789215000}) + "\n"
+              + json.dumps({"id": "7b21d4e8", "dir": str(led), "prompt": "Update the changelog", "account": "work", "added": iso(1789210620)}) + "\n")
+r = relay("push", "--dry-run"); dryn = json.loads(r.stdout)["night"]
+nq.unlink()
+T.check("R13 (1.17) push reads the queue file: queued 2, running = the started job's folder name, items in file order with started as epoch",
+        dryn["queued"] == 2 and dryn["running"] == "atlas-shop" and [(i["id"], i["name"], i["started"]) for i in dryn["items"]] == [("a3f09c1e", "atlas-shop", 1789215000), ("7b21d4e8", "ledger-api", None)] and dryn["items"][0]["added"] == 1789207200, str(dryn))
+# R14 (contratto 1.18, 29/09): diario, resoconto della notte e ripresa della quota anche all'app, come eventi con la sveglia
+def new_events(kind, before):
+    return [C.decrypt(v, k) for kk, v in sorted((STORE.get("events") or {}).items()) if kk not in before and C.decrypt(v, k)["kind"] == kind]
+
+
+today = time.strftime("%Y-%m-%d")
+before, n_fcm = set(STORE.get("events") or {}), len(CALLS["fcm"])
+seq0 = int(json.loads((rdir2 / "last-state.json").read_text()).get("seq") or 0)
+r = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-recap.py"), "--send"], capture_output=True, text=True, env=ENV, timeout=120)
+ev = new_events("recap", before)
+T.check("R14 (1.18) recap --send → one `recap` event: title «Diario del dd/mm», body = the plain diary as printed (no Telegram HTML), ref = the day, key after the push seq; FCM with kind recap",
+        r.returncode == 0 and len(ev) == 1 and ev[0]["title"] == "Diario del " + time.strftime("%d/%m") and ev[0]["ref"] == today and "<b>" not in ev[0]["body"]
+        and ev[0]["body"].splitlines()[0] == r.stdout.splitlines()[0] and ev[0]["key"].endswith(f"_{seq0 + 1:03d}") and ev[0]["session"] is None
+        and set(ev[0]) == set(EV[0]) and CALLS["fcm"][n_fcm:] and CALLS["fcm"][-1]["message"]["data"]["kind"] == "recap", r.stdout[-300:] + r.stderr[-300:] + str(ev))
+nq = state_dir / "night-queue.jsonl"
+nq.write_text(json.dumps({"id": "c0ffee01", "dir": str(ws / "personal" / "atlas-shop"), "prompt": "fix the flaky tests", "account": "personal", "model": "", "effort": "", "max_turns": 5, "added": iso(1789207200)}) + "\n")
+before = set(STORE.get("events") or {})
+r = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-night.py"), "run", "--send"], capture_output=True, text=True, timeout=120,
+                   env=dict(ENV, CM_CLAUDE_BIN=str(T.ROOT / "tests" / "lib" / "fake-claude.sh"), CM_NIGHT_FREE_MB="4000"))
+ev = new_events("night_report", before)
+T.check("R14 (1.18) night run --send → one `night_report` event: title «Notte: 1 lavori, 1 riusciti», body = the Telegram summary, ref = today",
+        r.returncode == 0 and len(ev) == 1 and ev[0]["title"] == "Notte: 1 lavori, 1 riusciti" and ev[0]["ref"] == today
+        and ev[0]["body"].startswith("Turno di notte: 1 lavori eseguiti") and "✓ atlas-shop" in ev[0]["body"], r.stdout[-300:] + r.stderr[-300:] + str(ev))
+nq.unlink(missing_ok=True)
+CORE = f"import importlib.util as u; s = u.spec_from_file_location('c', {str(T.SCRIPTS / 'cm-core.py')!r}); m = u.module_from_spec(s); s.loader.exec_module(m); "
+before = set(STORE.get("events") or {})
+r = subprocess.run([sys.executable, "-c", CORE + "print(m.relay_event('quota', '✓ quota personal tornata', 'reset 13:10\\n' + 'riga\\n' * 3000, account='personal'))"],
+                   capture_output=True, text=True, env=ENV, timeout=60)
+ev = new_events("quota", before)
+T.check("R14 (1.18) relay_event quota (the guard's resume): account set, body cut at a line end within 4000 characters, no «…»",
+        r.stdout.strip() == "True" and len(ev) == 1 and ev[0]["account"] == "personal" and len(ev[0]["body"]) <= 4000 and ev[0]["body"].endswith("riga") and "…" not in ev[0]["body"], r.stdout + r.stderr + str(ev)[:300])
+T.check("R14 (1.18) cut_lines: whole when it fits; else whole lines only; one line longer than the cap cut at a word end",
+        S.cut_lines("a\nb", 10) == "a\nb" and S.cut_lines("aaaa\nbbbb\ncccc", 10) == "aaaa\nbbbb" and S.cut_lines("one two three", 8) == "one two", S.cut_lines("aaaa\nbbbb\ncccc", 10))
+write_cfg(enabled=False)
+before = set(STORE.get("events") or {})
+r = subprocess.run([sys.executable, "-c", CORE + "print(m.relay_event('quota', 't', 'b'))"], capture_output=True, text=True, env=ENV, timeout=60)
+write_cfg()
+T.check("R14 (1.18) relay off → relay_event does nothing and says so (Telegram goes on as before)", r.stdout.strip() == "False" and set(STORE.get("events") or {}) == before, r.stdout + r.stderr)
+# R15 (contratto 1.19, 29/09): «Condividi» dal telefono — op report, immagine cifrata in /share/<id>, `share` nello stato
+IMG = bytes(range(256)) * 40
+atlas = ws / "personal" / "atlas-shop"
+sid = CMDS[14]["arg"]
+http("PUT", f"/share/{sid}.json", C.encrypt({"mime": "image/jpeg", "data": base64.b64encode(IMG).decode()}, k))
+n_calls = len(cm_calls())
+res = send_cmd(CMDS[14])
+calls = [c for c in cm_calls()[n_calls:] if c.startswith("report ")]
+T.check("R15 (1.19) report with an image → `report <session folder> <temp .jpg> <text> --session <tmux>`, the bytes intact, /result = the fixture's text",
+        res and res["ok"] is True and res["text"] == RES[14]["text"] and len(calls) == 1 and calls[0].startswith(f"report {atlas} ") and ".jpg the client says" in calls[0]
+        and calls[0].endswith("--session atlas-shop") and (tmp / "report-img").read_bytes() == IMG, str(res) + str(calls))
+T.check("R15 (1.19) after the command /share/<id> is deleted and the temporary file is gone",
+        sid not in (STORE.get("share") or {}) and not any((rdir2 / "share-tmp").glob("*")), str(list((STORE.get("share") or {}))) + str(list((rdir2 / "share-tmp").glob("*"))))
+res = send_cmd(CMDS[15])
+T.check("R15 (1.19) text only → `report <folder> - <text> --session field-notes`, «sent to field-notes»",
+        res and res["ok"] is True and res["text"] == RES[15]["text"] and f"report {ws / 'personal' / 'field-notes'} - add the Tuesday meeting notes to the draft --session field-notes" in cm_calls(), str(res) + str(cm_calls()[-2:]))
+n_calls = len(cm_calls())
+res = send_cmd(CMDS[16])
+bad = "6f1c2d3e-0125-4000-8000-00000000b001"
+http("PUT", f"/share/{bad}.json", C.encrypt({"mime": "text/plain", "data": "aGk="}, k))
+res2 = send_cmd(dict(CMDS[14], id="6f1c2d3e-0125-4000-8000-000000000201", arg=bad))
+res3 = send_cmd(dict(CMDS[14], id="6f1c2d3e-0125-4000-8000-000000000202", arg="0000-missing"))
+big = "6f1c2d3e-0125-4000-8000-00000000b002"
+http("PUT", f"/share/{big}.json", {"v": 1, "enc": "A" * 1500001})
+res4 = send_cmd(dict(CMDS[14], id="6f1c2d3e-0125-4000-8000-000000000203", arg=big))
+res5 = send_cmd(dict(CMDS[15], id="6f1c2d3e-0126-4000-8000-000000000201", text="  "))
+T.check("R15 (1.19) refusals in plain words, no report run: a gone session (as in the fixture), a wrong mime, a missing node, a blob over 1.5 MB, nothing to send; the bad nodes deleted",
+        res and res["ok"] is False and res["text"] == RES[16]["text"] and res2 and res2["text"] == "image missing or unreadable" and res3 and res3["text"] == "image missing or unreadable"
+        and res4 and res4["text"] == "image too large" and res5 and res5["text"] == "empty report: nothing to send"
+        and not any(c.startswith("report ") for c in cm_calls()[n_calls:]) and bad not in (STORE.get("share") or {}) and big not in (STORE.get("share") or {}), str([res, res2, res3, res4, res5]))
+old, fresh = "6f1c2d3e-0125-4000-8000-00000000b003", "6f1c2d3e-0125-4000-8000-00000000b004"
+http("PUT", f"/share/{old}.json", {"v": 1, "enc": "x"}); http("PUT", f"/share/{fresh}.json", {"v": 1, "enc": "x"})
+(rdir2 / "share-seen.json").write_text(json.dumps({old: time.time() - 700}))
+relay("push")
+T.check("R15 (1.19) push prunes a /share node first seen more than 10 minutes ago, keeps a fresh one (remembered in share-seen.json)",
+        old not in (STORE.get("share") or {}) and fresh in (STORE.get("share") or {}) and fresh in json.loads((rdir2 / "share-seen.json").read_text()), str(list(STORE.get("share") or {})))
+T.check("R15 (1.19) /state carries share {max_bytes: 1500000}, also when there is nothing else (its presence turns «Share» on in the app)",
+        json.loads(relay("push", "--dry-run").stdout).get("share") == {"max_bytes": 1500000} and S.build_state({}, 1)["share"] == {"max_bytes": 1500000} and F1["share"] == {"max_bytes": 1500000}, "")
+T.check("R14 (1.18) events-sample: a recap, a night_report and the quota resume, with the shape of the other events",
+        [e["kind"] for e in EV[-3:]] == ["recap", "night_report", "quota"] and all(set(e) == set(EV[0]) for e in EV) and EV[-3]["ref"] == "2026-09-12", str(EV[-3:])[:300])
 rows_alive("ledger-api", "atlas-shop", "field-notes")
 r = relay("push", "--dry-run"); dry11 = json.loads(r.stdout)
 p_atlas = next(p_ for p_ in dry11["projects"] if p_["name"] == "atlas-shop")
@@ -928,6 +1063,35 @@ T.check("R8 past relay.telegram_fallback_after_s the notice goes to Telegram, wi
 failr.unlink(); os.environ.pop("FAKE_RTDB_FAIL", None)
 r = relay("push")
 T.check("R8 the bus works again → fallback.json is gone (the fallback switches off)", r.returncode == 0 and not (rdir2 / "fallback.json").exists(), r.stdout + r.stderr)
+
+# R16 (contratto 1.20, 29/09): il bus funziona ma nessun dispositivo legge → dopo la soglia Telegram. Letto = /seen/<uid>
+# scritto dopo l'evento (ora del server, in ms); solo gli uid accoppiati; senza nessun /seen resta il ripiego R8
+def unseen_run(seen):
+    STORE["seen"] = seen
+    (rdir2 / "last-state.json").unlink(missing_ok=True)   # ogni sessione torna «launched»: eventi nuovi
+    TG_CALLS["sendMessage"].clear()
+    r1 = relay("push")
+    time.sleep(1.2)
+    r2 = relay("push")
+    return r1, r2, [c.get("text", "") for c in TG_CALLS["sendMessage"]]
+
+
+devs16 = list(json.loads((rdir2 / "devices.json").read_text()))
+STORE.pop("seen", None)
+r1, r2, tg = unseen_run({})
+T.check("R16 (1.20) no device writes /seen (an app that does not know it) → no Telegram, no pending.json: only the R8 fallback applies",
+        r1.returncode == 0 and r2.returncode == 0 and tg == [] and not (rdir2 / "pending.json").exists(), str(tg) + r1.stderr[-200:])
+r1, r2, tg = unseen_run({devs16[0]: int(time.time() * 1000) + 5000})
+T.check("R16 (1.20) a paired device read after the events (server time in ms) → seen, no Telegram, pending.json empty",
+        tg == [] and json.loads((rdir2 / "pending.json").read_text()) == [], str(tg))
+r1, r2, tg = unseen_run({devs16[0]: int((time.time() - 3600) * 1000), "u-revoked": int(time.time() * 1000)})
+T.check("R16 (1.20) no paired device read since the events (an unpaired uid does not count) → past the threshold one Telegram notice with the events, pending emptied",
+        len(tg) == 1 and tg[0].startswith("Nessun dispositivo legge gli avvisi da 60 minuti") and "ledger-api" in tg[0] and json.loads((rdir2 / "pending.json").read_text()) == [], str(tg)[:400])
+TG_CALLS["sendMessage"].clear()
+relay("push")
+T.check("R16 (1.20) the same events are not sent twice", TG_CALLS["sendMessage"] == [], str(TG_CALLS["sendMessage"])[:200])
+STORE.pop("seen", None)
+(rdir2 / "pending.json").unlink(missing_ok=True)
 
 
 # R9 (contratto 1.11, 16/09): ogni sessione porta modello, effort e contesto, letti dalla sua trascrizione;

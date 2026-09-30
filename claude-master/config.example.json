@@ -107,6 +107,7 @@
   "restore": {
     "uptime_max_min": 15,
     "confirm_timeout_s": 15,
+    "snapshot_window_min": 60,
     "last": "master"
   },
   "restart": {
@@ -192,6 +193,7 @@
     "tool_memory_limit": "2g",
     "out_subdir": "docs/notte",
     "max_items_per_run": 3,
+    "max_queued": 8,
     "queue_file": "~/.local/state/claude-master/night-queue.jsonl",
     "done_file": "~/.local/state/claude-master/night-done.jsonl",
     "log": "~/.local/state/claude-master/night.log"
@@ -340,5 +342,43 @@
       "move_arrows": true
     },
     "socket": ""
+  },
+  "hosts": {},
+  "scheduler": {
+    "fresh_s": 180,
+    "poll_idle_s": 600,
+    "poll_busy_s": 30,
+    "load_gate_pct": 80,
+    "roles": {
+      "compute_cpu_multi": 1.0,
+      "compute_ram_gb": 8
+    },
+    "limits": {
+      "threads_per_heavy": 4,
+      "reserve_gb": 2,
+      "session_reserve_gb": 0.35,
+      "heavy_footprint_gb": 3,
+      "session_peak_gb": 0.65,
+      "sessions_cap": 6
+    },
+    "setup_s": 10,
+    "drift_pct": 30,
+    "doctor_max_age_d": 30,
+    "bench_max_load_pct": 20,
+    "remote_root": {
+      "posix": "~/claude-work",
+      "windows": "%USERPROFILE%\\claude-work"
+    },
+    "client_paths": [],
+    "secret_globs": [
+      ".env*",
+      "*.pem",
+      "*.key",
+      "id_*",
+      ".npmrc",
+      "credentials*"
+    ],
+    "ssh_connect_timeout_s": 4,
+    "min_free_gb": 2
   }
 }

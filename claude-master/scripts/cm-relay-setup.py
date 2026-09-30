@@ -63,12 +63,16 @@ SERVICEUSAGE_URL = (os.environ.get("CM_SETUP_SERVICEUSAGE_URL") or "https://serv
 APP_NAME = "claude-master watch"
 ALLOWED = "auth != null && root.child('allowed').child(auth.uid).val() === true"
 # Le regole del README: /state, /events e /result leggibili solo da un uid presente in /allowed; /cmd scrivibile solo
-# da quelli; /pair/<code> e /pair/<id> leggibili dall'accesso anonimo (pc_pub e la conferma ok), il loro `watch`
+# da quelli, come /share/<id> (fino a 1,5 MB cifrati); /pair/<code> e /pair/<id> leggibili dall'accesso anonimo (pc_pub e la conferma ok), il loro `watch`
 # scrivibile da lui; /allowed lo scrive solo il PC con il service account, che le regole non limitano.
 RULES = {"rules": {
     ".read": False, ".write": False,
     "state": {".read": ALLOWED}, "events": {".read": ALLOWED}, "result": {".read": ALLOWED},
     "cmd": {".read": ALLOWED, ".write": ALLOWED},
+    # 1.19: l'immagine di «Condividi», scritta dal telefono e letta (poi cancellata) dal PC con il service account
+    "share": {"$id": {".write": ALLOWED, ".validate": "newData.child('enc').isString() && newData.child('enc').val().length <= 1500000"}},
+    # 1.20: ogni dispositivo scrive solo il proprio /seen/<uid>, l'ora (del server) dell'ultima lettura di /state
+    "seen": {"$uid": {".write": "auth != null && auth.uid === $uid && root.child('allowed').child($uid).val() === true", ".validate": "newData.isNumber()"}},
     "pair": {"$node": {".read": "auth != null", "watch": {".write": "auth != null"}}},
 }}
 
@@ -460,8 +464,21 @@ def cm_write(path, text, mode=0o600):
 
 
 def main(argv):
-    project = argv[argv.index("--project") + 1] if "--project" in argv else None
-    return Setup(project=project, dry_run="--dry-run" in argv, yes="--yes" in argv).run()
+    # 30/09: prima --help e ogni opzione sconosciuta venivano ignorate e partiva la configurazione vera sul progetto
+    if any(a in ("--help", "-h") for a in argv):
+        print(M("setup.usage"))
+        return 0
+    project, dry_run, yes, i = None, False, False, 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--project" and i + 1 < len(argv) and not argv[i + 1].startswith("-"):
+            project = argv[i + 1]; i += 2; continue
+        if a in ("--dry-run", "--yes"):
+            dry_run, yes = dry_run or a == "--dry-run", yes or a == "--yes"; i += 1; continue
+        print(M("setup.bad_option", opt=a), file=sys.stderr)
+        print(M("setup.usage"), file=sys.stderr)
+        return 2
+    return Setup(project=project, dry_run=dry_run, yes=yes).run()
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@
 
 X1  --dry-run: elenca le sessioni da rilanciare, salta la viva e la cartella sparita, non lancia
 X2  --yes: rilancia in parallelo con --continue e --account, quella di `restore.last` per ultima; log per sessione
+X4  fotografia: solo le voci viste entro restore.snapshot_window_min dall'ultimo segno di vita prima dell'avvio
 X3  registro assente → exit 1; registro vuoto → exit 1 (X3b: con la fotografia si propone da quella)
 K1  init --cron stampa la riga del crontab con la cadenza di config; --yes la installa (crontab finto via CM_CRONTAB_CMD)
 """
@@ -69,6 +70,21 @@ with T.PrivateTmux() as tm:
     T.check("X2 professionale relaunched on its account", f"CLAUDE_CONFIG_DIR={home}/.claude-pixel" in pane_env, pane_env[:200])
     T.check("X2 per-session logs", (tmp / "state" / "restore" / "alfa.log").exists() and (tmp / "state" / "restore" / "master.log").exists(), str(list((tmp / "state" / "restore").glob("*"))))
     T.check("X2 outcome lines", r.stdout.count("ok:") >= 3 or r.stdout.count("ok") >= 3, r.stdout)
+    # X4: la fotografia vale solo per l'ultima accensione (28/09/2026: rilanciava sessioni morte da giorni)
+    for n in ("alfa", "pix-beta", "master"):
+        tm("kill-session", "-t", f"={n}")
+    reg.write_text(json.dumps({"salvato": "2026-09-28T10:55:00+0200", "sessioni": [
+        {"nome": "alfa", "cartella": str(home / "ws" / "personali" / "alfa"), "account": "personale"}]}))
+    (tmp / "state" / "sessions-good.json").write_text(json.dumps({"salvato": "2026-09-28T10:55:00+0200", "sessioni": [
+        {"nome": "alfa", "cartella": str(home / "ws" / "personali" / "alfa"), "account": "personale", "visto": "2026-09-28T10:55:00+0200"},
+        {"nome": "chiusa-prima", "cartella": str(home / "ws" / "personali" / "viva"), "account": "personale", "visto": "2026-09-28T10:30:00+0200"},
+        {"nome": "vecchia", "cartella": str(home / "ws" / "personali" / "viva"), "account": "personale", "visto": "2026-09-19T06:05:02+0200"}]}))
+    import datetime as _dt
+    boot = _dt.datetime(2026, 9, 28, 10, 59, tzinfo=_dt.timezone(_dt.timedelta(hours=2))).timestamp()
+    upf = tmp / "uptime"; upf.write_text(f"{time.time() - boot:.1f} 0.0\n")
+    r = subprocess.run([str(T.SCRIPTS / "cm-restore.sh"), "--dry-run"], capture_output=True, text=True, env=env(CM_UPTIME_FILE=str(upf)), timeout=60)
+    T.check("X4 snapshot: one closed shortly before the reboot is proposed, one dead for days is not",
+            r.returncode == 0 and "chiusa-prima" in r.stdout and "vecchia" not in r.stdout and "(2)" in r.stdout, r.stdout + r.stderr)
     # X3
     r = subprocess.run([str(T.SCRIPTS / "cm-restore.sh"), "--dry-run"], capture_output=True, text=True, env=env(CLAUDE_MASTER_CONFIG=str(cfg)), timeout=60)
     reg.write_text(json.dumps({"salvato": "x", "sessioni": []}))

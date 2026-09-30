@@ -9,6 +9,7 @@ W5  avviso quando la cartella dice un altro account (T49), ma procede
 W6  guardia degli shell snapshot (T22): wrapper senza _cm_wrap → command claude
 W7  segnaposto (T21): file recente + sessione esistente → exec attach; file vecchio → rimosso; sessione inesistente → ignorato
 W8  innesco ripristino (T20): uptime basso + nessun server tmux + registro pieno → CM_RESTORE_CMD eseguito; uptime alto → no; con tmux vivo → no
+W8b una sola domanda per accensione (boot_id): la seconda shell tace, un'accensione nuova richiede
 """
 import json
 import os
@@ -129,6 +130,16 @@ with T.PrivateTmux() as tm:
     T.check("W8 high uptime → no restore", not marker.exists(), "")
     r = bash("echo done", CM_FORCE_INTERACTIVE="1", CM_UPTIME_FILE=str(uptime_low), CM_RESTORE_CMD=f"touch {marker}")
     T.check("W8 tmux server alive → no restore", not marker.exists(), "")
+    # W8b: una sola domanda per accensione (28/09/2026: una seconda scheda ripartiva da sola dopo un «n»)
+    boot = tmp / "boot-id"; boot.write_text("boot-A\n")
+    r = bash("echo done", CM_FORCE_INTERACTIVE="1", CM_UPTIME_FILE=str(uptime_low), CM_RESTORE_CMD=f"touch {marker}", CM_TMUX_ARGS="-L cm-no-such-server", CM_BOOT_ID_FILE=str(boot))
+    T.check("W8b first shell of a boot asks", marker.exists(), r.stdout + r.stderr)
+    marker.unlink(missing_ok=True)
+    r = bash("echo done", CM_FORCE_INTERACTIVE="1", CM_UPTIME_FILE=str(uptime_low), CM_RESTORE_CMD=f"touch {marker}", CM_TMUX_ARGS="-L cm-no-such-server", CM_BOOT_ID_FILE=str(boot))
+    T.check("W8b second shell of the same boot does not ask again", not marker.exists() and "done" in r.stdout, r.stdout + r.stderr)
+    boot.write_text("boot-B\n")
+    r = bash("echo done", CM_FORCE_INTERACTIVE="1", CM_UPTIME_FILE=str(uptime_low), CM_RESTORE_CMD=f"touch {marker}", CM_TMUX_ARGS="-L cm-no-such-server", CM_BOOT_ID_FILE=str(boot))
+    T.check("W8b a new boot asks again", marker.exists(), r.stdout + r.stderr)
 
 T.rm(str(tmp))
 T.finish()

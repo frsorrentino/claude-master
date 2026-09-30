@@ -74,14 +74,8 @@ if [ "$CONTINUA" = si ] && [ -n "$RIPRENDI" ]; then cm_msg launch.continue_xor_r
 case "$CARTELLA" in /*) ;; *) cm_msg launch.not_absolute "path=$CARTELLA" >&2; exit 2 ;; esac
 
 # --- account: forzato, altrimenti dedotto da folder_map (prefisso piu' lungo) ------
-deduci_account() {
-  local best="" bestlen=0 p a
-  while IFS=$'\t' read -r p a; do
-    [ -n "$p" ] || continue
-    case "$1/" in "$p"/*) [ "${#p}" -gt "$bestlen" ] && { best="$a"; bestlen="${#p}"; } ;; esac
-  done <<<"$CM_FOLDER_MAP"
-  printf '%s' "$best"
-}
+# una sola copia della regola, in cm-config.py (account_for): la usano anche cloud, night e il relay
+deduci_account() { python3 "$CM_SCRIPTS/cm-config.py" --account-for "$1" 2>/dev/null; }
 DEDOTTO=$(deduci_account "$CARTELLA")
 DEDUZIONE=""
 if [ -z "$ACCOUNT" ]; then

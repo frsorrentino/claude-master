@@ -6,7 +6,8 @@
   claude-master night run [--dry-run] [--one] [--send]     esegue la coda (dal cron: night.cron_time)
   claude-master night install | uninstall | status
 
-Ogni voce è una riga di `<state_dir>/night-queue.jsonl`. `run` le prende in ordine, al massimo
+Ogni voce è una riga di `<state_dir>/night-queue.jsonl`, al massimo `night.max_queued` (la coda viaggia intera nello
+stato del relay, che sta in 8 KB). `run` le prende in ordine, al massimo
 `night.max_items_per_run` per giro, UNA alla volta, e prima di ognuna controlla la RAM libera
 (`night.min_free_mb`, da /proc/meminfo) e la quota delle cinque ore dell'account
 (`night.max_quota_pct`, dai file di fable-director letti da cm-quota): sotto soglia la voce resta in
@@ -16,10 +17,16 @@ tempo (`night.item_timeout_s`). L'esito va in `<cartella>/<night.out_subdir>/<da
 (prompt, argomenti, durata, output) e la voce passa in `night-done.jsonl`. Con --send il riassunto
 del giro va su Telegram (stesso bot del plugin, sendMessage).
 
+La coda si cambia anche dal telefono mentre `run` gira (contratto 1.17 del relay): ogni lettura-scrittura del file
+passa da un lock, `run` rilegge la coda prima e dopo ogni voce invece di riscriverla dalla lettura iniziale, e la
+voce in esecuzione porta `started` (epoch): `remove` la rifiuta.
+
 Diverso da `queue` (un prompt per una sessione VIVA al prossimo Stop): qui le sessioni nascono
 apposta e muoiono. Prove: CM_CLAUDE_BIN (claude finto), CM_NIGHT_FREE_MB (RAM finta), CM_CRONTAB_CMD.
 """
+import contextlib
 import datetime as dt
+import fcntl
 import importlib.util
 import json
 import os
@@ -77,17 +84,24 @@ def read_jsonl(p):
 
 def write_jsonl(p, rows):
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+    tmp = p.with_name(p.name + ".tmp")
+    tmp.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+    os.replace(tmp, p)
+
+
+@contextlib.contextmanager
+def locked_queue():
+    """La coda sotto lock esclusivo: (righe, salva). Il relay (add/remove dal telefono) e `run` si danno il turno."""
+    q = queue_path()
+    q.parent.mkdir(parents=True, exist_ok=True)
+    with open(q.with_name(q.name + ".lock"), "a") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        yield read_jsonl(q), (lambda rows: write_jsonl(q, rows))
 
 
 def deduce_account(d):
-    """L'account dalla mappa delle cartelle (folder_map), altrimenti quello di default."""
-    best, blen = CFG["default_account"], -1
-    for m in CFG.get("folder_map") or []:
-        p = cm.expand(m.get("path", "")).rstrip("/")
-        if p and (d == p or d.startswith(p + "/")) and len(p) > blen:
-            best, blen = m.get("account", best), len(p)
-    return best
+    """L'account dalla mappa delle cartelle (folder_map), altrimenti quello di default: cm-config.account_for."""
+    return cm.account_for(CFG, d)[0]
 
 
 # ------------------------------------------------------------------ coda
@@ -96,7 +110,10 @@ def add(argv):
         print(M("night.add_usage"), file=sys.stderr)
         return 2
     d = os.path.realpath(cm.expand(argv[0]))
-    prompt = argv[1]
+    prompt = argv[1].strip()
+    if not prompt:
+        print(M("night.empty_prompt"), file=sys.stderr)
+        return 2
     if not os.path.isdir(d):
         print(M("night.no_dir", dir=d), file=sys.stderr)
         return 2
@@ -123,9 +140,12 @@ def add(argv):
     if item["account"] not in CFG["accounts"]:
         print(M("launch.unknown_account", account=item["account"], known=", ".join(CFG["accounts"])), file=sys.stderr)
         return 3
-    rows = read_jsonl(queue_path())
-    rows.append(item)
-    write_jsonl(queue_path(), rows)
+    with locked_queue() as (rows, save):
+        if len(rows) >= int(N["max_queued"]):
+            print(M("night.full", n=len(rows), max=N["max_queued"]), file=sys.stderr)
+            return 4
+        rows.append(item)
+        save(rows)
     print(M("night.added", id=item["id"], dir=d, account=item["account"], n=len(rows)))
     return 0
 
@@ -145,18 +165,22 @@ def remove(argv):
     if not argv:
         print(M("night.remove_usage"), file=sys.stderr)
         return 2
-    rows = read_jsonl(queue_path())
-    keep = [r for r in rows if r["id"] != argv[0]]
-    if len(keep) == len(rows):
-        print(M("night.not_found", id=argv[0]), file=sys.stderr)
-        return 1
-    write_jsonl(queue_path(), keep)
+    with locked_queue() as (rows, save):
+        hit = next((r for r in rows if r["id"] == argv[0]), None)
+        if hit is None:
+            print(M("night.not_found", id=argv[0]), file=sys.stderr)
+            return 1
+        if hit.get("started"):
+            print(M("night.already_started", id=argv[0]), file=sys.stderr)
+            return 5
+        save([r for r in rows if r["id"] != argv[0]])
     print(M("night.removed", id=argv[0]))
     return 0
 
 
 def clear():
-    write_jsonl(queue_path(), [])
+    with locked_queue() as (_, save):
+        save([])
     print(M("night.cleared"))
     return 0
 
@@ -196,7 +220,21 @@ def blocked(item):
         return M("night.quota_high", account=item["account"], pct=round(pct), max=N["max_quota_pct"])
     if not os.path.isdir(item["dir"]):
         return M("night.no_dir", dir=item["dir"])
+    # registro unico delle prenotazioni (piano multi-PC 3.4): la voce conta come un lavoro pesante sulla regia
+    why = offload().night_blocked(item["account"])
+    if why:
+        return why
     return ""
+
+
+_OFF = None
+
+
+def offload():
+    global _OFF
+    if _OFF is None:
+        _OFF = _load("cm-offload")
+    return _OFF
 
 
 # ------------------------------------------------------------------ esecuzione
@@ -258,40 +296,49 @@ def run(argv):
         print(M("night.empty"))
         return 0
     cap = 1 if one else int(N["max_items_per_run"])
-    done_rows = read_jsonl(done_path())
     lines = []
     ran = 0
-    remaining = []
-    for item in rows:
+    for first in rows:
         if ran >= cap:
-            remaining.append(item)
+            break
+        with locked_queue() as (now_rows, save):
+            # tolta dal telefono dopo la lettura iniziale: non si esegue
+            item = next((r for r in now_rows if r["id"] == first["id"]), None)
+            why = blocked(item) if item else ""
+            if item and not why and not dry:
+                # `started` resta anche se il giro cade a meta': il giro dopo la riprende e la rimarca
+                item["started"] = int(time.time())
+                save(now_rows)
+        if item is None:
             continue
-        why = blocked(item)
         if why:
             log(f"{item['id']} skipped: {why}")
             print(M("night.skipped", id=item["id"], dir=os.path.basename(item["dir"]), why=why))
-            remaining.append(item)
             continue
         if dry:
             res = run_item(item, True)
             print(M("night.would_run", id=item["id"], dir=item["dir"], cmd=" ".join(res["cmd"][:1] + ["-p", "…"] + res["cmd"][3:])))
-            remaining.append(item)
             ran += 1
             continue
         log(f"{item['id']} start: {item['dir']} ({item['account']})")
-        res = run_item(item, False)
+        with offload().night_lease(f"night {item['id']}"):
+            res = run_item(item, False)
         report = write_report(item, res)
         log(f"{item['id']} done: rc={res['rc']} in {res['seconds']} s → {report}")
+        with locked_queue() as (now_rows, save):
+            save([r for r in now_rows if r["id"] != item["id"]])
+        done_rows = read_jsonl(done_path())
         done_rows.append({**item, "rc": res["rc"], "seconds": res["seconds"], "report": str(report),
                           "finished": dt.datetime.now().isoformat(timespec="seconds")})
+        write_jsonl(done_path(), done_rows)
         lines.append(summary_line(item, res, report))
         print(lines[-1])
         ran += 1
-    if not dry:
-        write_jsonl(queue_path(), remaining)
-        write_jsonl(done_path(), done_rows)
     if send and lines:
-        text = M("night.summary_title", n=len(lines), left=len(remaining)) + "\n" + "\n".join(lines)
+        text = M("night.summary_title", n=len(lines), left=len(read_jsonl(queue_path()))) + "\n" + "\n".join(lines)
+        # contratto 1.18: il resoconto anche all'app, evento `night_report` del relay, prima di Telegram
+        _load("cm-core").relay_event("night_report", M("night.event_title", n=len(lines), ok=sum(1 for l in lines if l.startswith("✓"))),
+                                     text, ref=dt.date.today().isoformat())
         bot = _load("cm-bot")
         if bot.token():
             print(M("recap.sent", n=bot.send(text)))

@@ -197,7 +197,10 @@ def run():
                         night = True
                     except (OSError, subprocess.TimeoutExpired):
                         pass
-            notify(M("guard.resumed", account=acc, n=len(resumed), names=", ".join(resumed) or "-", night=M("guard.night_yes") if night else M("guard.night_no")))
+            back = M("guard.resumed", account=acc, n=len(resumed), names=", ".join(resumed) or "-", night=M("guard.night_yes") if night else M("guard.night_no"))
+            # contratto 1.18: la ripresa anche all'app (l'avviso di soglia ce l'ha gia', dal diff dello stato del relay)
+            _load("cm-core").relay_event("quota", M("guard.event_back_title", account=acc), f"reset {hm(ra)}\n{back}", account=acc)
+            notify(back)
             log(f"{acc}: reset reached → resumed {resumed}, night={night}")
             s["resume_at"] = None
             s["resumed_at"] = t

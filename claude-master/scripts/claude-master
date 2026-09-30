@@ -80,6 +80,11 @@ case "$cmd" in
   effort)                 exec python3 "$S/cm-tune.py" effort "$@" ;;
   screen|schermo)         exec python3 "$S/cm-screen.py" "$@" ;;
   inbox|casella)          exec python3 "$S/cm-inbox.py" "$@" ;;
+  host|macchina)          exec python3 "$S/cm-hosts.py" "$@" ;;
+  hosts|macchine)         case "${1:-}" in poll|install|uninstall) exec python3 "$S/cm-hosts.py" "$@" ;; esac
+                          exec python3 "$S/cm-hosts.py" list "$@" ;;
+  offload|delega)         exec python3 "$S/cm-offload.py" offload "$@" ;;
+  heavy|pesante)          exec python3 "$S/cm-offload.py" heavy "$@" ;;
   observe|osserva)        exec python3 "$S/../observe/observe.py" "$@" ;;   # copia di claude-observe (sync.py)
   *)
     python3 "$S/cm-config.py" --msg cli.unknown "cmd=$cmd" >&2

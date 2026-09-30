@@ -18,12 +18,9 @@ account_env() {  # stampa "CLAUDE_CONFIG_DIR=..." solo per gli account fuori da 
   local conf; conf="$(cm_get "$1" CONFIG_DIR)"
   [ "$(readlink -f "$conf")" != "$(readlink -f "$(eval echo ~)/.claude")" ] && printf 'CLAUDE_CONFIG_DIR=%s' "$conf" || printf 'CM_LAUNCHED=1'
 }
-deduce() {
-  local best="" bestlen=0 p a
-  while IFS=$'\t' read -r p a; do [ -n "$p" ] || continue
-    case "$1/" in "$p"/*) [ "${#p}" -gt "$bestlen" ] && { best="$a"; bestlen="${#p}"; } ;; esac
-  done <<<"$CM_FOLDER_MAP"
-  printf '%s' "${best:-$CM_DEFAULT_ACCOUNT}"
+deduce() {  # account_for in cm-config.py, l'unica copia della regola; il default se nessuna voce copre la cartella
+  local a; a="$(python3 "$CM_SCRIPTS/cm-config.py" --account-for "$1" 2>/dev/null)"
+  printf '%s' "${a:-$CM_DEFAULT_ACCOUNT}"
 }
 
 cmd_cloud() {

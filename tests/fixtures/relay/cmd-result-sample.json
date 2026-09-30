@@ -96,6 +96,50 @@
       "text": "check the draft for typos",
       "issued": 1789210990,
       "by": "watch-pixel5"
+    },
+    {
+      "id": "6f1c2d3e-0123-4000-8000-000000000123",
+      "op": "night_add",
+      "session": null,
+      "arg": "/home/demo/workspaces/work/clients/ledger-api",
+      "text": "Update the changelog for 2.4 and check the migration notes",
+      "issued": 1789210600,
+      "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0124-4000-8000-000000000124",
+      "op": "night_remove",
+      "session": null,
+      "arg": "5d0e6b92",
+      "issued": 1789210700,
+      "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0125-4000-8000-000000000125",
+      "op": "report",
+      "session": "atlas-shop",
+      "arg": "7a0c1b2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d",
+      "text": "the client says the checkout button is grey on iPhone",
+      "issued": 1789210710,
+      "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0126-4000-8000-000000000126",
+      "op": "report",
+      "session": "field-notes",
+      "arg": null,
+      "text": "add the Tuesday meeting notes to the draft",
+      "issued": 1789210720,
+      "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0127-4000-8000-000000000127",
+      "op": "report",
+      "session": "orbit-docs",
+      "arg": null,
+      "text": "check the pricing page",
+      "issued": 1789210730,
+      "by": "phone-pixel8"
     }
   ],
   "result": [
@@ -171,6 +215,37 @@
       "text": "launched field-notes (personal) with the first message",
       "session": "field-notes-2",
       "at": 1789211010
+    },
+    {
+      "id": "6f1c2d3e-0123-4000-8000-000000000123",
+      "ok": true,
+      "text": "queued for tonight: ledger-api (work), job 7b21d4e8",
+      "job": "7b21d4e8",
+      "at": 1789210620
+    },
+    {
+      "id": "6f1c2d3e-0124-4000-8000-000000000124",
+      "ok": true,
+      "text": "removed from tonight's queue: 5d0e6b92",
+      "at": 1789210705
+    },
+    {
+      "id": "6f1c2d3e-0125-4000-8000-000000000125",
+      "ok": true,
+      "text": "sent to atlas-shop: image saved as docs/segnalazioni/2026-09-12-the-client-says-the-checkout-button-is-g.jpg",
+      "at": 1789210716
+    },
+    {
+      "id": "6f1c2d3e-0126-4000-8000-000000000126",
+      "ok": true,
+      "text": "sent to field-notes",
+      "at": 1789210722
+    },
+    {
+      "id": "6f1c2d3e-0127-4000-8000-000000000127",
+      "ok": false,
+      "text": "no session orbit-docs",
+      "at": 1789210731
     }
   ]
 }

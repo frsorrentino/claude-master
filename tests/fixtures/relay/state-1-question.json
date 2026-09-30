@@ -194,7 +194,25 @@
   ],
   "night": {
     "queued": 2,
-    "running": null
+    "running": null,
+    "items": [
+      {
+        "id": "a3f09c1e",
+        "dir": "/home/demo/workspaces/personal/atlas-shop",
+        "name": "atlas-shop",
+        "prompt": "Go through the open issues labelled flaky, reproduce each one locally with the seed from its report, fix the ones that are real and write a short note in",
+        "added": 1789207200,
+        "started": null
+      },
+      {
+        "id": "7b21d4e8",
+        "dir": "/home/demo/workspaces/work/clients/ledger-api",
+        "name": "ledger-api",
+        "prompt": "Update the changelog for 2.4 and check the migration notes",
+        "added": 1789210620,
+        "started": null
+      }
+    ]
   },
   "recap": {
     "date": "2026-09-12",
@@ -237,5 +255,8 @@
       "xhigh",
       "max"
     ]
+  },
+  "share": {
+    "max_bytes": 1500000
   }
 }

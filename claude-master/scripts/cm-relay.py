@@ -24,6 +24,8 @@ Prove isolate (1.15): con CLAUDE_MASTER_CONFIG che punta a una configurazione di
 firebase_url suoi) pair, push e serve lavorano solo li' — chiave, devices.json, /allowed e crontab della configurazione
 principale non si toccano (test R5c); cosi' le prove dell'app non scollegano l'orologio vero.
 """
+import base64
+import binascii
 import fcntl
 import copy
 import importlib.util
@@ -58,7 +60,7 @@ M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
 R = CFG["relay"]
 CM_BIN = os.environ.get("CM_RELAY_CM") or str(HERE / "claude-master")
 BACKOFF = [1, 2, 5, 15, 30]
-OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort")
+OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report")
 LAST_MAX = 4000   # 1.4: l'ultimo messaggio per la lettura vocale — oltre, l'ascolto non regge
 
 
@@ -97,6 +99,57 @@ def fallback_clear():
         fallback_path().unlink()
     except OSError:
         pass
+
+
+SEEN_SKEW_S = 60   # 1.20: /seen porta l'ora del server Firebase, gli eventi quella del PC: un minuto di tolleranza
+
+
+def seen_devices():
+    """1.20: {uid: epoch s} dell'ultima lettura di ogni dispositivo accoppiato (/seen/<uid>, scritto da orologio e
+    telefono con l'ora del server). None se il bus non risponde."""
+    try:
+        raw = rtdb("GET", "seen") or {}
+    except (urllib.error.URLError, OSError, ValueError, RelayError):
+        return None
+    devs = read_json(rdir() / "devices.json", {})
+    out = {}
+    for u, v in (raw.items() if isinstance(raw, dict) else []):
+        if devs and u not in devs:
+            continue   # un uid revocato da un pairing nuovo non conta
+        if isinstance(v, (int, float)) and v > 0:
+            out[u] = v / 1000 if v > 1e11 else float(v)
+    return out
+
+
+def unseen_notice(events, now):
+    """1.20 (29/09): il ripiego su Telegram quando il bus funziona ma NESSUN dispositivo legge. Gli eventi aspettano in
+    pending.json; uno e' visto se un dispositivo ha scritto /seen dopo la sua ora; se nessuno l'ha visto entro
+    relay.telegram_fallback_after_s va su Telegram, una volta. Finche' nessun dispositivo scrive /seen (un'app che non
+    lo conosce) resta il solo ripiego sul bus che non prende: mai un doppione per chi non sa dire di aver letto."""
+    pend_p = rdir() / "pending.json"
+    pend = read_json(pend_p, []) + [{"key": e["key"], "ts": e["ts"], "title": e.get("title"), "body": e.get("body")} for e in events]
+    after = float(R.get("telegram_fallback_after_s") or 0)
+    seen = seen_devices()
+    if seen is None:
+        write_json(pend_p, pend)
+        return 0
+    if not seen or not after:
+        pend_p.unlink(missing_ok=True)
+        return 0
+    last = max(seen.values())
+    pend = [x for x in pend if last + SEEN_SKEW_S < float(x["ts"])]
+    late = [x for x in pend if now - float(x["ts"]) >= after]
+    write_json(pend_p, [x for x in pend if x not in late])
+    if not late:
+        return 0
+    lines = [M("relay.fallback_unseen", min=int((now - last) // 60))]
+    lines += [" ".join(str(x) for x in (e.get("title"), (e.get("body") or "").split("\n")[0]) if x) for e in late]
+    log(f"nessun dispositivo ha letto {len(late)} eventi: ripiego su Telegram")
+    try:
+        return _load("cm-bot").send("\n".join(lines), watch_quiet=False)
+    except Exception as ex:   # noqa: BLE001 — la scorta non deve mai far fallire una push
+        log(f"fallback FAILED: {ex}")
+        return 0
 
 
 def fallback_notice(events, down_s):
@@ -215,14 +268,8 @@ def prefixes():
 
 
 def account_for_path(path):
-    """L'account dedotto dalla cartella come cm-launch.sh: prefisso piu' lungo in folder_map, altrimenti il default."""
-    rp = os.path.realpath(str(path))
-    best, best_len = "", 0
-    for e in CFG.get("folder_map") or []:
-        p = os.path.realpath(cm.expand(e.get("path") or ""))
-        if p and (rp == p or rp.startswith(p + "/")) and len(p) > best_len:
-            best, best_len = e.get("account") or "", len(p)
-    return best or CFG.get("default_account") or ""
+    """L'account dedotto dalla cartella come cm-launch.sh: cm-config.account_for, altrimenti il default."""
+    return cm.account_for(CFG, path)[0]
 
 
 def inventory():
@@ -379,14 +426,19 @@ def recap_today(now):
     return {"date": time.strftime("%Y-%m-%d", time.localtime(now)), "items": items}
 
 
+def night_max():
+    return int((CFG.get("night") or {}).get("max_queued") or 8)
+
+
 def night_queue():
     try:
         p = Path(cm.expand(CFG["night"]["queue_file"]))
         rows = [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
     except (OSError, ValueError, KeyError):
         rows = []
-    running = next((r.get("name") or r.get("project") or "job" for r in rows if r.get("started") or r.get("running")), None)
-    return {"queued": len(rows), "running": running}
+    running = next((os.path.basename(r.get("dir") or "") or "job" for r in rows if r.get("started")), None)
+    # 1.17: la coda intera, nell'ordine di esecuzione; il prompt ridotto (S.night_items) per stare negli 8 KB
+    return {"queued": len(rows), "running": running, "items": rows}
 
 
 def tool_of(row):
@@ -560,6 +612,7 @@ def _push(dry_run=False, now=None):
         fallback_notice(events, down)
         raise
     prune_events(now)
+    prune_share(now)
     woken = True
     for e in events:
         try:
@@ -572,9 +625,38 @@ def _push(dry_run=False, now=None):
         fallback_notice(events, fallback_mark(now))
     else:
         fallback_clear()
+        unseen_notice(events, now)
     write_json(last_p, {"state": state, "full": full, "seq": seq - 1, "pushed_at": now, "names": names})
     log(f"push: {len(state['sessions'])} sessioni, {len(events)} eventi")
     return state
+
+
+def emit(kind, title, body, ref=None, account=None, now=None):
+    """1.18 (29/09): un evento che non nasce dal diff dello stato — il diario delle 20:00 (`recap`), il resoconto
+    della notte (`night_report`), la ripresa della quota all'azzeramento (`quota`) — su /events con la sveglia FCM,
+    come gli altri. `body` e' il testo di Telegram senza markup, tagliato a fine riga entro 4000 caratteri. Il seq
+    viene da last-state.json sotto il lock delle push, cosi' la chiave non si scontra con gli eventi del diff."""
+    now = int(now or time.time())
+    k = key()
+    lock = open(str(rdir() / "push.lock"), "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        last_p = rdir() / "last-state.json"
+        last = read_json(last_p, {})
+        seq = int(last.get("seq") or 0) + 1
+        ev = {"key": f"{now}_{seq:03d}", "kind": kind, "session": None, "account": account, "ts": now,
+              "title": S.one_line(title), "body": S.cut_lines(body, S.EVENT_BODY_MAX), "ref": ref}
+        rtdb("PATCH", "events", {ev["key"]: C.encrypt(ev, k)}, {"print": "silent"})
+        last["seq"] = seq
+        write_json(last_p, last)
+    finally:
+        lock.close()
+    try:
+        fcm_send({"kind": kind, "session": None, "ts": now, "key": ev["key"]})
+    except (urllib.error.URLError, OSError, ValueError) as ex:
+        log(f"fcm FAILED ({kind}): {ex}")
+    log(f"evento {kind}: {ev['title']}")
+    return ev
 
 
 def prune_events(now):
@@ -867,6 +949,91 @@ def last_message(row, cap=LAST_MAX):
     return (cut[:end + 1] if end > cap // 2 else cut).rstrip()
 
 
+SHARE_TTL_S = 600    # 1.19: un /share/<id> che nessun comando ha letto sparisce dopo 10 minuti
+REPORT_TEXT_MAX = 4000
+IMAGE_EXT = {"image/jpeg": "jpg", "image/png": "png"}
+
+
+def share_report(cmd, tm, session):
+    """1.19 (29/09): «Condividi» dal telefono — testo e/o un'immagine verso una sessione viva, con `claude-master report
+    <cartella> <file|-> <testo> --session <tmux>`. L'immagine sta cifrata in /share/<arg> ({mime, data base64}) e si
+    cancella sempre, riuscito o no."""
+    sid = str(cmd.get("arg") or "").strip()
+    try:
+        return _share_report(cmd, tm, session, sid)
+    finally:
+        if sid:
+            try:
+                rtdb("DELETE", f"share/{sid}")
+            except (urllib.error.URLError, OSError, ValueError):
+                pass
+            seen = read_json(rdir() / "share-seen.json", {})
+            if seen.pop(sid, None) is not None:
+                write_json(rdir() / "share-seen.json", seen)
+
+
+def _share_report(cmd, tm, session, sid):
+    text = str(cmd.get("text") or "").strip()
+    if not text and not sid:
+        return False, M("relay.cmd_report_empty")
+    if len(text) > REPORT_TEXT_MAX:
+        return False, M("relay.cmd_report_long", max=REPORT_TEXT_MAX)
+    row = next((r for r in (_json_cmd("sessions", "--json") or []) if (r.get("tmux") or r.get("name")) == tm), None)
+    if not row or not row.get("cwd") or not os.path.isdir(row["cwd"]):
+        return False, M("relay.cmd_report_no_session", name=session or "?")
+    img = None
+    if sid:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", sid):
+            return False, M("relay.cmd_report_no_image")
+        doc = rtdb("GET", f"share/{sid}")
+        if isinstance(doc, dict) and len(str(doc.get("enc") or "")) > S.SHARE_MAX_BYTES:
+            return False, M("relay.cmd_report_too_big", max=S.SHARE_MAX_BYTES)
+        try:
+            blob = C.decrypt(doc, key()) if isinstance(doc, dict) else None
+            ext = IMAGE_EXT.get(str((blob or {}).get("mime") or ""))
+            data = base64.b64decode(str(blob["data"]), validate=True) if ext else b""
+        except (ValueError, KeyError, TypeError, binascii.Error):
+            ext, data = None, b""
+        if not ext or not data:
+            return False, M("relay.cmd_report_no_image")
+        tmpd = rdir() / "share-tmp"
+        tmpd.mkdir(parents=True, exist_ok=True)
+        img = tmpd / f"{sid}.{ext}"
+        img.write_bytes(data)
+    try:
+        rc, out = run_cm("report", row["cwd"], str(img) if img else "-", text or M("relay.report_image_only"), "--session", tm)
+    finally:
+        if img:
+            img.unlink(missing_ok=True)
+    if rc != 0:
+        return False, (out.splitlines() or ["report failed"])[0]
+    saved = next((l.split(":", 1)[1].strip() for l in out.splitlines() if l.strip().startswith(("image:", "immagine:"))), "")
+    if saved:
+        return True, M("relay.cmd_report_sent_image", name=session, file=os.path.relpath(saved, row["cwd"]))
+    return True, M("relay.cmd_report_sent", name=session)
+
+
+def prune_share(now):
+    """Via i /share/<id> che nessun comando ha letto entro SHARE_TTL_S: le chiavi sono uuid senza istante, quindi si
+    ricorda quando il relay li ha visti la prima volta (share-seen.json)."""
+    try:
+        keys = rtdb("GET", "share", None, {"shallow": "true"}) or {}
+    except (urllib.error.URLError, OSError, ValueError):
+        return
+    seen_p = rdir() / "share-seen.json"
+    seen = {k: v for k, v in read_json(seen_p, {}).items() if k in keys}
+    for k in keys:
+        seen.setdefault(k, now)
+    old = [k for k, t in seen.items() if now - float(t) > SHARE_TTL_S]
+    for k in old:
+        try:
+            rtdb("DELETE", f"share/{k}")
+            seen.pop(k, None)
+        except (urllib.error.URLError, OSError, ValueError):
+            pass
+    write_json(seen_p, seen)
+
+
 def execute(cmd):
     """(ok, testo) per un comando del contratto: {op, session, arg, by}. Allow-list fissa, tutto via la CLI."""
     op = str(cmd.get("op") or "")
@@ -965,6 +1132,37 @@ def execute(cmd):
             if rc == 0:
                 push_async()   # lo stato riporta subito il valore nuovo (annotato dal comando, cm-core lo usa)
             return rc == 0, text
+        if op == "night_add":
+            # 1.17 (29/09): un lavoro nella coda di stanotte, dalla cartella di un progetto pubblicato come launch
+            path = str(arg or "")
+            proj = next((p for p in inventory() if os.path.realpath(p["path"]) == os.path.realpath(path)), None) if path else None
+            if not proj:
+                return False, M("relay.cmd_no_project", path=path or "?")
+            prompt = str(cmd.get("text") or "").strip()
+            if not prompt:
+                return False, M("relay.cmd_night_empty")
+            rc, out = run_cm("night", "add", proj["path"], prompt)
+            if rc == 4:
+                return False, M("relay.cmd_night_full", max=night_max())
+            if rc != 0:
+                return False, (out.splitlines() or ["night add failed"])[0]
+            m = re.search(r"\b([0-9a-f]{8})\b", out)
+            job = m.group(1) if m else "?"
+            return True, M("relay.cmd_night_added", id=job, name=proj["name"], account=proj["account"]), {"job": job}
+        if op == "night_remove":
+            job = str(arg or "").strip()
+            if not job:
+                return False, M("relay.cmd_night_unknown", id="?")
+            rc, out = run_cm("night", "remove", job)
+            if rc == 1:
+                return False, M("relay.cmd_night_unknown", id=job)
+            if rc == 5:
+                return False, M("relay.cmd_night_started", id=job)
+            if rc != 0:
+                return False, (out.splitlines() or ["night remove failed"])[0]
+            return True, M("relay.cmd_night_removed", id=job)
+        if op == "report":
+            return share_report(cmd, tm, session)
         if op == "last":
             row = next((r for r in (_json_cmd("sessions", "--json") or []) if (r.get("tmux") or r.get("name")) == tm), None)
             text = last_message(row) if row else ""

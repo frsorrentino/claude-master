@@ -41,7 +41,7 @@ T.check("RL1 plugin.json not at version → FAIL, suite not run",
 r = run(ver)
 T.check("RL2 consistent version → preflight passes, the suite runs, stops with CHECK OK",
         r.returncode == 0 and marker.exists() and "CHECK OK" in r.stdout, r.stdout[-600:] + r.stderr[-300:])
-marker.unlink()
+marker.unlink(missing_ok=True)   # RL2 fallito: il controllo sopra lo dice, il test prosegue
 readme = copy / "README.md"
 readme.write_text(readme.read_text().replace(f"version-{ver}-blue", "version-0.0.0-blue"))
 r = run(ver)

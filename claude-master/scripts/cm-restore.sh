@@ -25,8 +25,13 @@ LOGDIR="$CM_STATE_DIR/restore"; mkdir -p "$LOGDIR"
 
 # unione del registro riconciliato e della fotografia «ultimo insieme buono» (11/09/2026): una
 # sessione chiusa a mano prima del riavvio sta solo nella fotografia; si dice da dove viene ciascuna
-mapfile -t RIGHE < <(python3 - "$REG" "$GOOD" "$MSG_RESTORE_SRC_REGISTRY" "$MSG_RESTORE_SRC_SNAPSHOT" <<'PY'
-import json, sys
+# La fotografia non dimagrisce da sola (cm-registry.sh): senza filtro riportava in vita sessioni
+# morte da giorni (28/09/2026: due sessioni chiuse il 19/09 e il 20/09). Se ne prendono solo
+# le voci viste nell'ultima accensione prima di questa, entro `restore.snapshot_window_min`
+# dall'ultimo segno di vita; quelle viste dopo l'avvio chiuse a mano restano chiuse.
+mapfile -t RIGHE < <(python3 - "$REG" "$GOOD" "$MSG_RESTORE_SRC_REGISTRY" "$MSG_RESTORE_SRC_SNAPSHOT" "${CM_RESTORE_SNAPSHOT_WINDOW_MIN:-60}" "${CM_UPTIME_FILE:-/proc/uptime}" <<'PY'
+import json, sys, time
+from datetime import datetime
 def load(p):
     try:
         return json.load(open(p))
@@ -37,8 +42,22 @@ seen = set()
 for s in reg.get("sessioni", []):
     seen.add(s["nome"])
     print(f'{s["nome"]}\t{s["cartella"]}\t{s.get("account", "")}\t' + sys.argv[3].format(t=str(reg.get("salvato", ""))[:16].replace("T", " ")))
+def ts(v):
+    try:
+        return datetime.strptime(str(v), "%Y-%m-%dT%H:%M:%S%z").timestamp()
+    except ValueError:
+        return None
+try:
+    boot = time.time() - float(open(sys.argv[6]).read().split()[0])
+except (OSError, ValueError, IndexError):
+    boot = time.time()
+prima = [t for t in (ts(s.get("visto")) for s in good.get("sessioni", [])) if t is not None and t < boot]
+ultimo = max(prima) if prima else None
 for s in good.get("sessioni", []):
     if s["nome"] in seen:
+        continue
+    t = ts(s.get("visto"))
+    if t is None or ultimo is None or t >= boot or t < ultimo - float(sys.argv[5]) * 60:
         continue
     print(f'{s["nome"]}\t{s["cartella"]}\t{s.get("account", "")}\t' + sys.argv[4].format(t=str(s.get("visto", ""))[:16].replace("T", " ")))
 PY
@@ -72,7 +91,7 @@ fi
 if [ "$CONFERMA" = si ]; then
   if [ -t 0 ]; then
     read -r -t "$CM_RESTORE_CONFIRM_TIMEOUT_S" -p "$(cm_msg restore.confirm "s=$CM_RESTORE_CONFIRM_TIMEOUT_S") " risp || risp=s
-    case "${risp:-s}" in n|N) cm_msg restore.aborted; exit 0 ;; esac
+    case "${risp:-s}" in [nN]*) cm_msg restore.aborted; exit 0 ;; esac   # n, N, no, No
   else
     # senza terminale nessuno puo' rispondere: si ferma alla lista (come --dry-run) e dice
     # come eseguire davvero. Un `restore` letto «per vedere» da una sessione Claude rilanciava

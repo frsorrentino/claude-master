@@ -10,6 +10,7 @@ Sottocomandi:
   --sh                 export CM_* con i default applicati (per gli script bash)
   --messages           export MSG_* del catalogo nella lingua configurata
   --msg KEY k=v ...    un messaggio formattato (per gli script bash)
+  --account-for DIR    l'account dedotto da folder_map per DIR (vuoto se nessuno)
   --get KEY            un valore (chiave puntata); ~ espansa; liste/dict in JSON
   --dump-defaults      i default in JSON (genera config.example.json)
   --path               percorso del file di configurazione
@@ -110,7 +111,7 @@ DEFAULTS = {
     },
     "profiles": {},
     "registry": {"file": "", "good_file": "", "cron_minutes": 5},
-    "restore": {"uptime_max_min": 15, "confirm_timeout_s": 15, "last": ""},
+    "restore": {"uptime_max_min": 15, "confirm_timeout_s": 15, "snapshot_window_min": 60, "last": ""},
     "restart": {"flag_file": "", "log": "", "exit_wait_s": 20, "term_wait_s": 10},
     "talk": {"quiet_s": 6, "max_wait_s": 240, "warn_native_channel": True,
              "from_name": "claude-master", "from_mode": "bypass"},
@@ -145,7 +146,7 @@ DEFAULTS = {
     # turno di notte (N5): coda di lavori `claude -p` non presidiati, con guardie su RAM e quota
     "night": {"cron_time": "02:00", "min_free_mb": 1500, "max_quota_pct": 80, "item_timeout_s": 3600,
               "max_turns": 40, "permission_mode": "acceptEdits", "tool_memory_limit": "2g",
-              "out_subdir": "docs/notte", "max_items_per_run": 3, "queue_file": "", "done_file": "", "log": ""},
+              "out_subdir": "docs/notte", "max_items_per_run": 3, "max_queued": 8, "queue_file": "", "done_file": "", "log": ""},
     # relay per l'app Wear OS (0.4.0): Firebase RTDB + FCM dietro cm-relay.py; service account e chiave in relay.dir
     "relay": {"enabled": False, "firebase_url": "", "service_account": "~/.claude-master/relay/service-account.json",
               "fcm_topic": "watch", "tier_high": ["rm -rf", "git push", "deploy", "DROP", "ssh", "sudo", "--force", "git reset --hard"],
@@ -194,6 +195,30 @@ DEFAULTS = {
         "disable_terminal_title": True,
     },
     "tmux": {"keybindings": {"tile": "a", "merge": "u", "move_arrows": True}, "socket": ""},
+    # piu' macchine (piano docs/plans/2026-09-27-multi-pc.md, v1): gli host dichiarati dall'utente, ognuno con le tre
+    # parti — dichiarata (kind, transport), misurata (measured, da `host doctor`), confermata (roles, limits, trust,
+    # remote_root, confirmed_at). `local` non si dichiara: esiste sempre ed e' la regia.
+    "hosts": {},
+    # scheduler dei lavori pesanti e soglie dell'onboarding (1.3, 1.4, 3.3). Le formule dei limiti sono queste: si
+    # mostrano all'onboarding e si ritarano con scheduler.log, non a intuito
+    "scheduler": {
+        "fresh_s": 180,              # una lettura dell'host piu' vecchia non vale per lo scheduler
+        "poll_idle_s": 600,          # host senza niente di vivo: si rilegge ogni 10 minuti
+        "poll_busy_s": 30,           # con lavori o sessioni remote vive: ogni 30 s
+        "load_gate_pct": 80,         # cancello di carico: niente lavoro pesante nuovo sopra questa quota dei thread
+        "roles": {"compute_cpu_multi": 1.0, "compute_ram_gb": 8},
+        "limits": {"threads_per_heavy": 4, "reserve_gb": 2, "session_reserve_gb": 0.35, "heavy_footprint_gb": 3,
+                   "session_peak_gb": 0.65, "sessions_cap": 6},
+        "setup_s": 10,               # preparazione fissa di un invio (connessione, estrazione)
+        "drift_pct": 30,             # scarto fra rel previsto e osservato che, per tre lavori di fila, chiede un doctor
+        "doctor_max_age_d": 30,
+        "bench_max_load_pct": 20,    # sopra questo carico il micro-benchmark si rimanda: misurerebbe il rumore
+        "remote_root": {"posix": "~/claude-work", "windows": "%USERPROFILE%\\claude-work"},
+        "client_paths": [],          # il perimetro clienti: mai su un host con trust.clients false
+        "secret_globs": [".env*", "*.pem", "*.key", "id_*", ".npmrc", "credentials*"],
+        "ssh_connect_timeout_s": 4,
+        "min_free_gb": 2,
+    },
 }
 
 # Default che cambiano con la lingua (piano §4: nomi dei monitor, hook ora,
@@ -311,12 +336,14 @@ def deep_merge(base, over, path="", unknown=None):
         here = f"{path}.{k}" if path else k
         if k not in out:
             if unknown is not None and path not in ("accounts", "shell.wrappers", "shell.aliases", "tile.monitor_names",
-                                                    "profiles", "session.env", "bot.links", "relay.colors") and not path.startswith("profiles."):
+                                                    "profiles", "session.env", "bot.links", "relay.colors", "hosts") \
+                    and not path.startswith(("profiles.", "hosts.")):
                 unknown.append(here)   # ignota: avvisata e scartata, mai propagata
                 continue
             out[k] = v
             continue
-        if isinstance(out[k], dict) and isinstance(v, dict) and k not in ("wrappers", "aliases", "profiles") and here != "session.env":
+        if isinstance(out[k], dict) and isinstance(v, dict) and k not in ("wrappers", "aliases", "profiles") \
+                and here not in ("session.env", "hosts"):
             out[k] = deep_merge(out[k], v, here, unknown)
         else:
             out[k] = v
@@ -409,6 +436,27 @@ def expand_all(v):
     return expand(v)
 
 
+def account_for(cfg, path):
+    """(account, dedotto) per una cartella: il prefisso piu' lungo di folder_map, altrimenti (default_account, False).
+    Unica copia della regola (piano multi-PC 4.1): prima stava in cm-launch.sh, cm-cloud.sh, cm-night.py e cm-relay.py,
+    con confronti diversi (testo nudo, realpath). Vale il confronto piu' largo: testo espanso o percorso reale."""
+    raw = os.path.normpath(expand(str(path)))
+    real = os.path.realpath(raw)
+    best, best_len = "", -1
+    for e in cfg.get("folder_map") or []:
+        p = (e.get("path") or "").rstrip("/")
+        if not p:
+            continue
+        p = os.path.normpath(expand(p))
+        for mine, theirs in ((raw, p), (real, os.path.realpath(p))):
+            if (mine == theirs or mine.startswith(theirs.rstrip("/") + "/")) and len(p) > best_len:
+                best, best_len = e.get("account") or "", len(p)
+                break
+    if best:
+        return best, True
+    return cfg.get("default_account") or "", False
+
+
 # ------------------------------------------------------------------ messaggi
 _MSG = {}
 
@@ -469,6 +517,8 @@ def flatten_sh(cfg, prefix="CM"):
             lines.append(f"export {name}={sh_quote(sh_value(v))}")
 
     for k, v in cfg.items():
+        if k == "hosts":   # misure annidate: gli script bash non le leggono, le legge cm-hosts.py
+            continue
         walk(f"{prefix}_{k.upper()}", v)
     # i pattern dei dialoghi contengono spazi: come lista sarebbero illeggibili, si esporta la regex unita
     lines.append(f"export CM_SESSION_DIALOG_REGEX={sh_quote('|'.join(cfg['session'].get('dialog_patterns', [])))}")
@@ -1216,6 +1266,11 @@ def main(argv):
     if a == "--msg":
         kw = dict(x.split("=", 1) for x in argv[2:] if "=" in x)
         print(msg(cfg, argv[1], **kw))
+        return 0
+    if a == "--account-for":
+        # l'account DEDOTTO dalla cartella, vuoto se nessuna voce di folder_map la copre (chi chiama sceglie il default)
+        acc, deduced = account_for(cfg, argv[1] if len(argv) > 1 else os.getcwd())
+        print(acc if deduced else "")
         return 0
     if a == "--get":
         try:

@@ -424,6 +424,23 @@ def watch_receiving(now=None):
     return bool(devices) and (now or time.time()) - float(last.get("pushed_at") or 0) < fresh
 
 
+def relay_event(kind, title, body, ref=None, account=None):
+    """Lo stesso avviso che va a Telegram, anche all'app come evento del relay (contratto 1.18): diario, resoconto
+    della notte, ripresa della quota. Con il relay spento non fa nulla; un errore del relay non ferma mai Telegram."""
+    if not (_cfg().get("relay") or {}).get("enabled"):
+        return False
+    try:
+        _load("cm-relay").emit(kind, title, body, ref=ref, account=account)
+        return True
+    except Exception as e:   # noqa: BLE001 — la chiave mancante, il bus giu', la libreria di cifratura assente
+        try:
+            with open(relay_dir() / "relay.log", "a") as f:
+                f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} evento {kind} NON mandato: {e}\n")
+        except OSError:
+            pass
+        return False
+
+
 # ------------------------------------------------------------------ testo a misura di polso e di telefono
 WIDTH = 22        # larghezza utile di uno schermo tondo: solo le etichette corte ci passano
 MAX_LINES = 8     # righe di un avviso: oltre, si legge male sia sul polso sia nella bolla

@@ -24,7 +24,8 @@
   "projects": [],
   "night": {
     "queued": 0,
-    "running": null
+    "running": null,
+    "items": []
   },
   "recap": {
     "date": "2026-09-12",
@@ -56,5 +57,8 @@
       "xhigh",
       "max"
     ]
+  },
+  "share": {
+    "max_bytes": 1500000
   }
 }
