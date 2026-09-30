@@ -12,7 +12,9 @@ all'opzione voluta, si verifica sullo schermo e si conferma con Invio: e' la ste
 `launch` per i dialoghi di fiducia (T3). Provato dal vivo il 10/09/2026: «Down, Enter» → «→ Blu»
 e la sessione riparte. Un messaggio nell'inbox NON risponde a un dialogo aperto.
 
-Senza «Enter to select» sullo schermo non c'e' nessuna domanda: esce senza toccare tasti.
+Senza «Enter to select» sullo schermo non c'e' nessuna domanda: esce senza toccare tasti. Il dialogo di permesso
+con la conferma chiesta da un hook finisce invece con «Esc to cancel · Tab to amend»: vale anche quello, ma solo
+con il cursore «❯» su una voce numerata (30/09, dal vivo: il permesso dell'Agent arrivava al telefono senza opzioni).
 E' il pezzo che manca al telefono: dalla master, «rispondi 2 a progetto-x» → `claude-master answer progetto-x 2`.
 
   cm-answer.py --notify   (dall'hook PermissionRequest, staccato, payload JSON su stdin)
@@ -48,6 +50,7 @@ CFG = cm.load(warn=False)
 M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
 OPTION = re.compile(r"^\s*(❯)?\s*(\d+)\.\s+(.*\S)\s*$")
 FOOTER = "Enter to select"
+FOOTER_PERMISSION = "Esc to cancel"   # «Esc to cancel · Tab to amend»: il dialogo di permesso (Bash, Agent, …)
 # le voci fisse in coda al dialogo di AskUserQuestion: non sono opzioni (via master 12/09, screenshot dell'utente)
 FOOT_OPTIONS = ("type something.", "chat about this")
 # ...ma si possono scegliere per nome: `answer NOME --text "..."` (senza numero) e `answer NOME --chat` (15/09, dal polso)
@@ -72,7 +75,8 @@ def parse(text):
     «n. label»; la descrizione sotto (indentata, senza numero) si raccoglie (12/09: sul polso e' il testo che
     i tasti non possono mostrare)."""
     lines = text.splitlines()
-    if not any(FOOTER in l for l in lines):
+    if not any(FOOTER in l for l in lines) and not (any(FOOTER_PERMISSION in l for l in lines)
+                                                    and any((m := OPTION.match(l)) and m.group(1) for l in lines)):
         return None
     options, header, question = [], "", ""
     for i, l in enumerate(lines):
@@ -82,7 +86,7 @@ def parse(text):
                 break   # da qui in poi solo pie' di pagina
             options.append((int(m.group(2)), m.group(3).strip(), m.group(1) == "❯", ""))
             continue
-        if options and l.strip() and l.startswith("  ") and FOOTER not in l and not l.strip().startswith("─"):
+        if options and l.strip() and l.startswith("  ") and FOOTER not in l and FOOTER_PERMISSION not in l and not l.strip().startswith("─"):
             n, lab, cur, desc = options[-1]
             options[-1] = (n, lab, cur, (desc + " " + l.strip()).strip())
             continue

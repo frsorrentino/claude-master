@@ -10,6 +10,7 @@ L5  --continue → -c; --resume con id inesistente → exit 4 con l'elenco (T10)
 L6  dialogo trust risposto (Down+Enter, T3); trust in ritardo (T4); trust + bypass in sequenza (T61)
 L7  schermo lento (T5): avvia lo stesso con nota; sessione morta subito → exit 5
 L8  finestra: backend fake attacca → «attaccata»; --no-window → nessuna apertura; T8 secondo tentativo
+L15 accounts.<nome>.remote_control prevale su session.remote_control (anche al contrario)
 L9  --bg: `--bg -n NOME`, niente --remote-control, niente tmux (T47)
 L10 profilo: argomenti, modello, env nel processo (N8); profilo ignoto → exit 2
 L11 registro aggiornato al lancio (T52) e link dal registro peer (1.2)
@@ -180,6 +181,24 @@ with T.PrivateTmux() as tm:
     r = run(str(home / "ws" / "personali" / "alfa"), "--bg")
     T.check("L9 --bg: argv has --bg and -n, no --remote-control, no tmux session", r.returncode == 0 and "--bg" in last_args() and "--remote-control" not in last_args()
             and "background" in r.stdout.lower(), last_args() + r.stdout)
+
+    # L15 (30/09): accounts.<nome>.remote_control prevale su session.remote_control, nei due sensi
+    base15 = json.loads(cfg.read_text())
+    c15 = dict(base15, accounts={"personale": base15["accounts"]["personale"], "professionale": dict(base15["accounts"]["professionale"], remote_control=False)})
+    cfg15 = tmp / "config-rc.json"; cfg15.write_text(json.dumps(c15))
+    r = run(str(home / "ws" / "pro" / "rc-off"), "--create", "--no-window", extra={"CLAUDE_MASTER_CONFIG": str(cfg15)})
+    a_off = last_args()
+    r2 = run(str(home / "ws" / "personali" / "rc-on"), "--create", "--no-window", extra={"CLAUDE_MASTER_CONFIG": str(cfg15)})
+    T.check("L15 accounts.professionale.remote_control false → no --remote-control for that account; personale keeps the global true",
+            r.returncode == 0 and "--remote-control" not in a_off and "-n pix-rc-off" in a_off and r2.returncode == 0 and "--remote-control rc-on" in last_args(), a_off + " | " + last_args() + r.stderr[-200:])
+    c15b = dict(base15, session=dict(base15["session"], remote_control=False),
+                accounts={"personale": base15["accounts"]["personale"], "professionale": dict(base15["accounts"]["professionale"], remote_control=True)})
+    cfg15.write_text(json.dumps(c15b))
+    r = run(str(home / "ws" / "pro" / "rc-on2"), "--create", "--no-window", extra={"CLAUDE_MASTER_CONFIG": str(cfg15)})
+    a_on = last_args()
+    r2 = run(str(home / "ws" / "personali" / "rc-off2"), "--create", "--no-window", extra={"CLAUDE_MASTER_CONFIG": str(cfg15)})
+    T.check("L15 session.remote_control false, accounts.professionale.remote_control true → only professionale gets --remote-control",
+            r.returncode == 0 and "--remote-control pix-rc-on2" in a_on and r2.returncode == 0 and "--remote-control" not in last_args(), a_on + " | " + last_args())
 
     r = run(str(home / "ws" / "personali" / "alfa"), "--profile", "scan")
     T.check("L10 profile args/model/effort in argv, window off", r.returncode == 0 and "--permission-prompts none" in last_args() and "--model sonnet" in last_args()

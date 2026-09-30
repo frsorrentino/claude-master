@@ -273,7 +273,7 @@ LEGACY_SKILL = "~/.claude/skills/nuova-sessione"
 LEGACY_REGISTRY = "~/.claude/sessioni-vive.json"   # letto da init per dedurre prefissi e mappa cartelle
 LEGACY_LAUNCH = "~/.claude/skills/nuova-sessione/lancia.sh"   # letto da init per i flag di avvio (T74)
 
-ACCOUNT_FIELDS = ("config_dir", "tmux_prefix", "shape", "shell_command", "label")
+ACCOUNT_FIELDS = ("config_dir", "tmux_prefix", "shape", "shell_command", "label", "remote_control")
 SHAPES = ("circle", "square")
 FIRST_ACCOUNT_NAME = {"it": "personale", "en": "personal"}
 SECOND_ACCOUNT_NAME = {"it": "professionale", "en": "work"}

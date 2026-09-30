@@ -9,6 +9,7 @@ A4  --notify (payload PermissionRequest su stdin, TMUX_PANE della sessione): mes
 A5  --notify senza tmux (TMUX_PANE assente): domanda e opzioni dal tool_input del payload, nome dalla cartella,
     nessun «rispondi»; un permesso (tool diverso) → nome del tool e dettaglio
 A6  --notify senza token Telegram → esce 0 senza chiamare l'API
+A11 il dialogo di permesso che finisce con «Esc to cancel · Tab to amend» (conferma di un hook): opzioni lette
 A10 --text senza numero (campo in riga «Type something.») e --chat; --text senza quella voce o vuoto → rifiutato
 """
 import json
@@ -127,6 +128,17 @@ T.check("A7 parse joins the question lines (box chars stripped), header, options
 scr6 = scr7.replace("  3. Type something.\n", "  3. Type something.\n────────\n  4. Chat about this\n")
 d6 = ans.parse(scr6)
 T.check("A6b (via master 12/09) «Type something.» and «Chat about this» and anything after them are footers, not options", d6 and [o[0] for o in d6[2]] == [1, 2], str(d6))
+# A11 (30/09, dal vivo sul telefono: options vuote): il dialogo di permesso con la conferma di un hook finisce con
+# «Esc to cancel · Tab to amend», senza «Enter to select»; vale solo con il cursore «❯» su una voce numerata
+scr11 = (" Tool use\n\n   Agent(Review Task 5)\n   │ Launch a new agent\n\n │ Hook PreToolUse:Agent requires confirmation for this tool:\n"
+         " │ cost checkpoint — this delegation declares ~440.000 expected output tokens.\n settings.json to update hooks\n\n"
+         " Do you want to proceed?\n ❯ 1. Yes\n   2. Yes, and don't ask again for Agent commands in /home/demo/ws/site\n   3. No\n\n"
+         " Esc to cancel · Tab to amend\n")
+d11 = ans.parse(scr11)
+T.check("A11 permission dialog ending in «Esc to cancel · Tab to amend» → three options, cursor on 1, the footer is no description",
+        d11 and [(o[0], o[2]) for o in d11[2]] == [(1, True), (2, False), (3, False)] and d11[2][1][1].startswith("Yes, and don't ask again") and all(o[3] == "" for o in d11[2]), str(d11))
+T.check("A11 «Esc to cancel» with numbered lines but no «❯» cursor (plain text on the screen) is not a question",
+        ans.parse(scr11.replace("❯", " ")) is None, str(ans.parse(scr11.replace("❯", " "))))
 long_q = "Il PC (Crostini) non accetta connessioni in entrata. Da dove possono passare stato e comandi fra PC e orologio?"
 CALLS["sendMessage"].clear()
 r = notify(None, {"session_id": "sid-g", "cwd": str(home / "gamma"), "tool_name": "AskUserQuestion",

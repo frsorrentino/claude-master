@@ -211,7 +211,10 @@ if [ "$BG" = si ]; then
 fi
 
 # --- tmux -----------------------------------------------------------------------------
-[ "$CM_SESSION_REMOTE_CONTROL" = true ] && ARGS+=(--remote-control "$NOME")
+# Remote Control: accounts.<account>.remote_control, se c'e', prevale su session.remote_control (30/09: uno dei due
+# account puo' restare senza, l'altro lo usa)
+RC="$(cm_get "$ACCOUNT" REMOTE_CONTROL)"; RC="${RC:-$CM_SESSION_REMOTE_CONTROL}"
+[ "$RC" = true ] && ARGS+=(--remote-control "$NOME")
 ARGS+=(-n "$NOME")
 if [ "$AGENT" = codex ]; then   # S09: Codex CLI nudo, senza gli argomenti di Claude Code (-n, remote control, profili)
   cm_tmux new-session -d -s "$NOME" -c "$CARTELLA" env CM_LAUNCHED=1 CM_AGENT=codex "$CODEX"
@@ -342,7 +345,7 @@ leggi_link() {
   [ -n "$REG_FILE" ] || REG_FILE=$(reg_file)
   [ -n "$REG_FILE" ] && [ -f "$REG_FILE" ] && sed -n 's/.*"bridgeSessionId":"\([^"]*\)".*/\1/p' "$REG_FILE" | head -1 | sed 's|^session_||; s|^\(.\)|https://claude.ai/code/session_\1|'
 }
-LINK=""; ATTESA=0; [ "$CM_SESSION_REMOTE_CONTROL" = true ] && ATTESA="${CM_SESSION_LINK_WAIT_S:-10}"
+LINK=""; ATTESA=0; [ "$RC" = true ] && ATTESA="${CM_SESSION_LINK_WAIT_S:-10}"
 [ "$AGENT" = codex ] && ATTESA=0   # S09: Codex non ha Remote Control
 i=0
 while :; do
