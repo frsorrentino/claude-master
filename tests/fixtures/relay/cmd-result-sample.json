@@ -140,6 +140,47 @@
       "text": "check the pricing page",
       "issued": 1789210730,
       "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0128-4000-8000-000000000128",
+      "op": "interrupt",
+      "session": "atlas-shop",
+      "arg": null,
+      "issued": 1789210740,
+      "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0129-4000-8000-000000000129",
+      "op": "interrupt",
+      "session": "field-notes",
+      "arg": null,
+      "issued": 1789210750,
+      "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0130-4000-8000-000000000130",
+      "op": "transcript",
+      "session": "field-notes",
+      "arg": "20",
+      "issued": 1789210760,
+      "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0131-4000-8000-000000000131",
+      "op": "transcript",
+      "session": "field-notes",
+      "arg": "20:after=a4.0",
+      "issued": 1789210770,
+      "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0132-4000-8000-000000000132",
+      "op": "prompt",
+      "session": "atlas-shop",
+      "arg": "also add the attendees list",
+      "device": "phone",
+      "issued": 1789210780,
+      "by": "phone-pixel8"
     }
   ],
   "result": [
@@ -246,6 +287,36 @@
       "ok": false,
       "text": "no session orbit-docs",
       "at": 1789210731
+    },
+    {
+      "id": "6f1c2d3e-0128-4000-8000-000000000128",
+      "ok": true,
+      "text": "atlas-shop: stopped",
+      "at": 1789210742
+    },
+    {
+      "id": "6f1c2d3e-0129-4000-8000-000000000129",
+      "ok": false,
+      "text": "field-notes: nothing to stop",
+      "at": 1789210751
+    },
+    {
+      "id": "6f1c2d3e-0130-4000-8000-000000000130",
+      "ok": true,
+      "text": "{\"entries\": [{\"id\": \"u1.0\", \"role\": \"user\", \"text\": \"Add the Tuesday meeting notes to the draft\", \"at\": 1789207200, \"tool\": null, \"note\": null, \"error\": null, \"cut\": false, \"turn\": null, \"files\": null, \"origin\": \"pc\", \"queued\": false}, {\"id\": \"a1.0\", \"role\": \"assistant\", \"text\": \"I'll read the draft first.\", \"at\": 1789207205, \"tool\": null, \"note\": null, \"error\": null, \"cut\": false, \"turn\": null, \"files\": null, \"origin\": null, \"queued\": false}, {\"id\": \"a1.1\", \"role\": \"tool\", \"text\": \"docs/draft.md\", \"at\": 1789207205, \"tool\": \"Read\", \"note\": null, \"error\": false, \"cut\": false, \"turn\": null, \"files\": null, \"origin\": null, \"queued\": false}, {\"id\": \"a3.0\", \"role\": \"tool\", \"text\": \"grep -n Tuesday notes/*.md\", \"at\": 1789207220, \"tool\": \"Bash\", \"note\": \"Find the Tuesday notes\", \"error\": true, \"cut\": false, \"turn\": null, \"files\": null, \"origin\": null, \"queued\": false}, {\"id\": \"a4.0\", \"role\": \"assistant\", \"text\": \"The notes file was missing, so I added the Tuesday section to the draft by hand.\", \"at\": 1789207240, \"tool\": null, \"note\": null, \"error\": null, \"cut\": false, \"turn\": {\"started\": 1789207200, \"ended\": 1789207245, \"in\": 4020, \"out\": 130}, \"files\": null, \"origin\": null, \"queued\": false}, {\"id\": \"u2.0\", \"role\": \"user\", \"text\": \"Also fix the typo in the title\", \"at\": 1789207320, \"tool\": null, \"note\": null, \"error\": null, \"cut\": false, \"turn\": null, \"files\": null, \"origin\": \"pc\", \"queued\": false}, {\"id\": \"q1.0\", \"role\": \"user\", \"text\": \"and push when done\", \"at\": 1789207350, \"tool\": null, \"note\": null, \"error\": null, \"cut\": false, \"turn\": null, \"files\": null, \"origin\": \"pc\", \"queued\": false}, {\"id\": \"a6.0\", \"role\": \"tool\", \"text\": \"docs/cover.png\", \"at\": 1789207352, \"tool\": \"Write\", \"note\": null, \"error\": false, \"cut\": false, \"turn\": null, \"files\": [{\"path\": \"/home/demo/workspaces/personal/field-notes/docs/cover.png\", \"mime\": \"image/png\", \"size\": null}], \"origin\": null, \"queued\": false}, {\"id\": \"a6.1\", \"role\": \"tool\", \"text\": \"notes.py\", \"at\": 1789207352, \"tool\": \"Edit\", \"note\": null, \"error\": false, \"cut\": false, \"turn\": null, \"files\": null, \"origin\": null, \"queued\": false}, {\"id\": \"a6.2\", \"role\": \"tool\", \"text\": \"/home/demo/workspaces/personal/field-notes/docs/broken.pdf\", \"at\": 1789207352, \"tool\": \"Write\", \"note\": null, \"error\": true, \"cut\": false, \"turn\": null, \"files\": null, \"origin\": null, \"queued\": false}, {\"id\": \"a7.0\", \"role\": \"tool\", \"text\": \"Tuesday minutes\", \"at\": 1789207355, \"tool\": \"SendUserFile\", \"note\": null, \"error\": false, \"cut\": false, \"turn\": null, \"files\": [{\"path\": \"/home/demo/workspaces/personal/field-notes/docs/minutes.pdf\", \"mime\": \"application/pdf\", \"size\": null}], \"origin\": null, \"queued\": false}, {\"id\": \"a7.1\", \"role\": \"tool\", \"text\": \"claude-master report atlas-shop /tmp/shot.jpg \\\"checkout is grey\\\"\", \"at\": 1789207355, \"tool\": \"Bash\", \"note\": \"Forward the screenshot to atlas-shop\", \"error\": false, \"cut\": false, \"turn\": null, \"files\": [{\"path\": \"/home/demo/workspaces/personal/atlas-shop/docs/reports/2026-09-12-checkout-is-grey.jpg\", \"mime\": \"image/jpeg\", \"size\": null}], \"origin\": null, \"queued\": false}, {\"id\": \"p1.0\", \"role\": \"user\", \"text\": \"Also add the attendees list\", \"at\": 1789207357, \"tool\": null, \"note\": null, \"error\": null, \"cut\": false, \"turn\": null, \"files\": null, \"origin\": \"phone\", \"queued\": false}, {\"id\": \"q1789207361000\", \"role\": \"user\", \"text\": \"then tag the release\", \"at\": 1789207361, \"tool\": null, \"note\": null, \"error\": null, \"cut\": false, \"turn\": null, \"files\": null, \"origin\": \"pc\", \"queued\": false}, {\"id\": \"img1.0\", \"role\": \"user\", \"text\": \"this is how the header looks now\", \"at\": 1789207364, \"tool\": null, \"note\": \"1 image(s)\", \"error\": null, \"cut\": false, \"turn\": null, \"files\": null, \"origin\": \"pc\", \"queued\": false}, {\"id\": \"q1789207365000\", \"role\": \"user\", \"text\": \"still waiting in the queue\", \"at\": 1789207365, \"tool\": null, \"note\": null, \"error\": null, \"cut\": false, \"turn\": null, \"files\": null, \"origin\": \"pc\", \"queued\": true}, {\"id\": \"a5.0\", \"role\": \"assistant\", \"text\": \"Fixed «Teusday» in the title; pushing now.\", \"at\": 1789207360, \"tool\": null, \"note\": null, \"error\": null, \"cut\": false, \"turn\": null, \"files\": null, \"origin\": null, \"queued\": false}], \"more\": false}",
+      "at": 1789210761
+    },
+    {
+      "id": "6f1c2d3e-0131-4000-8000-000000000131",
+      "ok": true,
+      "text": "{\"entries\": [{\"id\": \"u2.0\", \"role\": \"user\", \"text\": \"Also fix the typo in the title\", \"at\": 1789207320, \"tool\": null, \"note\": null, \"error\": null, \"cut\": false, \"turn\": null, \"files\": null, \"origin\": \"pc\", \"queued\": false}, {\"id\": \"q1.0\", \"role\": \"user\", \"text\": \"and push when done\", \"at\": 1789207350, \"tool\": null, \"note\": null, \"error\": null, \"cut\": false, \"turn\": null, \"files\": null, \"origin\": \"pc\", \"queued\": false}, {\"id\": \"a6.0\", \"role\": \"tool\", \"text\": \"docs/cover.png\", \"at\": 1789207352, \"tool\": \"Write\", \"note\": null, \"error\": false, \"cut\": false, \"turn\": null, \"files\": [{\"path\": \"/home/demo/workspaces/personal/field-notes/docs/cover.png\", \"mime\": \"image/png\", \"size\": null}], \"origin\": null, \"queued\": false}, {\"id\": \"a6.1\", \"role\": \"tool\", \"text\": \"notes.py\", \"at\": 1789207352, \"tool\": \"Edit\", \"note\": null, \"error\": false, \"cut\": false, \"turn\": null, \"files\": null, \"origin\": null, \"queued\": false}, {\"id\": \"a6.2\", \"role\": \"tool\", \"text\": \"/home/demo/workspaces/personal/field-notes/docs/broken.pdf\", \"at\": 1789207352, \"tool\": \"Write\", \"note\": null, \"error\": true, \"cut\": false, \"turn\": null, \"files\": null, \"origin\": null, \"queued\": false}, {\"id\": \"a7.0\", \"role\": \"tool\", \"text\": \"Tuesday minutes\", \"at\": 1789207355, \"tool\": \"SendUserFile\", \"note\": null, \"error\": false, \"cut\": false, \"turn\": null, \"files\": [{\"path\": \"/home/demo/workspaces/personal/field-notes/docs/minutes.pdf\", \"mime\": \"application/pdf\", \"size\": null}], \"origin\": null, \"queued\": false}, {\"id\": \"a7.1\", \"role\": \"tool\", \"text\": \"claude-master report atlas-shop /tmp/shot.jpg \\\"checkout is grey\\\"\", \"at\": 1789207355, \"tool\": \"Bash\", \"note\": \"Forward the screenshot to atlas-shop\", \"error\": false, \"cut\": false, \"turn\": null, \"files\": [{\"path\": \"/home/demo/workspaces/personal/atlas-shop/docs/reports/2026-09-12-checkout-is-grey.jpg\", \"mime\": \"image/jpeg\", \"size\": null}], \"origin\": null, \"queued\": false}, {\"id\": \"p1.0\", \"role\": \"user\", \"text\": \"Also add the attendees list\", \"at\": 1789207357, \"tool\": null, \"note\": null, \"error\": null, \"cut\": false, \"turn\": null, \"files\": null, \"origin\": \"phone\", \"queued\": false}, {\"id\": \"q1789207361000\", \"role\": \"user\", \"text\": \"then tag the release\", \"at\": 1789207361, \"tool\": null, \"note\": null, \"error\": null, \"cut\": false, \"turn\": null, \"files\": null, \"origin\": \"pc\", \"queued\": false}, {\"id\": \"img1.0\", \"role\": \"user\", \"text\": \"this is how the header looks now\", \"at\": 1789207364, \"tool\": null, \"note\": \"1 image(s)\", \"error\": null, \"cut\": false, \"turn\": null, \"files\": null, \"origin\": \"pc\", \"queued\": false}, {\"id\": \"q1789207365000\", \"role\": \"user\", \"text\": \"still waiting in the queue\", \"at\": 1789207365, \"tool\": null, \"note\": null, \"error\": null, \"cut\": false, \"turn\": null, \"files\": null, \"origin\": \"pc\", \"queued\": true}, {\"id\": \"a5.0\", \"role\": \"assistant\", \"text\": \"Fixed «Teusday» in the title; pushing now.\", \"at\": 1789207360, \"tool\": null, \"note\": null, \"error\": null, \"cut\": false, \"turn\": null, \"files\": null, \"origin\": null, \"queued\": false}], \"more\": false}",
+      "at": 1789210771
+    },
+    {
+      "id": "6f1c2d3e-0132-4000-8000-000000000132",
+      "ok": true,
+      "text": "delivered",
+      "at": 1789210781
     }
   ]
 }

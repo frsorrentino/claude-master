@@ -22,6 +22,7 @@ S17 il processo fuori registro ha un'etichetta leggibile invece del nome vuoto e
 S18 senza `language` nella config: LANG it → italiano, LANG en → inglese, settings.json «italiano» → italiano anche con LANG en
 S19 il valore esplicito vince sul rilevamento: `language: en` con LANG it → inglese
 S23 idle da piu' di sessions.idle_hours → suggerimento di chiusura; --count-active per il tetto di launch
+S24 il prompt suggerito in grigio dopo «❯» (suggestion), mai il testo digitato
 S21 bassa priorita' dallo schermo («Working at lower priority»), goal nativo dal transcript (goal_status), nota in quota
 S20 il server tmux (primo argomento «tmux», `…/claude` nella riga di comando) non e' un Claude fuori registro; il
     processo claude vero di S4 resta
@@ -215,6 +216,19 @@ with T.PrivateTmux() as tm:
     rows = json.loads(run("--json").stdout)
     by = {x["name"]: x for x in rows if x["name"]}
     T.check("S21 the offer line on the screen → low_priority «offered» and the note «proposto /low-priority»", by.get("questa-prova", {}).get("low_priority") == "offered" and "proposto /low-priority" in run().stdout, str(by.get("questa-prova")))
+    tm("send-keys", "-t", "gamma", "clear; printf '\\n  Working at lower priority \xc2\xb7 waiting for capacity\\n'", "Enter")
+    time.sleep(0.8)
+    # S24 (contratto 1.23 del relay): il suggerimento grigio (SGR 2) dopo «❯» a casella vuota; testo digitato → None
+    tm("send-keys", "-t", "gamma", "clear; printf '\\n❯ \\033[2mrun the full test suite\\033[0m\\n'", "Enter")
+    time.sleep(0.8)
+    sg = {x["name"]: x.get("suggestion") for x in json.loads(run("--json").stdout) if x["name"]}
+    tm("send-keys", "-t", "gamma", "clear; printf '\\n❯ typed \\033[2mrun the full test suite\\033[0m\\n'", "Enter")
+    time.sleep(0.8)
+    sg2 = {x["name"]: x.get("suggestion") for x in json.loads(run("--json").stdout) if x["name"]}
+    sg3 = {x["name"]: x.get("suggestion") for x in json.loads(run("--json", "--no-screen").stdout) if x["name"]}
+    T.check("S24 dim text after «❯» → suggestion «run the full test suite»; with typed text before it → None; --no-screen → None",
+            sg.get("questa-prova") == "run the full test suite" and sg2.get("questa-prova") is None and sg3.get("questa-prova") is None,
+            f"{sg.get('questa-prova')!r} {sg2.get('questa-prova')!r}")
     tm("send-keys", "-t", "gamma", "clear; printf '\\n  Working at lower priority \xc2\xb7 waiting for capacity\\n'", "Enter")
     time.sleep(0.8)
     # quota: la nota per l'account con una sessione a bassa priorita' (file quota della statusline finto)

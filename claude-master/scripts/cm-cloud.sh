@@ -9,6 +9,9 @@
 #                                                         radice dei workspaces. OPZIONALE, spento di default
 #                                                         (desk.enabled): la sessione della radice resta
 #                                                         l'ingresso dal telefono (l'utente, 10/09/2026)
+#                                                         Le sessioni dello sportello nascono senza Claude in
+#                                                         Chrome: `remote-control` lo accende solo con --chrome
+#                                                         (2.1.285)
 #   (--teleport <id> e' un'opzione di `launch`: porta una sessione cloud in tmux con finestra e colore)
 set -u
 source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/cm-lib.sh"

@@ -342,9 +342,44 @@ def cmd_wait(argv):
     return 0
 
 
+BUSY = re.compile(r"(?i)esc to interrupt")
+
+
+def turn_running(tm):
+    """Il turno e' in corso: «esc to interrupt» nelle ultime righe dello schermo (la riga di stato di Claude Code;
+    le righe piu' su sono conversazione, dove la frase puo' comparire come testo)."""
+    return bool(BUSY.search("\n".join((tmux("capture-pane", "-p", "-t", tm) or "").rstrip().splitlines()[-12:])))
+
+
+def cmd_interrupt(argv):
+    """`claude-master interrupt NOME` (30/09, il tasto Stop del telefono): UN Esc, e solo a turno in corso. Due Esc al
+    prompt fermo aprono il rewind; un Esc su un dialogo lo annulla: per questo prima si guarda lo schermo.
+    Exit 0 fermato, 1 niente da fermare, 3 sessione non viva o senza tmux, 4 ancora in corso dopo l'attesa."""
+    name = argv[0] if argv else ""
+    if not name:
+        die("interrupt.usage", 2)
+    row = find(name)
+    tm = (row or {}).get("tmux") or ""
+    if not tm and subprocess.run(sessions.TMUX + ["has-session", "-t", f"={name}"], capture_output=True).returncode == 0:
+        tm = name   # basta la sessione tmux: l'Esc va al suo pannello
+    if not tm:
+        die("interrupt.not_running", 3, name=name)
+    if not turn_running(tm):
+        die("interrupt.nothing", 1, name=name)
+    tmux("send-keys", "-t", tm, "Escape")
+    for _ in range(20):
+        time.sleep(0.25)
+        if not turn_running(tm):
+            print(M("interrupt.stopped", name=name))
+            return 0
+    die("interrupt.still", 4, name=name)
+
+
 if __name__ == "__main__":
     prog = os.path.basename(sys.argv[0])
     args = sys.argv[1:]
+    if args and args[0] == "interrupt":
+        sys.exit(cmd_interrupt(args[1:]))
     if args and args[0] in ("talk", "wait"):
         sub, args = args[0], args[1:]
     else:

@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/py.sh\" \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" SessionEnd",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/detach.sh\" \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-hook.py\" SessionEnd",
             "timeout": 10
           }
         ]

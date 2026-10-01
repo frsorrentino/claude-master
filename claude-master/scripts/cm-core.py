@@ -507,6 +507,221 @@ def tool_line(name, tool_input, width=120):
     return line(f"{name} {detail[:width]}")
 
 
+ENTRY_TEXT_MAX = 4000   # 1.22: il testo di una voce della chat del telefono; oltre, `cut: true` (mai «…»)
+_REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.S)
+# 1.22 (30/09): i file che nella chat del telefono diventano un'anteprima. Write/Edit solo di media e documenti (il
+# codice e le note .md si modificano di continuo: sarebbero rumore); SendUserFile qualunque file
+FILE_EXTS = {"png", "jpg", "jpeg", "webp", "gif", "svg", "mp4", "webm", "mov", "m4v", "mp3", "wav", "m4a", "ogg",
+             "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "csv", "html", "zip"}
+WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
+_REPORT_IMAGE = re.compile(r"^\s*(?:image|immagine):\s*(/\S.*?)\s*$", re.M)
+
+
+def _file_ref(path, cwd):
+    import mimetypes
+    p = str(path or "").strip()
+    if not p:
+        return None
+    if not os.path.isabs(p) and cwd:
+        p = os.path.join(cwd, p)
+    try:
+        size = os.path.getsize(p)
+    except OSError:
+        size = None
+    return {"path": p, "mime": mimetypes.guess_type(p)[0] or "application/octet-stream", "size": size}
+
+
+def _files_of(name, inp, cwd):
+    if not isinstance(inp, dict):
+        return []
+    if name in WRITE_TOOLS:
+        p = inp.get("file_path") or inp.get("notebook_path") or ""
+        return [_file_ref(p, cwd)] if str(p).rsplit(".", 1)[-1].lower() in FILE_EXTS else []
+    if name == "SendUserFile":
+        ps = inp.get("files") or inp.get("file_paths") or [inp.get("file_path") or inp.get("path") or ""]   # dal vivo: files
+        return [f for f in (_file_ref(x, cwd) for x in ps if isinstance(x, str)) if f]
+    return []
+
+
+def _human(d):
+    """Una riga `user` scritta dalla persona: origin.kind «human» (senza origin, le versioni vecchie: testo che non e'
+    un involucro <…> di comandi, notifiche o promemoria). Le meta, le sidechain e i risultati degli strumenti no."""
+    if d.get("isMeta") or d.get("isSidechain"):
+        return False
+    o = d.get("origin")
+    if isinstance(o, dict):
+        return o.get("kind") == "human"
+    return True
+
+
+_PREFIXES = None
+
+
+def _prompt_prefixes():
+    """[(prefisso, origin)] dei prompt mandati dal relay, in tutte le lingue: telefono, orologio, e quello senza
+    dispositivo («remote»)."""
+    global _PREFIXES
+    if _PREFIXES is None:
+        _PREFIXES = []
+        for f in sorted((HERE.parent / "messages").glob("*.json")):
+            try:
+                m = json.loads(f.read_text())
+            except (OSError, ValueError):
+                continue
+            for key, origin in (("relay.prompt_prefix_phone", "phone"), ("relay.prompt_prefix_watch", "watch"), ("relay.prompt_prefix", "remote")):
+                if m.get(key):
+                    _PREFIXES.append((m[key], origin))
+        _PREFIXES.sort(key=lambda x: -len(x[0]))
+    return _PREFIXES
+
+
+def _origin_of(text):
+    """(testo senza il prefisso del relay, origin): «phone», «watch», «remote» (relay, dispositivo ignoto) o «pc»."""
+    for p, origin in _prompt_prefixes():
+        if text.startswith(p):
+            return text[len(p):].strip(), origin
+    return text, "pc"
+
+
+def _clean(text):
+    """Il testo di un messaggio della persona: senza promemoria; vuoto per gli involucri <…> e gli avvisi
+    «[Request interrupted …]» di Claude Code. Una lista di blocchi (testo + immagini incollate) → (testo, n immagini)."""
+    if isinstance(text, list):
+        t = " ".join(str(b.get("text") or "") for b in text if isinstance(b, dict) and b.get("type") == "text")
+        n = sum(1 for b in text if isinstance(b, dict) and b.get("type") == "image")
+        return _clean(t)[0], n
+    t = _REMINDER.sub("", str(text or "")).strip()
+    if (t.startswith("<") and t.endswith(">")) or t.startswith(("[Request interrupted", "[Cross-session")):
+        return "", 0
+    return t, 0
+
+
+def _entry(eid, role, text, at, tool=None, note=None, error=None):
+    t = str(text or "")
+    return {"id": eid, "role": role, "text": t[:ENTRY_TEXT_MAX], "at": at, "tool": tool, "note": note or None,
+            "error": error, "cut": len(t) > ENTRY_TEXT_MAX, "turn": None, "files": None, "origin": None, "queued": False}
+
+
+def transcript_entries(path, offset=0):
+    """1.22 (30/09): la conversazione di una sessione come chat, dal transcript dopo `offset` byte. Voci in ordine:
+    user (quello che la persona ha scritto), assistant (il testo di Claude), tool (una per chiamata: nome, dettaglio
+    corto, la description come note, error dal tool_result, files = [{path, mime, size}] dei media e documenti scritti
+    o mandati). `turn` = {started, ended, in, out} sull'ultima voce
+    di un turno chiuso (system turn_duration; token sommati dagli usage dei messaggi del turno)."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(offset)
+            data = f.read()
+    except OSError:
+        return []
+    lines = data.split(b"\n")
+    if offset:
+        lines = lines[1:]   # la prima riga puo' essere a meta'
+    out, by_tool, tokens, peer_seen, queued = [], {}, [0, 0], set(), {}
+
+    def human_entry(eid, raw, at):
+        """Una voce della persona. Se lo stesso testo e' gia' in coda (enqueue visto prima), quella voce resta — con
+        l'ora in cui e' stato scritto — e smette di essere `queued`: niente doppioni, niente ritardo."""
+        t, imgs = _clean(raw)
+        if not t and not imgs:
+            return
+        t, origin = _origin_of(t)
+        waiting = queued.get(t)
+        if waiting:
+            e = waiting.pop(0)
+            e["queued"] = False
+            return
+        e = dict(_entry(eid, "user", t, at), origin=origin)
+        if imgs:
+            e["note"] = f"{imgs} image(s)"
+        out.append(e)
+
+    def relayed(o):
+        """Un prompt del relay consegnato dal socket arriva come messaggio `peer` (origin.body, due volte: in coda e
+        poi come riga meta): e' della persona, dal telefono o dall'orologio. Gli altri peer (sessioni) no."""
+        if not isinstance(o, dict) or o.get("kind") != "peer":
+            return None
+        t, origin = _origin_of(str(o.get("body") or "").strip())
+        if origin == "pc" or not t or o.get("msg_id") in peer_seen:
+            return None
+        peer_seen.add(o.get("msg_id"))
+        return t, origin
+    for raw in lines:
+        if not raw.strip():
+            continue
+        try:
+            d = json.loads(raw)
+        except ValueError:
+            continue
+        kind, uid, at = d.get("type"), str(d.get("uuid") or ""), int(_turn_epoch(d.get("timestamp"))) or None
+        if d.get("isSidechain"):
+            continue
+        content = (d.get("message") or {}).get("content")
+        if kind == "user":
+            if isinstance(content, list):
+                for b in content:
+                    if isinstance(b, dict) and b.get("type") == "tool_result" and b.get("tool_use_id") in by_tool:
+                        e = by_tool[b["tool_use_id"]]
+                        e["error"] = bool(b.get("is_error"))
+                        if e["error"]:
+                            e["files"] = None   # la scrittura non e' riuscita: nessun file da mostrare
+                        elif e["tool"] == "Bash" and "claude-master report" in e["text"]:
+                            res = b.get("content")
+                            res = res if isinstance(res, str) else " ".join(str(x.get("text") or "") for x in (res or []) if isinstance(x, dict))
+                            refs = [_file_ref(m, d.get("cwd")) for m in _REPORT_IMAGE.findall(res)]
+                            e["files"] = [f for f in refs if f] or None
+            rel = relayed(d.get("origin"))
+            if rel:
+                out.append(dict(_entry(f"{uid}.0", "user", rel[0], at), origin=rel[1]))
+                continue
+            if not _human(d):
+                continue
+            human_entry(f"{uid}.0", content, at)
+        elif kind == "attachment":
+            a = d.get("attachment") or {}
+            o = a.get("origin")
+            rel = relayed(o) if a.get("type") == "queued_command" else None
+            if rel:
+                out.append(dict(_entry(f"{uid}.0", "user", rel[0], at), origin=rel[1]))
+                continue
+            if a.get("type") == "queued_command" and isinstance(o, dict) and o.get("kind") == "human":
+                human_entry(f"{uid}.0", a.get("prompt"), at)
+        elif kind == "assistant" and isinstance(content, list):
+            u = (d.get("message") or {}).get("usage") or {}
+            tokens[0] += int(u.get("input_tokens") or 0) + int(u.get("cache_creation_input_tokens") or 0) + int(u.get("cache_read_input_tokens") or 0)
+            tokens[1] += int(u.get("output_tokens") or 0)
+            for i, b in enumerate(content):
+                if not isinstance(b, dict):
+                    continue
+                if b.get("type") == "text" and str(b.get("text") or "").strip():
+                    out.append(_entry(f"{uid}.{i}", "assistant", b["text"].strip(), at))
+                elif b.get("type") == "tool_use":
+                    name = str(b.get("name") or "?")
+                    detail = tool_line(name, b.get("input"), width=200)[len(name):].strip()   # il nome e' gia' in `tool`
+                    if not detail and isinstance(b.get("input"), dict) and b["input"].get("caption"):
+                        detail = " ".join(str(b["input"]["caption"]).split())[:200]   # SendUserFile: la didascalia
+                    e = _entry(f"{uid}.{i}", "tool", detail, at, tool=name, note=tool_note(b.get("input")))
+                    e["files"] = _files_of(name, b.get("input"), d.get("cwd")) or None
+                    out.append(e)
+                    if b.get("id"):
+                        by_tool[b["id"]] = e
+        elif kind == "queue-operation" and d.get("operation") == "enqueue" and isinstance(d.get("content"), str):
+            # scritto nella chat (terminale o app Claude) mentre il turno gira: in coda da subito, entra nel turno dopo
+            t, _ = _clean(d["content"])
+            t, origin = _origin_of(t)
+            if t and origin == "pc":
+                e = dict(_entry(f"q{int(_turn_epoch(d.get('timestamp')) * 1000)}", "user", t, at), origin=origin, queued=True)
+                out.append(e)
+                queued.setdefault(t, []).append(e)
+        elif kind == "system" and d.get("subtype") == "turn_duration":
+            last = next((e for e in reversed(out) if e["role"] != "user"), None)
+            if last is not None and last["turn"] is None and at:
+                ms = int(d.get("durationMs") or 0)
+                last["turn"] = {"started": at - ms // 1000 if ms else None, "ended": at, "in": tokens[0] or None, "out": tokens[1] or None}
+            tokens = [0, 0]
+    return out
+
+
 def transcript_events(path, offset):
     """Gli eventi del transcript (jsonl di Claude Code) scritti dopo `offset` byte: ("user", testo),
     ("text", testo assistant), ("tool", nome, input). Torna (eventi, nuovo offset). Righe rotte ignorate."""

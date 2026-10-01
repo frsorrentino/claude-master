@@ -189,6 +189,8 @@ esegui() {
   # 5. Display (14/09/2026): 9 riavvii su 9 senza finestra dal 12/09 — cm_recover_display (cm-lib.sh)
   if cm_recover_display; then echo "display recuperato: WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-} DISPLAY=${DISPLAY:-}"; fi
   local out rc
+  # --force: un riavvio sostituisce una sessione, non ne aggiunge; il tetto sessions.max_sessions lo fermava (exit 7)
+  OPZ+=(--force)
   out=$("$CM_SCRIPTS/cm-launch.sh" "$cartella" "${OPZ[@]}" 2>&1); rc=$?
   if [ $rc -ne 0 ]; then echo "primo rilancio fallito (rc=$rc):"; echo "$out"; sleep 5
     out=$("$CM_SCRIPTS/cm-launch.sh" "$cartella" "${OPZ[@]}" 2>&1); rc=$?; fi

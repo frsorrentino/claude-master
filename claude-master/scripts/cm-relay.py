@@ -60,7 +60,7 @@ M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
 R = CFG["relay"]
 CM_BIN = os.environ.get("CM_RELAY_CM") or str(HERE / "claude-master")
 BACKOFF = [1, 2, 5, 15, 30]
-OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report")
+OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report", "interrupt", "transcript")
 LAST_MAX = 4000   # 1.4: l'ultimo messaggio per la lettura vocale — oltre, l'ascolto non regge
 
 
@@ -472,9 +472,13 @@ def collect_sources(now=None):
     live = [r for r in (_json_cmd("sessions", "--json") or []) if (r.get("tmux") or r.get("name"))]
     good = _json_cmd("registry", "--good", expect="{") or {}
     alive_names = {r.get("tmux") for r in live}
+    # 30/09: una sessione chiusa con lo stesso nome corto di una viva (stessa cartella, l'altro account: «x» e
+    # «pix-x») non entra — sul polso sarebbero due «x», e il nome del contratto portava alla tmux sbagliata
+    alive_short = {S.short_name(r.get("tmux") or r.get("name") or "", prefixes()) for r in live}
     rows = list(live)
     for s in good.get("sessioni", []):
-        if s.get("nome") and s["nome"] not in alive_names and os.path.isdir(s.get("cartella") or ""):
+        if s.get("nome") and s["nome"] not in alive_names and os.path.isdir(s.get("cartella") or "") \
+                and S.short_name(s["nome"], prefixes()) not in alive_short:
             rows.append({"tmux": s["nome"], "name": s["nome"], "status": "dead", "cwd": s.get("cartella", ""), "account": s.get("account", ""),
                          "waiting": False, "session_id": s.get("session_id") or "", "link": "", "attached": False,
                          "visto_ts": S.epoch(s.get("visto", "")) if s.get("visto") else 0})
@@ -559,7 +563,7 @@ def collect_sources(now=None):
         "state_max_kb": R.get("state_max_kb") or 8,
         "rows": rows, "ledger": ledger, "questions": questions,
         "quota": _json_cmd("quota", "--json", expect="{") or {},
-        "projects": inventory(), "night": night_queue(), "recap": recap_today(now),
+        "projects": inventory(), "night": night_queue(), "recap": recap_today(now), "ops": list(OPS),
         "follow": followed(), "awaiting": aw, "next": nexts, "next_at": nexts_at, "tools": tools,
         "icons": icons, "colors": R.get("colors") or None, "tool_notes": notes, "runtime": runtime,
         # 1.12: le scelte valide per il polso, dalla config (tune.models / tune.efforts)
@@ -592,7 +596,9 @@ def _push(dry_run=False, now=None):
     # una sessione viva tolta da fit_state diventava «gone» e il polso diceva «Session closed»)
     full = S.build_state(src, now, fit=False)
     state = S.fit_state(copy.deepcopy(full), int(src.get("state_max_kb") or 8))
-    names = {S.short_name(r.get("name") or r.get("tmux") or "?", src["prefixes"]): (r.get("tmux") or r.get("name")) for r in src["rows"]}
+    names = {}
+    for r in src["rows"]:   # le vive vengono prima: a parita' di nome corto vince la sessione viva
+        names.setdefault(S.short_name(r.get("name") or r.get("tmux") or "?", src["prefixes"]), r.get("tmux") or r.get("name"))
     if dry_run:
         print(json.dumps(state, ensure_ascii=False, indent=1))
         return state
@@ -978,7 +984,7 @@ def _share_report(cmd, tm, session, sid):
         return False, M("relay.cmd_report_empty")
     if len(text) > REPORT_TEXT_MAX:
         return False, M("relay.cmd_report_long", max=REPORT_TEXT_MAX)
-    row = next((r for r in (_json_cmd("sessions", "--json") or []) if (r.get("tmux") or r.get("name")) == tm), None)
+    row = next((r for r in (_json_cmd("sessions", "--json", "--no-screen") or []) if (r.get("tmux") or r.get("name")) == tm), None)
     if not row or not row.get("cwd") or not os.path.isdir(row["cwd"]):
         return False, M("relay.cmd_report_no_session", name=session or "?")
     img = None
@@ -1034,6 +1040,71 @@ def prune_share(now):
     write_json(seen_p, seen)
 
 
+TRANSCRIPT_MAX_N = 200
+TRANSCRIPT_MAX_BYTES = 60000   # 1.22: il JSON di una pagina in /result; oltre si toglie dalla parte vecchia e more=true
+TRANSCRIPT_WINDOWS = (2 * 1024 * 1024, 16 * 1024 * 1024, None)   # si legge dalla coda, e si allarga solo se serve
+
+
+def transcript_page(session, tm, arg):
+    """1.22 (30/09): la chat di una sessione per il telefono. arg «n» = le ultime n voci; «n:before=<id>» = le n
+    prima di quella voce; «n:after=<id>» = le prime n dopo (il telefono lo ripete a scheda aperta, e costa poco:
+    basta la coda del file). text = JSON {entries, more}."""
+    m = re.fullmatch(r"\s*(\d{1,4})\s*(?::\s*(before|after)=([A-Za-z0-9._-]{1,80}))?\s*", str(arg or "50"))
+    if not m or not int(m.group(1)):
+        return False, M("relay.cmd_transcript_bad_arg", arg=str(arg or ""))
+    n, mode, ref = min(int(m.group(1)), TRANSCRIPT_MAX_N), m.group(2), m.group(3)
+    row = next((r for r in (_json_cmd("sessions", "--json", "--no-screen") or []) if (r.get("tmux") or r.get("name")) == tm), None)
+    if not row:
+        return False, M("relay.cmd_interrupt_gone", name=session)
+    path = core.transcript_of(row)
+    if not path:
+        return False, M("relay.cmd_transcript_none", name=session)
+    size = os.path.getsize(path)
+    for window in TRANSCRIPT_WINDOWS:
+        start = 0 if window is None or window >= size else size - window
+        entries = core.transcript_entries(path, start)
+        ids = [e["id"] for e in entries]
+        if ref and ref not in ids and start:
+            continue   # la voce e' piu' indietro: si allarga la finestra
+        if not ref and len(entries) < n and start:
+            continue
+        break
+    if ref and ref not in ids:
+        return False, M("relay.cmd_transcript_unknown", id=ref)
+    if mode == "after":
+        i = ids.index(ref) + 1
+        page, more = entries[i:i + n], len(entries) > i + n
+    else:
+        end = ids.index(ref) if mode == "before" else len(entries)
+        page = entries[max(0, end - n):end]
+        more = end - n > 0 or bool(start)
+    while page and len(json.dumps({"entries": page, "more": True}, ensure_ascii=False).encode()) > TRANSCRIPT_MAX_BYTES:
+        if mode == "after":
+            page = page[:-1]
+        else:
+            page = page[1:]
+        more = True
+    return True, json.dumps({"entries": page, "more": bool(more)}, ensure_ascii=False)
+
+
+def prefix_for(cmd):
+    """1.22 (30/09): il prefisso del prompt dice da dove arriva — `device` del comando («phone» | «watch»); senza, il
+    prefisso di prima. `transcript` lo riconosce, lo toglie e ne fa `origin`."""
+    dev = str(cmd.get("device") or "")
+    return M(f"relay.prompt_prefix_{dev}") if dev in ("phone", "watch") else M("relay.prompt_prefix")
+
+
+def is_live(tm):
+    """La sessione tmux c'e' adesso (sessions --json): `talk` su una chiusa salva nella casella ed esce 0."""
+    return any((r.get("tmux") or r.get("name")) == tm for r in (_json_cmd("sessions", "--json", "--no-screen") or []))
+
+
+def saved_in_inbox(out):
+    """`talk` ha solo messo il messaggio nella casella (sessione chiusa fra il controllo e la consegna): la sua riga
+    rimanda a `talk --status <id>`, in ogni lingua."""
+    return "talk --status" in (out or "")
+
+
 def execute(cmd):
     """(ok, testo) per un comando del contratto: {op, session, arg, by}. Allow-list fissa, tutto via la CLI."""
     op = str(cmd.get("op") or "")
@@ -1057,7 +1128,7 @@ def execute(cmd):
                 pick = [a]
             else:
                 return False, M("relay.cmd_bad_answer", arg=a or "?")
-            row = next((r for r in (_json_cmd("sessions", "--json") or []) if (r.get("tmux") or r.get("name")) == tm), None)
+            row = next((r for r in (_json_cmd("sessions", "--json", "--no-screen") or []) if (r.get("tmux") or r.get("name")) == tm), None)
             if row:
                 checkpoint(row.get("cwd"))
             rc, out = run_cm("answer", tm, *pick)
@@ -1071,9 +1142,13 @@ def execute(cmd):
             text = str(arg or "").strip()
             if not text:
                 return False, "empty prompt"
-            rc, out = run_cm("talk", tm, M("relay.prompt_prefix") + " " + text, "--no-wait")
+            if not is_live(tm):
+                return False, M("relay.cmd_not_running", name=session)
+            rc, out = run_cm("talk", tm, prefix_for(cmd) + " " + text, "--no-wait")
             if rc != 0:
                 return False, out.splitlines()[0] if out else "talk failed"
+            if saved_in_inbox(out):
+                return False, M("relay.cmd_inbox_only", name=session)
             aw = read_json(rdir() / "awaiting.json", {}); aw[tm] = int(time.time()); write_json(rdir() / "awaiting.json", aw)
             return True, M("relay.cmd_delivered")
         if op == "launch":
@@ -1085,21 +1160,21 @@ def execute(cmd):
             # che non conosce `text` lo ignora e lancia senza messaggio: mai un prompt a meta'
             prompt = " ".join(str(cmd.get("text") or "").split())
             here = os.path.realpath(proj["path"])
-            before = {r.get("tmux") or r.get("name") for r in (_json_cmd("sessions", "--json") or [])}
+            before = {r.get("tmux") or r.get("name") for r in (_json_cmd("sessions", "--json", "--no-screen") or [])}
             # 1.9.2 (15/09, decisione dell'utente): la scheda sul desktop come reopen; senza desktop, senza finestra
             rc, out = run_cm("launch", proj["path"], "--window")
             if rc != 0:
                 return False, out.splitlines()[0] if out else "launch failed"
             # il nome vero della sessione nata (launch prende il primo libero: «orbit-docs-2»), cosi' il polso apre la
             # Scheda giusta senza indovinare; e' lo stesso nome corto di sessions[].name
-            new = [r.get("tmux") or r.get("name") for r in (_json_cmd("sessions", "--json") or [])
+            new = [r.get("tmux") or r.get("name") for r in (_json_cmd("sessions", "--json", "--no-screen") or [])
                    if (r.get("tmux") or r.get("name")) not in before and r.get("cwd") and os.path.realpath(r["cwd"]) == here]
             extra = {"session": S.short_name(new[0], prefixes())} if new else {}
             if not prompt:
                 return True, M("relay.cmd_launched", name=proj["name"], account=proj["account"]), extra
             if not new:
                 return False, M("relay.cmd_launch_no_prompt", name=proj["name"], account=proj["account"], line="session not found"), extra
-            rc, out = run_cm("talk", new[0], M("relay.prompt_prefix") + " " + prompt, "--no-wait")
+            rc, out = run_cm("talk", new[0], prefix_for(cmd) + " " + prompt, "--no-wait")
             if rc != 0:
                 return False, M("relay.cmd_launch_no_prompt", name=proj["name"], account=proj["account"],
                                 line=(out.splitlines() or ["talk failed"])[0]), extra
@@ -1113,9 +1188,13 @@ def execute(cmd):
         if op == "resume":
             if info.get("state") == "gone":
                 return False, M("relay.cmd_gone", name=session)
-            rc, out = run_cm("talk", tm, M("relay.prompt_prefix") + " " + str((CFG.get("guard") or {}).get("resume_prompt") or "riprendi da dove eri"), "--no-wait")
+            if not is_live(tm):
+                return False, M("relay.cmd_not_running", name=session)
+            rc, out = run_cm("talk", tm, prefix_for(cmd) + " " + str((CFG.get("guard") or {}).get("resume_prompt") or "riprendi da dove eri"), "--no-wait")
             if rc != 0:
                 return False, out.splitlines()[0] if out else "talk failed"
+            if saved_in_inbox(out):
+                return False, M("relay.cmd_inbox_only", name=session)
             return True, M("relay.cmd_resumed", name=session)
         if op == "reopen":
             # 1.9 (15/09): una sessione gone rilanciata nella sua cartella (la logica e' una sola, anche per il bot)
@@ -1163,8 +1242,26 @@ def execute(cmd):
             return True, M("relay.cmd_night_removed", id=job)
         if op == "report":
             return share_report(cmd, tm, session)
+        if op == "transcript":
+            return transcript_page(session, tm, arg)
+        if op == "interrupt":
+            # 1.21 (30/09): il tasto Stop — `claude-master interrupt` manda un solo Esc, e solo a turno in corso
+            if info.get("state") == "gone" or not is_live(tm):
+                return False, M("relay.cmd_interrupt_gone", name=session)
+            rc, out = run_cm("interrupt", tm)
+            if rc == 0:
+                aw = read_json(rdir() / "awaiting.json", {})
+                if aw.pop(tm, None) is not None:
+                    write_json(rdir() / "awaiting.json", aw)
+                push_async()   # lo stato dice subito che il turno non gira piu'
+                return True, M("relay.cmd_stopped", name=session)
+            if rc == 1:
+                return False, M("relay.cmd_nothing_to_stop", name=session)
+            if rc == 4:
+                return False, M("relay.cmd_still_running", name=session)
+            return False, (out.splitlines() or ["interrupt failed"])[0]
         if op == "last":
-            row = next((r for r in (_json_cmd("sessions", "--json") or []) if (r.get("tmux") or r.get("name")) == tm), None)
+            row = next((r for r in (_json_cmd("sessions", "--json", "--no-screen") or []) if (r.get("tmux") or r.get("name")) == tm), None)
             text = last_message(row) if row else ""
             return (bool(text), text or M("relay.cmd_no_last", name=session))
         if op == "screen":
@@ -1182,7 +1279,7 @@ def execute(cmd):
                 return False, M("relay.cmd_no_allow_all")
             rc, out = run_cm("answer", tm, str(opt["n"]))
             if rc == 0:
-                clear_waiting(next((r.get("session_id") for r in (_json_cmd("sessions", "--json") or []) if (r.get("tmux") or r.get("name")) == tm), ""))
+                clear_waiting(next((r.get("session_id") for r in (_json_cmd("sessions", "--json", "--no-screen") or []) if (r.get("tmux") or r.get("name")) == tm), ""))
             return (rc == 0), (M("relay.cmd_answered", n=opt["n"], label=opt["label"]) if rc == 0 else (out.splitlines()[0] if out else "answer failed"))
     except subprocess.TimeoutExpired:
         return False, "timeout"
@@ -1257,6 +1354,52 @@ def commands_from(ev, payload):
     return {}
 
 
+PASSIVE_OPS = ("transcript", "screen", "last")   # letture: non cambiano lo stato, vengono dopo i comandi dell'utente
+
+
+def in_order(cmds):
+    """I comandi nell'ordine in cui il telefono o l'orologio li ha dati (`issued`, poi l'id): le chiavi di /cmd sono
+    uuid casuali, e dopo una riconnessione (una all'ora per il token) il `put` iniziale li porta tutti insieme in
+    ordine di chiave — un prompt poteva partire dopo la risposta che lo seguiva (30/09, dal telefono)."""
+    try:
+        k = key()
+    except RelayError:
+        return list(cmds.items())
+
+    def clear(item):
+        doc = item[1]
+        try:
+            c = C.decrypt(doc, k) if isinstance(doc, dict) and "enc" in doc else doc
+            return c if isinstance(c, dict) else {}
+        except (ValueError, TypeError, AttributeError):
+            return {}
+    items = [(cid, doc, clear((cid, doc))) for cid, doc in cmds.items()]
+    # prima i comandi dell'utente, poi le letture; dentro ciascun gruppo nell'ordine in cui sono stati dati
+    items.sort(key=lambda x: (str(x[2].get("op") or "") in PASSIVE_OPS, float(x[2].get("issued") or 0), x[0]))
+    # di piu' letture uguali della stessa sessione vale l'ultima: il telefono si e' gia' scordato le altre
+    newest = {}
+    for cid, _, c in items:
+        if str(c.get("op") or "") in PASSIVE_OPS:
+            newest[(c.get("op"), c.get("session"))] = cid
+    out = []
+    for cid, doc, c in items:
+        if str(c.get("op") or "") in PASSIVE_OPS and newest.get((c.get("op"), c.get("session"))) != cid:
+            superseded(cid, k)
+            continue
+        out.append((cid, doc))
+    return out
+
+
+def superseded(cid, k):
+    """Una lettura rimpiazzata da una piu' recente della stessa sessione: risultato breve e /cmd pulito, cosi' nulla
+    resta appeso."""
+    try:
+        rtdb("PUT", f"result/{cid}", C.encrypt({"id": cid, "ok": False, "text": M("relay.cmd_superseded"), "at": int(time.time())}, k), {"print": "silent"})
+        rtdb("DELETE", f"cmd/{cid}")
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        log(f"cmd {cid}: superseded non scritto ({e})")
+
+
 def ledger_write(event, **fields):
     """Una riga nel registro comune (<state_dir>/ledger.jsonl), stessa forma dell'hook: cosi' il recap e le
     diagnosi vedono anche i comandi arrivati dal polso (design §5: «`by` dice chi ha risposto, il registro lo annota»)."""
@@ -1317,10 +1460,14 @@ def handle_cmd(cid, doc, done):
     done.append(cid)
     del done[:-500]
     write_json(rdir() / "done-cmds.json", done)
-    try:
-        push()
-    except (RelayError, urllib.error.URLError, OSError, ValueError) as e:
-        log(f"push dopo il comando FAILED: {e}")
+    # 30/09 (dal vivo): la push sincrona dopo OGNI comando costava ~6 s, anche dopo una lettura della chat, e i prompt
+    # restavano in fila dietro le letture fino a scadere sul telefono. Le letture non cambiano lo stato: niente push;
+    # gli altri comandi la chiedono in background (debounce) e il daemon passa subito al comando dopo
+    if str(cmd.get("op") or "") not in PASSIVE_OPS:
+        try:
+            push_async()
+        except OSError as e:
+            log(f"push dopo il comando FAILED: {e}")
     return True
 
 
@@ -1361,7 +1508,7 @@ def serve():
                     for ev, payload in sse_lines(resp):
                         if ev == "auth_revoked":
                             log("serve: auth_revoked, nuovo token"); (rdir() / "token.json").unlink(missing_ok=True); break
-                        for cid, doc in commands_from(ev, payload).items():
+                        for cid, doc in in_order(commands_from(ev, payload)):
                             if handle_cmd(cid, doc, done):
                                 st_["last_cmd_ts"] = time.time(); st_["last_cmd"] = cid; st_["served"] += 1
                                 try:

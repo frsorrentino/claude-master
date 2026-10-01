@@ -293,6 +293,69 @@ def waits_on_screen(tmux_name, screen=None):
     return bool(tail and WAIT_LIST.search(tail) and WAIT_HINT.search(tail))
 
 
+_ESC = re.compile(r"\x1b\[([0-9;:]*)([A-Za-z])")
+WORKING = re.compile(r"(?i)esc to interrupt")   # turno in corso: nessun suggerimento da offrire
+_OPTION_LINE = re.compile(r"^\s*\d+\.\s")
+_PLACEHOLDER = re.compile(r'^Try ".*"$')
+
+
+def _dim_after(params, dim):
+    """Lo stato «attenuato» dopo una sequenza SGR: 2 accende, 22 e 0 (o vuota) spengono; i colori 38/48 con i loro
+    argomenti (5;n o 2;r;g;b) si saltano, cosi' il 2 di un colore RGB non e' preso per l'attenuato."""
+    ps = [p for p in params.replace(":", ";").split(";")]
+    i = 0
+    while i < len(ps):
+        p = ps[i]
+        if p in ("38", "48", "58"):
+            i += 3 if (i + 1 < len(ps) and ps[i + 1] == "5") else 5 if (i + 1 < len(ps) and ps[i + 1] == "2") else 1
+            continue
+        if p in ("", "0", "22"):
+            dim = False
+        elif p == "2":
+            dim = True
+        i += 1
+    return dim
+
+
+def suggestion_on_screen(tmux_name, colored=None):
+    """1.23 (30/09): il prompt suggerito che Claude Code scrive in grigio (SGR 2) dopo «❯» a casella vuota, o None.
+    Mai il testo digitato: basta un carattere non attenuato dopo «❯» e non c'e' suggerimento. None anche a turno in
+    corso, su un dialogo (le righe «❯ 1. …» sono opzioni) e per il segnaposto «Try "…"» delle sessioni nuove."""
+    if colored is None:
+        colored = tmux("capture-pane", "-p", "-e", "-t", tmux_name) if tmux_name else ""
+    lines = (colored or "").rstrip("\n").splitlines()[-15:]
+    plain = [_ESC.sub("", l) for l in lines]
+    if any(WORKING.search(l) for l in plain):
+        return None
+    idx = next((i for i in range(len(plain) - 1, -1, -1) if plain[i].lstrip().startswith("❯")), None)
+    if idx is None or _OPTION_LINE.match(plain[idx].lstrip()[1:]):
+        return None
+    line = lines[idx]
+    pos, dim, seen, out = line.index("❯") + 1, False, False, []
+    # lo stato SGR prima di «❯» vale anche dopo: si ricostruisce dall'inizio della riga
+    for m in _ESC.finditer(line[:pos]):
+        if m.group(2) == "m":
+            dim = _dim_after(m.group(1), dim)
+    i = pos
+    while i < len(line):
+        m = _ESC.match(line, i)
+        if m:
+            if m.group(2) == "m":
+                dim = _dim_after(m.group(1), dim)
+            i = m.end()
+            continue
+        ch = line[i]
+        if dim:
+            out.append(ch)
+        elif not ch.isspace():
+            return None   # testo digitato dall'utente
+        elif out:
+            out.append(" ")
+        i += 1
+    text = " ".join("".join(out).replace("\u00a0", " ").split())
+    return text if text and not _PLACEHOLDER.match(text) else None
+
+
 def low_priority_on_screen(tmux_name, screen=None):
     """Contratto 1.16: «active» se lo schermo mostra la modalita' a bassa priorita' in corso, «offered» se mostra
     l'offerta al muro del limite, «off» altrimenti; None senza schermo da leggere (non si sa)."""
@@ -434,6 +497,7 @@ def collect(read_screen=True):
         row["waiting"] = (row["status"] == "waiting") or (bool(flag) if flag is not None else (waits_on_screen(tm, screen) if read_screen else False))
         # bassa priorita' (lenta ma viva) e goal nativo: informazione, mai azione
         row["low_priority"] = low_priority_on_screen(tm, screen) if read_screen else None
+        row["suggestion"] = suggestion_on_screen(tm) if read_screen and tm else None
         a = status_age_min(row)
         row["status_age_min"] = round(a) if a is not None else None
         g = goal_of(row)

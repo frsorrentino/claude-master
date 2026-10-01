@@ -11,6 +11,7 @@ T7  wait: torna quando il registro dice idle e stampa l'ultima risposta; T7b con
 R1  report: progetto per nome esatto, prefisso, sottostringa; immagine copiata in <subdir>/<data>-<slug>.<ext> con chmod 644
 R2  report: consegna alla sessione via talk --no-wait; --no-launch archivia e basta se la sessione manca
 R3  report: sessione assente → la lancia (claude finto) e consegna
+I1  interrupt: un solo Esc e solo a turno in corso («esc to interrupt»); niente turno → exit 1; sessione assente → 3
 R4  report: cartella come percorso assoluto; --session consegna a quella sessione, exit 6 se non c'e'
 """
 import json
@@ -206,6 +207,23 @@ print(repr(filt("❯ \\x1b[2msolo suggerimento fino a fine riga")))        # non
     T.check("R3 missing session launched and text delivered", r.returncode == 0 and tm("has-session", "-t", "=shopfront").returncode == 0 and "consegnata" in r.stdout, r.stdout + r.stderr)
     screen = tm("capture-pane", "-p", "-t", "shopfront").stdout
     T.check("R3 the fake session shows the delivered text", "lancia e consegna" in screen, screen[-400:])
+    # I1 (30/09, il tasto Stop): un solo Esc e solo a turno in corso. La sessione finta mostra «esc to interrupt»,
+    # legge un tasto (l'Esc) e passa a «idle»; un secondo Esc scriverebbe SECOND
+    tm("new-session", "-d", "-s", "busyone", "-x", "120", "-y", "20",
+       "bash -c 'printf \"* Working… (12s · esc to interrupt)\\n\"; read -rsn1; clear; echo idle; read -rsn1; echo SECOND; sleep 300'")
+    time.sleep(0.8)
+    ri = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-talk.py"), "interrupt", "busyone"], capture_output=True, text=True, env=env(), timeout=60)
+    time.sleep(0.8)
+    scr_i = tm("capture-pane", "-p", "-t", "busyone").stdout
+    T.check("I1 interrupt during a turn → one Esc, exit 0 «busyone: fermata»; the pane went idle and got no second Esc",
+            ri.returncode == 0 and "fermata" in ri.stdout and "idle" in scr_i and "SECOND" not in scr_i, ri.stdout + ri.stderr + scr_i[-200:])
+    ri = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-talk.py"), "interrupt", "busyone"], capture_output=True, text=True, env=env(), timeout=60)
+    time.sleep(0.5)
+    T.check("I1 no turn running → exit 1 «niente da fermare», no key sent (no rewind on an idle prompt)",
+            ri.returncode == 1 and "niente da fermare" in ri.stderr and "SECOND" not in tm("capture-pane", "-p", "-t", "busyone").stdout, ri.stderr)
+    ri = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-talk.py"), "interrupt", "nessuna-tale"], capture_output=True, text=True, env=env(), timeout=60)
+    T.check("I1 a session that does not exist → exit 3", ri.returncode == 3, ri.stderr)
+    tm("kill-session", "-t", "=busyone")
     # R4 (contratto 1.19 del relay, «Condividi» dal telefono): la cartella come percorso assoluto e la sessione per nome
     shop = home / "ws" / "personali" / "shopfront"
     r = subprocess.run([str(T.SCRIPTS / "cm-report.sh"), str(shop), "-", "nessuna sessione", "--session", "inesistente"], capture_output=True, text=True, env=env(), timeout=60)

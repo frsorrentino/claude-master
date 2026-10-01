@@ -47,6 +47,7 @@
       "icon": "🟦",
       "color": "#3B82F6",
       "low_priority": "offered",
+      "suggestion": null,
       "goal": null
     },
     {
@@ -81,6 +82,7 @@
       "icon": "🟢",
       "color": "#2ECC71",
       "low_priority": "active",
+      "suggestion": null,
       "goal": {
         "text": "All checkout tests green and the release tagged",
         "since": 1789210700,
@@ -124,6 +126,7 @@
       "icon": "🟡",
       "color": "#F4D03F",
       "low_priority": "off",
+      "suggestion": "commit the README changes and open a PR",
       "goal": null
     },
     {
@@ -151,6 +154,7 @@
       "icon": "🟪",
       "color": "#9B59B6",
       "low_priority": null,
+      "suggestion": null,
       "goal": null
     }
   ],
@@ -258,5 +262,24 @@
   },
   "share": {
     "max_bytes": 1500000
-  }
+  },
+  "ops": [
+    "answer",
+    "prompt",
+    "launch",
+    "follow",
+    "unfollow",
+    "resume",
+    "reopen",
+    "screen",
+    "allow_all",
+    "last",
+    "model",
+    "effort",
+    "night_add",
+    "night_remove",
+    "report",
+    "interrupt",
+    "transcript"
+  ]
 }

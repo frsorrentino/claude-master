@@ -93,7 +93,9 @@ python3 "$CM_SCRIPTS/cm-sessions.py" --quota-warn "$ACCOUNT" >&2 2>/dev/null || 
 # tetto (25/09/2026): 6,6 GB di RAM e ~350 MB a sessione. Oltre sessions.max_sessions sessioni al lavoro (busy o
 # idle, esclusa la master) si avvisa con il conteggio e la memoria libera e si chiede conferma; senza terminale
 # (lanciata da una sessione Claude) ci si ferma con exit 7 e si dice di ripetere con --force.
-if [ "$FORCE" != si ]; then
+# La master (la radice dei workspace) non passa dal tetto: e' l'ingresso dal telefono, e il Riapri dell'app la
+# lancia senza terminale (01/10/2026 23:17: «reopen master → 6 sessioni già al lavoro», exit 7).
+if [ "$FORCE" != si ] && [ "$(readlink -f "$CARTELLA")" != "$(readlink -f "$(eval echo "$CM_WORKSPACE_ROOT")")" ]; then
   ATTIVE="$(python3 "$CM_SCRIPTS/cm-sessions.py" --count-active 2>/dev/null || echo 0)"
   MAX="${CM_SESSIONS_MAX_SESSIONS:-5}"
   if [ "${ATTIVE:-0}" -ge "$MAX" ] 2>/dev/null; then

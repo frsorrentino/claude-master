@@ -277,6 +277,8 @@ def build_session(row, src):
         # Claude Code la tiene solo in memoria; null senza schermo o sessione gone) e il goal nativo di /goal
         # ({text, since, met} dall'ultimo goal_status del transcript; null senza goal)
         "low_priority": row.get("low_priority") if row.get("low_priority") in ("off", "offered", "active") else None,
+        # 1.23: il prompt suggerito in grigio dopo «❯», solo per una sessione ferma al prompt (null altrimenti)
+        "suggestion": (str(row.get("suggestion"))[:300] or None) if st == "idle" and row.get("suggestion") else None,
         "goal": _goal(row.get("goal_status")),
     }
 
@@ -344,7 +346,9 @@ def build_state(src, now, fit=True):
         # 1.12: modelli ed effort che il polso puo' chiedere per una sessione; null se il relay non li conosce
         "choices": src.get("choices") or None,
         # 1.19: il relay sa ricevere «Condividi» (op report con /share); presente = l'app accende il pulsante
-        "share": {"max_bytes": SHARE_MAX_BYTES}
+        "share": {"max_bytes": SHARE_MAX_BYTES},
+        # 1.21: le op di /cmd che questo relay esegue; l'app accende un pulsante solo se la sua op c'e' (Stop = interrupt)
+        "ops": list(src.get("ops") or [])
     }
     # fit=False: lo stato intero, su cui il relay calcola gli eventi (23/09: gli eventi sullo stato tagliato davano
     # «Session closed» al polso per sessioni vive che fit_state aveva tolto per la dimensione)

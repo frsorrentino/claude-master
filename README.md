@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.5.1-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.5.2-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 [![claude-master in 40 seconds: a question from a Claude Code session on a Wear OS watch — «Staging is green. Deploy 2.8.0?» — answered with one tap.](assets/readme/promo-poster.jpg)](https://www.francescosorrentino.com/plugins/claude-master-watch)
 
@@ -240,6 +240,20 @@ like a command, in `/share/<id>` (at most 1.5 MB, JPEG or PNG), then sends
 `claude-master report <session folder> <image|-> "<text>" --session <name>` and
 deletes the node, whatever the outcome (unread nodes go after 10 minutes).
 `/state` carries `share: {max_bytes}` so the app knows it can.
+
+Contract 1.21 adds the Stop button: `interrupt` with the session runs
+`claude-master interrupt`, and `/state` carries `ops`, the command ops this relay
+executes, so the app shows a button only when its op is there.
+
+Contract 1.22 is the conversation for the phone's chat: `transcript` with `n`,
+`n:before=<id>` or `n:after=<id>` answers with the session's entries read from
+its transcript — what the person typed, Claude's text, one line per tool call
+(with its description, whether it failed, and the media or documents it wrote or
+sent), and the tokens and times of each closed turn — at most 60 KB a page.
+
+Contract 1.23 adds `suggestion` to every session in `/state`: the prompt Claude
+Code suggests in dim text after `❯` when the input is empty, read with its
+colours from the pane, for a session at the prompt only — never typed text.
 
 Contract 1.20 counts the phone as well as the watch before falling back to
 Telegram. Each paired device writes `/seen/<uid>` (the Firebase server time)
@@ -598,6 +612,7 @@ The complete reference. Italian aliases (`lancia`, `chiudi`, `sessioni`,
 | `claude-master model <name> <model>` · `claude-master effort <name> <level>` | switches another session's model or effort **for that session only**, through its own picker: the default for new sessions is never touched. Refuses a session that is working, has a question open or has text typed in its prompt; values come from `tune.models` and `tune.efforts` |
 | `claude-master screen <name> [--lines N]` | the last 30 lines of a session's terminal, for the phone («screen NAME» to the root session) |
 | `claude-master wait <name> [--timeout S]` | blocks until that session is idle; says if a `/goal` is still open there |
+| `claude-master interrupt <name>` | stops the turn that session is running: one Esc, sent only while «esc to interrupt» is on its screen (never a double Esc at an idle prompt, never on an open dialog) |
 | `claude-master report <project> <image\|-> "text" [--no-launch]` | screenshot into the project's `docs/segnalazioni/`, prompt delivered |
 | `claude-master queue <name> "prompt" [--expires M] \| --show \| --clear` | a prompt delivered when that session's next turn ends |
 | `claude-master next [--all] [--attach]` | the session that needs you most |
@@ -605,13 +620,13 @@ The complete reference. Italian aliases (`lancia`, `chiudi`, `sessioni`,
 | `claude-master registry [--show\|--good\|--closed NAME]` | refresh the list of sessions to restore (also from cron); `--good` is the «last good set», which never shrinks on its own |
 | `claude-master restore [--dry-run\|--yes]` | relaunch the sessions registered before a reboot: the union of the registry and the last good set, each with its source and date |
 | `claude-master cloud <dir> "task"` · `claude-master follow <id> "message"` | a cloud session from the folder's account; a message to it |
-| `claude-master desk [start\|stop\|status]` | a Remote Control desk in the workspace root (optional, off by default) |
+| `claude-master desk [start\|stop\|status]` | a Remote Control desk in the workspace root (optional, off by default); the sessions it spawns run without Claude in Chrome, which `claude remote-control` turns on only with `--chrome` |
 | `claude-master tile [names] [--rows\|--grid] [--on PLACE] [--dry-run] [--where]` · `claude-master merge` · `claude-master move PLACE` · `claude-master layout save\|restore\|list NAME` | windows side by side, as tabs, on another monitor, or by saved layout (ChromeOS) |
 | `claude-master attach <name>` · `claude-master color <name>` · `claude-master quota` | attach a terminal; the tab's shape and colour; how full each account's quota is |
 | `claude-master guard run` · `install\|uninstall\|status` | quota guard: one warning per window above `guard.warn_pct` with the reset time, on Telegram when no watch is receiving; at the reset, the sessions that hit the wall get «resume where you were» and a pending night queue runs | |
 | `claude-master bot status` | one-way Telegram: the token, the allowed chats and the log of what was sent |
 | `claude-master recap [--date D\|--since H] [--send] [--full]` · `recap install\|uninstall\|status` | the day's diary, per project: waiting on a question first (with a link), then alive, then closed |
-| `claude-master inbox [NAME] [--all]` · `claude-master talk --status ID` | the durable inbox: `talk` writes each message to disk before delivering it; a session that was closed gets its messages when it starts again, a busy one at the end of its turn |
+| `claude-master inbox [NAME] [--all]` · `claude-master talk --status ID` · `claude-master inbox cancel ID` | the durable inbox: `talk` writes each message to disk before delivering it; a session that was closed gets its messages when it starts again, a busy one at the end of its turn; `cancel` withdraws a message still pending |
 | `claude-master observe add\|list\|show\|mark\|export\|report` | the local record of claude-master's own errors (see «What you are trusting»): add a workaround or a verdict, triage, or send them as one anonymized issue |
 | `claude-master night add <dir> "prompt" [--model M] [--effort E] [--max-turns N]` · `list` · `remove <id>` · `run [--dry-run\|--one] [--send]` · `install\|uninstall\|status` | the overnight queue |
 | `claude-master host add NAME --ssh ALIAS [--kind K] [--yes]` · `host doctor NAME\|local [--no-bench] [--force-bench]` · `host confirm NAME [--roles …] [--trust work\|full] [--limits …]` · `host list\|remove\|update NAME` | declare another machine, measure it, confirm roles, limits and trust; the remote helper is installed only on a yes |

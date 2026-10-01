@@ -35,6 +35,7 @@
       "icon": "🟢",
       "color": "#2ECC71",
       "low_priority": "off",
+      "suggestion": null,
       "goal": null
     }
   ],
@@ -102,5 +103,24 @@
   },
   "share": {
     "max_bytes": 1500000
-  }
+  },
+  "ops": [
+    "answer",
+    "prompt",
+    "launch",
+    "follow",
+    "unfollow",
+    "resume",
+    "reopen",
+    "screen",
+    "allow_all",
+    "last",
+    "model",
+    "effort",
+    "night_add",
+    "night_remove",
+    "report",
+    "interrupt",
+    "transcript"
+  ]
 }

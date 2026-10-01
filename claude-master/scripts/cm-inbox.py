@@ -8,6 +8,9 @@ la destinataria stessa: allo Stop di un turno (se era viva ma occupata) o al Ses
 
   claude-master inbox [NOME] [--all]     i messaggi (in attesa; --all anche consegnati e scaduti)
   claude-master inbox status ID          lo stato di un messaggio (anche: claude-master talk --status ID)
+  claude-master inbox cancel ID          annulla un messaggio ancora in attesa (stato cancelled, il file resta);
+                                         uno gia' consegnato o scaduto non si tocca (01/10/2026, dall'app: un /exit
+                                         rimasto in casella per una sessione chiusa prima di riceverlo)
 
 File: <state_dir>/inbox/<nome-tmux>/<id>.json — {id, to, to_cwd, from, text, created, expires, status, delivered_at, via}.
 Identita' della destinataria: il nome tmux (resta uguale nei riavvii) e, se nota, la cartella: una sessione nuova con
@@ -177,6 +180,18 @@ def main(argv):
             return 1
         print(M("inbox.status", id=rec["id"], to=rec["to"], status=rec["status"],
                 when=when(rec.get("delivered_at") or rec.get("created")), via=rec.get("via") or "-"))
+        return 0
+    if argv and argv[0] == "cancel":
+        rec = load(argv[1]) if len(argv) > 1 else None
+        if not rec:
+            print(M("inbox.unknown", id=argv[1] if len(argv) > 1 else ""), file=sys.stderr)
+            return 1
+        if rec.get("status") != "pending":
+            print(M("inbox.not_pending", id=rec["id"], to=rec["to"], status=rec["status"]), file=sys.stderr)
+            return 1
+        mark(rec["id"], "cancelled")
+        ledger("cancelled", to=rec["to"], id=rec["id"], sender=rec.get("from"))
+        print(M("inbox.cancelled", id=rec["id"], to=rec["to"]))
         return 0
     include_all = "--all" in argv
     names = [a for a in argv if not a.startswith("--")] or sorted(p.name for p in (STATE / "inbox").glob("*") if p.is_dir())

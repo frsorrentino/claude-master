@@ -56,6 +56,7 @@ case "$cmd" in
   quota|quote)            exec python3 "$S/cm-quota.py" "$@" ;;
   talk|parla-con)         exec python3 "$S/cm-talk.py" talk "$@" ;;
   wait|aspetta)           exec python3 "$S/cm-talk.py" wait "$@" ;;
+  interrupt|interrompi)   exec python3 "$S/cm-talk.py" interrupt "$@" ;;
   report|segnala)         exec "$S/cm-report.sh" "$@" ;;
   restart|riavvia)        exec "$S/cm-restart.sh" "$@" ;;
   queue|coda)             exec python3 "$S/cm-queue.py" "$@" ;;

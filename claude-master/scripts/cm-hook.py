@@ -111,6 +111,8 @@ def registry_update(closed=""):
 
 
 def my_tmux_name():
+    if os.environ.get("CM_HOOK_TMUX_NAME"):   # detach.sh read it before letting go: after /exit the pane may be gone
+        return os.environ["CM_HOOK_TMUX_NAME"]
     pane = os.environ.get("TMUX_PANE", "")
     if not pane:
         return ""

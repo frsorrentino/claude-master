@@ -5,7 +5,7 @@ P1  py.sh: python3 e' l'alias dello Store (esce 9009) → salta a `python`, espo
 P2  py.sh: la scelta resta in cache (~/.cache/claude-master/python) e vale al giro dopo, senza sonde
 P3  py.sh: nessun Python (python3, python, py tutti rotti) → UNA riga su stderr, niente stdout, uscita 0
 P4  py.sh: CLAUDE_MASTER_PY vince su cache e sonde
-P5  hooks.json: ogni hook di cm-hook.py passa da scripts/py.sh, nessun `python3` nudo
+P5  hooks.json: ogni hook di cm-hook.py passa da scripts/py.sh (SessionEnd da detach.sh, che usa py.sh), nessun `python3` nudo
 H1  cm-hook.py con os.name == "nt": il primo SessionStart stampa una riga (WSL2) ed esce 0, senza caricare la config
 H2  cm-hook.py su Windows: il secondo SessionStart e Stop/UserPromptSubmit/PostToolUse/SessionEnd tacciono, uscita 0
 C1  CLI con uname MINGW: un comando qualunque → una riga su stderr, niente stdout, uscita 3, nessun python avviato
@@ -76,8 +76,12 @@ T.check("P4 CLAUDE_MASTER_PY wins", r.returncode == 0 and r.stdout.strip() == "o
 hooks = json.loads((T.PLUGIN / "hooks" / "hooks.json").read_text())["hooks"]
 cmds = [h["command"] for groups in hooks.values() for g in groups for h in g["hooks"]]
 cm = [c for c in cmds if "cm-hook.py" in c]
-T.check("P5 every cm-hook.py hook runs through scripts/py.sh",
-        len(cm) == 7 and all(c.startswith('bash "${CLAUDE_PLUGIN_ROOT}/scripts/py.sh" ') for c in cm), json.dumps(cm)[:400])
+# SessionEnd passa da detach.sh, che lancia py.sh staccato (2.1.287: 1,5 s per tutti gli hook di session.end)
+T.check("P5 every cm-hook.py hook runs through scripts/py.sh (SessionEnd through detach.sh, which runs py.sh)",
+        len(cm) == 7 and all(c.startswith('bash "${CLAUDE_PLUGIN_ROOT}/scripts/py.sh" ')
+                             or (c.startswith('bash "${CLAUDE_PLUGIN_ROOT}/scripts/detach.sh" ') and c.endswith(" SessionEnd"))
+                             for c in cm)
+        and 'py.sh' in (T.SCRIPTS / "detach.sh").read_text(), json.dumps(cm)[:400])
 
 # --- H1/H2: cm-hook.py believing it runs on Windows (os.name set by a sitecustomize before the script starts)
 site = tmp / "site"

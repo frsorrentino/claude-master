@@ -9,6 +9,8 @@ IB5 talk verso una sessione nota (registro) ma chiusa: exit 0, salvato; verso un
 IB6 cm-hook: SessionStart consegna nel contesto; Stop con messaggi in attesa → decision block; con stop_hook_active → niente
 IB7 inbox status / talk --status
 IB8 registro: righe talk e delivered nel diario, con la sola prima riga del testo
+IB9 inbox cancel ID: un messaggio in attesa diventa cancelled e non si consegna piu'; uno gia' consegnato o un
+    id ignoto: exit 1, niente cambia
 """
 import json
 import os
@@ -52,6 +54,10 @@ def py(code):
 
 def recs(to):
     return [json.loads(p.read_text()) for p in sorted((state / "inbox" / to).glob("*.json"))] if (state / "inbox" / to).exists() else []
+
+
+def load_status(rec_id):
+    return json.loads(py(f"print(json.dumps(I.load({rec_id!r})))").stdout or 'null').get('status')
 
 
 def hook(ev, payload, extra=None):
@@ -118,4 +124,19 @@ talks = [r for r in led if r["event"] == "talk"]
 T.check("IB8 the activity log: talk rows (sender, recipient, id, first line only) and delivered rows",
         any(r["to"] == "alfa" and r["text"] == "Risposta: la release e' pubblicata." for r in talks) and any(r["event"] == "delivered" for r in led)
         and not any("Seconda riga" in json.dumps(r) for r in led), json.dumps(talks[:2]))
+# IB9: annullare un messaggio in attesa (01/10/2026, un /exit rimasto per una sessione chiusa prima di riceverlo)
+py(f"I.put('delta','/exit','claude-master',{str(work)!r})")
+did = recs("delta")[0]["id"]
+inbox = lambda *a: subprocess.run([sys.executable, str(T.SCRIPTS / "cm-inbox.py")] + list(a), capture_output=True, text=True, env=env(), timeout=30)
+c1 = inbox("cancel", did)
+blk = py(f"print(I.deliver_block('delta',{str(work)!r},'session-start'))").stdout.strip()
+T.check("IB9 cancel: the pending message turns cancelled and is no longer delivered at the next start",
+        c1.returncode == 0 and "annullato" in c1.stdout and recs("delta")[0]["status"] == "cancelled" and blk == ""
+        and "cancelled" in inbox("status", did).stdout, c1.stdout + c1.stderr + "|" + blk)
+c2 = inbox("cancel", did)
+c3 = inbox("cancel", rid)
+c4 = inbox("cancel", "nessuno")
+T.check("IB9 cancel refuses what is not pending (cancelled, delivered) and an unknown id: exit 1, the status unchanged",
+        c2.returncode == 1 and c3.returncode == 1 and "delivered" in c3.stderr and c4.returncode == 1
+        and load_status(rid) == "delivered", c2.stderr + c3.stderr + c4.stderr)
 T.finish()

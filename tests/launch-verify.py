@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Verifica cm-launch.sh con il claude finto, un tmux privato e il backend terminale `fake`.
 
-L14 tetto sessions.max_sessions: 5 al lavoro → exit 7 senza terminale, --force procede
+L14 tetto sessions.max_sessions: 5 al lavoro → exit 7 senza terminale, --force procede; la master non passa dal tetto
 L1  percorso relativo → exit 2; cartella inesistente → exit 4; --create la crea
 L2  argv: claude_args da config, --remote-control NOME -n NOME, account dedotto da folder_map (CLAUDE_CONFIG_DIR)
 L3  nome: radice → root_session_name; `sito.com` → `sito-com` (T2); seconda sessione → -2; prefisso dell'account
@@ -114,6 +114,9 @@ with T.PrivateTmux() as tm:
     T.check("L14 5 sessions at work, no terminal → exit 7, the count, the cap and the free memory in the message, nothing launched",
             r.returncode == 7 and (lambda m: bool(m) and int(m.group(1)) >= 5)(re.search(r"(\d+) sessioni già al lavoro", r.stderr)) and "tetto sessions.max_sessions = 5" in r.stderr and "memoria libera" in r.stderr and "--force" in r.stderr
             and not tm("has-session", "-t", "=sesta").returncode == 0, r.stdout + r.stderr)
+    r = run(str(home / "ws"), "--no-window", extra={"CM_LAUNCH_NO_TTY": "1", "CLAUDE_MASTER_CONFIG": str(cfg_cap)})
+    T.check("L14 the master (workspace root) is not held by the cap, even with 5 at work and no terminal (the app's Reopen)",
+            r.returncode == 0 and "sessioni già al lavoro" not in r.stderr, r.stdout + r.stderr)
     r = run(str(home / "ws" / "personali" / "sesta"), "--no-window", "--create", "--force", extra={"CM_LAUNCH_NO_TTY": "1", "CLAUDE_MASTER_CONFIG": str(cfg_cap)})
     T.check("L14 --force → launched", r.returncode == 0 and tm("has-session", "-t", "=sesta").returncode == 0, r.stdout + r.stderr)
     for pr in keep:

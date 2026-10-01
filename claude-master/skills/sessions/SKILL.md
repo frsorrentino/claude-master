@@ -44,8 +44,11 @@ il percorso completo.
 - `--profile <nome>`: argomenti, modello, effort, variabili d'ambiente da `profiles.<nome>` in
   config (per esempio uno scan economico in background)
 - `--bg`: lavori muti (scansioni, batch senza domande) — niente tmux, niente finestra, niente
-  colore; si segue con `claude agents` / `claude attach <id>`; nasce **idle**, va nutrita con un
-  prompt (`SendMessage` dallo stesso registro peer)
+  colore; si segue con `claude agents` (filtro `n:<nome>`; le risposte da lì arrivano in coda, i
+  comandi slash girano a fine turno) / `claude attach <id>`; nasce **idle**, va nutrita con un
+  prompt: `SendMessage` dallo stesso registro peer, `claude-master talk` da uno script (socket).
+  `claude --resume <id> "prompt"` consegna il prompt come turno dell'utente ma apre la sessione in
+  quel terminale e senza terminale rifiuta: è per una persona, non per gli script
 
 **4. Riferisci** nome tmux, account, cartella e il link `https://claude.ai/code/session_…` che
 `launch` stampa (letto dal registro peer): porta dritto alla sessione, dal telefono come dal
