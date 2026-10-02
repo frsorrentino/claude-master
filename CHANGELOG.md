@@ -2,6 +2,9 @@
 
 ## 0.3.x
 
+- **0.5.8 — 2026-10-02: a «Prossimi:» line for one-tap follow-ups on the phone.**
+  - Kernel rule 10 (asked by the phone app session, text approved by the maintainer on 02/10 17:15): when a session stops and there is a natural follow-up, it writes after the outcome line a line `Prossimi: a · b · c`, up to 3 short prompts of at most 40 characters each, which the app shows as tappable suggestions under the reply. With no follow-up there is no line, and a requested «Watch:» line stays last. The English kernel keeps the word `Prossimi:`, the one the app reads. No contract change. The kernel's bound in the H3 test goes from 1900 to 2200 characters.
+
 - **0.5.7 — 2026-10-02: the slash panel is found when it is taller than the screen.**
   - Seen on 02/10 at 14:47 from the phone (`/cost` on two sessions): the result had no panel text and the panel stayed open in the terminal. In a 146×32 pane the panel is taller than the screen, so its «Esc to cancel» footer is never visible, and `panel` waited for exactly that footer. Now a panel is recognised by its top border «▔▔▔» with no prompt «❯» below it; the footer, when visible, ends the text, otherwise the text runs to the last visible line. Test `panel-verify.py` (whole panel, panel cut at the bottom, no panel, no session). Real run at 146×32: `/cost` and `/usage` read (21 lines) and closed in 3 s.
 

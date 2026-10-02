@@ -5,7 +5,7 @@ H1  UserPromptSubmit stampa `[ora locale] <giorno> <data>` con il giorno nella l
 H2  PermissionRequest scrive waiting/<sid> con il tool; SessionStart lo cancella e aggiorna il registro (file scritto)
 H2b PermissionRequest con hooks.ask_notify abilitato: l'hook esce subito e un processo staccato manda il messaggio
     Telegram (domanda e opzioni dal payload); H2c con ask_notify.enabled false: nessun messaggio
-H3  SessionStart stampa il kernel (<= 1900 caratteri, <= 13 righe) a startup/resume/compact; non per source ignoto; non se disabilitato
+H3  SessionStart stampa il kernel (<= 2200 caratteri, <= 13 righe) a startup/resume/compact; non per source ignoto; non se disabilitato
 H4  Stop scrive nel ledger `last` troncato; con coda → {"decision":"block","reason":...} e la voce esce dalla coda; con stop_hook_active non consuma; voci scadute scartate
 H4c Stop salva anche `tail` (la coda del messaggio, 600 caratteri) ed `esito` (riga «Esito:») per il polso
 H5  StopFailure scrive nel ledger
@@ -105,7 +105,8 @@ T.check("H2 SessionStart clears the flag", not (state / "waiting" / "sid2").exis
 T.check("H2 SessionStart triggers the registry", (tmp / "registry.json").exists() or True, "")   # senza sessioni tmux il registro non si scrive (T19): basta che non esploda
 # H3
 k = r.stdout
-T.check("H3 kernel printed at startup, bounded", "CLAUDE-MASTER" in k and len(k) <= 1900 and len(k.strip().splitlines()) <= 13, f"{len(k)} chars, {len(k.splitlines())} lines")
+# 2200 (02/10/2026): la regola 10, «Prossimi:» per i consigli toccabili del telefono, approvata dal maintainer
+T.check("H3 kernel printed at startup, bounded", "CLAUDE-MASTER" in k and len(k) <= 2200 and len(k.strip().splitlines()) <= 13, f"{len(k)} chars, {len(k.splitlines())} lines")
 r = hook("SessionStart", {"session_id": "sid2", "source": "compact"})
 T.check("H3 kernel re-emitted after compact", "CLAUDE-MASTER" in r.stdout, r.stdout[:100])
 # H4: la sessione nasce con le ultime righe del recap del progetto

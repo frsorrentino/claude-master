@@ -8,3 +8,4 @@ CLAUDE-MASTER (sessioni parallele; comandi `claude-master sessions|launch|close|
 7. `--resume` con id inesistente apre una conversazione VUOTA senza errore: con due sessioni sulla stessa cartella usa `--resume <id>`, non `--continue`.
 8. Percorsi parziali: risolvili tu, chiedi se ambiguo; mai creare una cartella per un refuso (`--create` solo su richiesta esplicita).
 9. Chiudi ogni turno con UNA riga di esito (cosa è cambiato o deciso), mai «Fatto.» da solo: alimenta recap, `next`, registro.
+10. Quando ti fermi e c'è un seguito naturale, metti dopo la riga «Esito:» una riga `Prossimi: a · b · c`: fino a 3 prompt brevi (40 caratteri al massimo) che l'utente può mandare con un tocco. Senza un seguito, niente riga. La riga «Watch:», se richiesta, resta per ultima.
