@@ -377,6 +377,7 @@ case "$1" in
   quota) echo '{{"personal": {{"cinque_ore_pct": 11, "settimana_pct": 36, "reset_settimanale": 1789610400, "reset_cinque_ore": 1789228800, "vecchia": false}}, "work": {{"cinque_ore_pct": null, "settimana_pct": 75, "reset_settimanale": 1789444800, "reset_cinque_ore": 1789225200, "vecchia": true}}}}' ;;
   answer) if [ "$3" = "--show" ]; then if [ "$2" = "work-ledger-api" ]; then echo "«$2» chiede — Deploy: Deploy ready, waiting for the client ok. Deploy now?"; echo "  ❯ 1. yes"; echo "    2. no"; else echo "nessuna domanda aperta sullo schermo"; exit 1; fi; else case "$3" in 1|2) echo "«$2»: risposto $3. yes  (Deploy now?)" ;; --text) echo "«$2»: risposto 3. $4  (Deploy now?)" ;; --chat) echo "«$2»: risposto 4. Chat about this  (Deploy now?)" ;; *) echo "opzione $3 inesistente" >&2; exit 2 ;; esac; fi ;;
   screen) i=1; while [ $i -le 30 ]; do echo "riga $i dello schermo"; i=$((i+1)); done ;;
+  panel) if [ "$2" = "field-notes" ]; then echo "   Session"; echo "   Total cost:            \$0.42"; else exit 1; fi ;;
   talk) if [ -f "{tmp / 'talk-saved'}" ]; then echo "claude-master talk: «$2» è chiusa; messaggio m1 salvato nella casella, le arriva quando riparte (stato: claude-master talk --status m1)" >&2; else echo "consegnato"; fi ;;
   model) echo "$2: model Sonnet 5, this session only" ;;
   effort) if [ "$2" = "atlas-shop" ]; then echo "atlas-shop is working: try again when it is idle"; exit 3; else echo "$2: effort $3, this session only"; fi ;;
@@ -1048,6 +1049,11 @@ T.check("R23 (1.25) a busy session and one on a dialog → «<name> is busy», a
         r23c and r23c["text"] == "atlas-shop is busy" and r23d and r23d["text"] == "ledger-api is busy" and r23e and r23e["text"] == "no session nessuna"
         and r23f and r23f["ok"] is True and r23f["text"] == "sent /exit to field-notes"
         and [c for c in cm_calls()[n_calls:] if c.startswith("talk ")] == ["talk field-notes /exit --via tmux --no-wait"], str([r23c, r23d, r23e, r23f]) + str(cm_calls()[n_calls:]))
+n_calls = len(cm_calls())
+r23g = send_cmd(dict(CMDS[24], id="6f1c2d3e-0150-4000-8000-000000000205", arg="cost", text=None))
+T.check("R23 a command that opens a panel (cost): `panel field-notes --wait 6` reads and closes it, its text comes back in /result; compact and exit never wait for a panel",
+        r23g and r23g["ok"] is True and r23g["text"].startswith("sent /cost to field-notes\n\n") and "Total cost:            $0.42" in r23g["text"]
+        and "panel field-notes --wait 6" in cm_calls()[n_calls:] and not any(c.startswith("panel") for c in cm_calls()[:n_calls][-12:]), str(r23g) + str(cm_calls()[n_calls:]))
 st23 = json.loads(relay("push", "--dry-run").stdout)
 T.check("R23 (1.25) /state carries slash = relay.slash_commands without «/», and ops carries slash",
         st23.get("slash") == ["compact", "clear", "exit", "context", "cost"] and "slash" in st23.get("ops", []) and F1["slash"] == st23["slash"], str(st23.get("slash")))

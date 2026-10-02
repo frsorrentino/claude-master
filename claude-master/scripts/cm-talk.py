@@ -382,11 +382,69 @@ def cmd_interrupt(argv):
     die("interrupt.still", 4, name=name)
 
 
+PANEL_END = re.compile(r"(?i)\besc to (cancel|close|exit|go back)\b")
+
+
+def _panel_end(lines):
+    """L'indice della riga «Esc to cancel» del pannello, fra le ultime 6 righe dello schermo; None se non c'e'."""
+    for i in range(len(lines) - 1, max(-1, len(lines) - 7), -1):
+        if PANEL_END.search(lines[i]):
+            return i
+    return None
+
+
+def cmd_panel(argv):
+    """`claude-master panel NOME [--wait S]` (02/10, dal telefono): un pannello che un comando slash ha aperto sopra la
+    casella (/cost, /usage, /status…) resta aperto finche' qualcuno preme Esc, e dal telefono non si vede ne' si chiude.
+    Aspetta fino a S secondi che compaia, ne legge il testo quando lo schermo smette di cambiare (il contenuto arriva
+    in ritardo: «Scanning local sessions…»), lo stampa e lo chiude con UN Esc, mandato solo con il pannello visibile:
+    un Esc a turno in corso lo interromperebbe (/context lavora come un turno e scrive nella conversazione).
+    Exit 0 letto e chiuso, 1 nessun pannello, 3 sessione assente, 4 ancora aperto dopo l'Esc."""
+    name = argv[0] if argv else ""
+    wait = float(argv[argv.index("--wait") + 1]) if "--wait" in argv else 6.0
+    # prima il nome tmux (il relay passa quello): find() scorre tutte le sessioni e con la regia carica costa 20 s
+    tm = name if name and subprocess.run(sessions.TMUX + ["has-session", "-t", f"={name}"], capture_output=True).returncode == 0 else ""
+    if not tm:
+        tm = (find(name) or {}).get("tmux") or ""
+    if not tm:
+        die("interrupt.not_running", 3, name=name)
+    grab = lambda: (tmux("capture-pane", "-p", "-J", "-t", tm) or "").rstrip().splitlines()  # noqa: E731
+    deadline = time.time() + wait
+    lines = grab()
+    while _panel_end(lines) is None:
+        if time.time() > deadline:
+            return 1
+        time.sleep(0.5)
+        lines = grab()
+    still, last, stop = 0.0, lines, time.time() + 8
+    while still < 1.5 and time.time() < stop:
+        time.sleep(0.5)
+        now = grab()
+        still = still + 0.5 if now == last else 0.0
+        last = now
+    lines = last
+    end = _panel_end(lines)
+    if end is None:
+        return 1
+    start = max((i for i in range(end) if "\u2594" in lines[i] or re.fullmatch(r"\s*[\u2500\u2550]{10,}.*", lines[i])), default=-1) + 1
+    text = "\n".join(l.rstrip() for l in lines[start:end] if l.strip())
+    tmux("send-keys", "-t", tm, "Escape")
+    for _ in range(12):
+        time.sleep(0.25)
+        if _panel_end(grab()) is None:
+            print(text)
+            return 0
+    print(text)
+    return 4
+
+
 if __name__ == "__main__":
     prog = os.path.basename(sys.argv[0])
     args = sys.argv[1:]
     if args and args[0] == "interrupt":
         sys.exit(cmd_interrupt(args[1:]))
+    if args and args[0] == "panel":
+        sys.exit(cmd_panel(args[1:]))
     if args and args[0] in ("talk", "wait"):
         sub, args = args[0], args[1:]
     else:

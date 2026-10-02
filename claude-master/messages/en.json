@@ -767,5 +767,6 @@
   "relay.cmd_slash_no_session": "no session {name}",
   "relay.cmd_slash_busy": "{name} is busy",
   "relay.cmd_slash_typed": "{name} has text typed in its prompt",
-  "relay.cmd_slash_sent": "sent /{cmd} to {name}"
+  "relay.cmd_slash_sent": "sent /{cmd} to {name}",
+  "relay.cmd_slash_panel_open": "(the panel is still open on the PC: Esc did not close it)"
 }

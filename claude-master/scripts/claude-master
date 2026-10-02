@@ -57,6 +57,7 @@ case "$cmd" in
   talk|parla-con)         exec python3 "$S/cm-talk.py" talk "$@" ;;
   wait|aspetta)           exec python3 "$S/cm-talk.py" wait "$@" ;;
   interrupt|interrompi)   exec python3 "$S/cm-talk.py" interrupt "$@" ;;
+  panel|pannello)         exec python3 "$S/cm-talk.py" panel "$@" ;;   # 02/10: legge e chiude il pannello aperto da un comando slash
   report|segnala)         exec "$S/cm-report.sh" "$@" ;;
   restart|riavvia)        exec "$S/cm-restart.sh" "$@" ;;
   queue|coda)             exec python3 "$S/cm-queue.py" "$@" ;;

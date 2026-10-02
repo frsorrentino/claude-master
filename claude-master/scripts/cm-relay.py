@@ -1110,6 +1110,8 @@ def file_open(cmd, session, tm, arg):
 
 SLASH_RE = re.compile(r"[a-z][a-z0-9-]{0,40}")
 SLASH_TEXT_MAX = 2000
+SLASH_NO_PANEL = ("compact", "clear", "exit")   # non aprono pannelli: niente attesa ne' Esc
+SLASH_PANEL_MAX = 3500
 
 
 def slash_allowed():
@@ -1137,7 +1139,15 @@ def slash_send(cmd, session, tm, arg):
         return False, M("relay.cmd_slash_typed", name=session)
     if rc != 0:
         return False, (out.splitlines() or ["slash failed"])[0]
-    return True, M("relay.cmd_slash_sent", cmd=name, name=session)
+    sent = M("relay.cmd_slash_sent", cmd=name, name=session)
+    if name in SLASH_NO_PANEL:
+        return True, sent
+    # 02/10 (dal telefono): /cost, /usage, /status… aprono un pannello sopra la casella che resta aperto finche' qualcuno
+    # preme Esc. `panel` lo legge, lo chiude con un Esc e il testo arriva al telefono nel risultato
+    prc, pout = run_cm("panel", row["tmux"], "--wait", "6")
+    if prc in (0, 4) and pout.strip():
+        return True, sent + "\n\n" + pout.strip()[:SLASH_PANEL_MAX] + ("\n\n" + M("relay.cmd_slash_panel_open") if prc == 4 else "")
+    return True, sent
 
 
 TRANSCRIPT_MAX_N = 200

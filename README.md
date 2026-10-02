@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.5.5-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.5.6-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 [![claude-master in 40 seconds: a question from a Claude Code session on a Wear OS watch — «Staging is green. Deploy 2.8.0?» — answered with one tap.](assets/readme/promo-poster.jpg)](https://www.francescosorrentino.com/plugins/claude-master-watch)
 
@@ -271,6 +271,9 @@ command without «/» as `arg` and its arguments as `text`. Only the commands in
 pane like the person at the terminal; through the inbox socket it would arrive as
 another session's message and not run. A busy session, or one on a dialog, is
 refused («<name> is busy»), as is a command outside the list («not allowed: …»).
+A command that opens a panel over the prompt (`/cost`, `/usage`) has its text
+read and sent back in the result, then the panel is closed with one Esc
+(`claude-master panel <name>`), so nothing stays open on the PC.
 
 Contract 1.20 counts the phone as well as the watch before falling back to
 Telegram. Each paired device writes `/seen/<uid>` (the Firebase server time)
