@@ -2,6 +2,9 @@
 
 ## 0.3.x
 
+- **0.5.7 — 2026-10-02: the slash panel is found when it is taller than the screen.**
+  - Seen on 02/10 at 14:47 from the phone (`/cost` on two sessions): the result had no panel text and the panel stayed open in the terminal. In a 146×32 pane the panel is taller than the screen, so its «Esc to cancel» footer is never visible, and `panel` waited for exactly that footer. Now a panel is recognised by its top border «▔▔▔» with no prompt «❯» below it; the footer, when visible, ends the text, otherwise the text runs to the last visible line. Test `panel-verify.py` (whole panel, panel cut at the bottom, no panel, no session). Real run at 146×32: `/cost` and `/usage` read (21 lines) and closed in 3 s.
+
 - **0.5.6 — 2026-10-02: the panel of a slash command comes back to the phone.**
   - Seen on 02/10 from the phone: `/cost` (and `/usage`, `/status`…) opens a panel over the prompt that stays open until someone presses Esc; the phone neither saw it nor could close it. New `claude-master panel NAME [--wait S]`: it waits for a panel («Esc to cancel» in the last lines) and reads its text once the screen stops changing, since the content loads late. Then it closes the panel with one Esc, sent only while the panel is on screen: an Esc during a turn would interrupt it, and `/context` works like a turn and writes into the conversation. Exit 0 read and closed, 1 no panel, 3 no session, 4 still open. It looks up the tmux name first: under load `find()` cost 22 s, and the whole command now takes about 3 s with a load of 40. The relay's `slash` (contract 1.25, unchanged) runs it after every command except compact, clear and exit, and the panel text follows «sent /<cmd> to <name>» in `/result`. Test R23; real run on a live session: `/cost` read and closed.
 

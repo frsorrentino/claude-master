@@ -385,12 +385,16 @@ def cmd_interrupt(argv):
 PANEL_END = re.compile(r"(?i)\besc to (cancel|close|exit|go back)\b")
 
 
-def _panel_end(lines):
-    """L'indice della riga «Esc to cancel» del pannello, fra le ultime 6 righe dello schermo; None se non c'e'."""
-    for i in range(len(lines) - 1, max(-1, len(lines) - 7), -1):
-        if PANEL_END.search(lines[i]):
-            return i
-    return None
+def _panel_bounds(lines):
+    """(inizio, fine) del testo di un pannello aperto sopra la casella; None se non ce n'e' uno. Il pannello comincia
+    sotto la sua riga di bordo «▔▔▔» e, finche' e' aperto, la casella «❯» non si vede sotto. Il piè di pagina «Esc to
+    cancel» c'e' solo se il pannello sta nello schermo: con un pannello piu' alto (/cost a 32 righe, dal vivo il
+    02/10) resta fuori, e il testo arriva fino all'ultima riga visibile."""
+    border = max((i for i, l in enumerate(lines) if l.count("\u2594") >= 10), default=None)
+    if border is None or any(l.lstrip().startswith("\u276f") for l in lines[border + 1:]):
+        return None
+    end = next((i for i in range(len(lines) - 1, border, -1) if PANEL_END.search(lines[i])), len(lines))
+    return border + 1, end
 
 
 def cmd_panel(argv):
@@ -399,7 +403,8 @@ def cmd_panel(argv):
     Aspetta fino a S secondi che compaia, ne legge il testo quando lo schermo smette di cambiare (il contenuto arriva
     in ritardo: «Scanning local sessions…»), lo stampa e lo chiude con UN Esc, mandato solo con il pannello visibile:
     un Esc a turno in corso lo interromperebbe (/context lavora come un turno e scrive nella conversazione).
-    Exit 0 letto e chiuso, 1 nessun pannello, 3 sessione assente, 4 ancora aperto dopo l'Esc."""
+    Exit 0 letto e chiuso, 1 nessun pannello, 3 sessione assente, 4 ancora aperto dopo l'Esc.
+    Il pannello si riconosce dal bordo «▔▔▔» senza casella sotto (_panel_bounds), non dal piè di pagina."""
     name = argv[0] if argv else ""
     wait = float(argv[argv.index("--wait") + 1]) if "--wait" in argv else 6.0
     # prima il nome tmux (il relay passa quello): find() scorre tutte le sessioni e con la regia carica costa 20 s
@@ -411,7 +416,7 @@ def cmd_panel(argv):
     grab = lambda: (tmux("capture-pane", "-p", "-J", "-t", tm) or "").rstrip().splitlines()  # noqa: E731
     deadline = time.time() + wait
     lines = grab()
-    while _panel_end(lines) is None:
+    while _panel_bounds(lines) is None:
         if time.time() > deadline:
             return 1
         time.sleep(0.5)
@@ -423,15 +428,14 @@ def cmd_panel(argv):
         still = still + 0.5 if now == last else 0.0
         last = now
     lines = last
-    end = _panel_end(lines)
-    if end is None:
+    bounds = _panel_bounds(lines)
+    if bounds is None:
         return 1
-    start = max((i for i in range(end) if "\u2594" in lines[i] or re.fullmatch(r"\s*[\u2500\u2550]{10,}.*", lines[i])), default=-1) + 1
-    text = "\n".join(l.rstrip() for l in lines[start:end] if l.strip())
+    text = "\n".join(l.rstrip() for l in lines[bounds[0]:bounds[1]] if l.strip())
     tmux("send-keys", "-t", tm, "Escape")
     for _ in range(12):
         time.sleep(0.25)
-        if _panel_end(grab()) is None:
+        if _panel_bounds(grab()) is None:
             print(text)
             return 0
     print(text)
