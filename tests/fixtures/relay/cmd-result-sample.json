@@ -215,6 +215,14 @@
       "text": null,
       "issued": 1789210805,
       "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0160-4000-8000-000000000160",
+      "op": "projects",
+      "session": null,
+      "arg": null,
+      "issued": 1789210810,
+      "by": "phone-pixel8"
     }
   ],
   "result": [
@@ -375,6 +383,12 @@
       "ok": false,
       "text": "not allowed: model",
       "at": 1789210806
+    },
+    {
+      "id": "6f1c2d3e-0160-4000-8000-000000000160",
+      "ok": true,
+      "text": "{\"projects\": [{\"name\": \"atlas-shop\", \"path\": \"/home/demo/workspaces/personal/atlas-shop\", \"account\": \"personal\", \"last_used\": 1789210700}, {\"name\": \"ledger-api\", \"path\": \"/home/demo/workspaces/work/clients/ledger-api\", \"account\": \"work\", \"last_used\": 1789210500}, {\"name\": \"orbit-docs\", \"path\": \"/home/demo/workspaces/work/own/orbit-docs\", \"account\": \"work\", \"last_used\": 1789203600}, {\"name\": \"field-notes\", \"path\": \"/home/demo/workspaces/personal/field-notes\", \"account\": \"personal\", \"last_used\": 1789120000}, {\"name\": \"sketchbook\", \"path\": \"/home/demo/workspaces/personal/sketchbook\", \"account\": \"personal\", \"last_used\": null}], \"more\": false}",
+      "at": 1789210811
     }
   ]
 }

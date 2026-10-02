@@ -60,7 +60,7 @@ M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
 R = CFG["relay"]
 CM_BIN = os.environ.get("CM_RELAY_CM") or str(HERE / "claude-master")
 BACKOFF = [1, 2, 5, 15, 30]
-OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report", "interrupt", "transcript", "file", "slash")
+OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report", "interrupt", "transcript", "file", "slash", "projects")
 LAST_MAX = 4000   # 1.4: l'ultimo messaggio per la lettura vocale — oltre, l'ascolto non regge
 
 
@@ -1150,6 +1150,21 @@ def slash_send(cmd, session, tm, arg):
     return True, sent
 
 
+def projects_list():
+    """1.26 (02/10, chiesto dalla sessione dell'app, approvato dal maintainer alle 17:15): l'elenco completo dei progetti
+    per «Lancia». /state li taglia a 10 e poi a 5 per stare negli 8 KB; qui ci sono tutti, di tutti gli account, con i
+    campi di state.projects, dal piu' recente (last_used; i null in fondo) e poi per nome. text = JSON {projects, more};
+    oltre TRANSCRIPT_MAX_BYTES si tolgono i meno recenti e more = true."""
+    rows = [{"name": p.get("name", ""), "path": p.get("path", ""), "account": p.get("account", ""),
+             "last_used": p.get("last_used") if isinstance(p.get("last_used"), int) else None} for p in inventory()]
+    rows.sort(key=lambda p: (p["last_used"] is None, -(p["last_used"] or 0), p["name"]))
+    more = False
+    while rows and len(json.dumps({"projects": rows, "more": True}, ensure_ascii=False).encode()) > TRANSCRIPT_MAX_BYTES:
+        rows.pop()
+        more = True
+    return True, json.dumps({"projects": rows, "more": more}, ensure_ascii=False)
+
+
 TRANSCRIPT_MAX_N = 200
 TRANSCRIPT_MAX_BYTES = 60000   # 1.22: il JSON di una pagina in /result; oltre si toglie dalla parte vecchia e more=true
 TRANSCRIPT_WINDOWS = (2 * 1024 * 1024, 16 * 1024 * 1024, None)   # si legge dalla coda, e si allarga solo se serve
@@ -1358,6 +1373,8 @@ def execute(cmd):
             return file_open(cmd, session, tm, arg)
         if op == "slash":
             return slash_send(cmd, session, tm, arg)
+        if op == "projects":
+            return projects_list()
         if op == "interrupt":
             # 1.21 (30/09): il tasto Stop — `claude-master interrupt` manda un solo Esc, e solo a turno in corso
             if info.get("state") == "gone" or not is_live(tm):
@@ -1468,7 +1485,7 @@ def commands_from(ev, payload):
     return {}
 
 
-PASSIVE_OPS = ("transcript", "screen", "last", "file")   # letture: non cambiano lo stato, vengono dopo i comandi dell'utente
+PASSIVE_OPS = ("transcript", "screen", "last", "file", "projects")   # letture: non cambiano lo stato, vengono dopo i comandi dell'utente
 
 
 def in_order(cmds):

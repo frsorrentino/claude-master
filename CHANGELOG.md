@@ -2,6 +2,9 @@
 
 ## 0.3.x
 
+- **0.5.9 — 2026-10-02: every project for «Launch» on the phone.**
+  - Relay, contract 1.26 (asked by the phone app session, approved by the maintainer on 02/10 17:15; additive, `v` stays 1). Seen on 02/10 at 17:10: `fit_state` cut `/state.projects` to 10, then 5, in name order, so of 98 projects the phone got 5 (none recent) and the search of «Launch» found nothing. Now `/cmd` op `projects` (no session, no arg) answers `text` = JSON `{projects, more}`: every project of every account with the fields of `state.projects`, most recently used first (null `last_used` last), then by name; over 60 KB the least recent are dropped and `more` is true. It is a read: no push after it. `fit_state` keeps the most recently used projects when it cuts to 10 and 5, still listed by name. `ops` carries `projects`. Fixtures: a `projects` result with five projects of two accounts (one never used) in `cmd-result-sample`, `projects` in the three states' `ops`. Test R24. Real run: 98 projects, 14 KB, 0.1 s; the cut state keeps the five most recent.
+
 - **0.5.8 — 2026-10-02: a «Prossimi:» line for one-tap follow-ups on the phone.**
   - Kernel rule 10 (asked by the phone app session, text approved by the maintainer on 02/10 17:15): when a session stops and there is a natural follow-up, it writes after the outcome line a line `Prossimi: a · b · c`, up to 3 short prompts of at most 40 characters each, which the app shows as tappable suggestions under the reply. With no follow-up there is no line, and a requested «Watch:» line stays last. The English kernel keeps the word `Prossimi:`, the one the app reads. No contract change. The kernel's bound in the H3 test goes from 1900 to 2200 characters.
 

@@ -1057,6 +1057,31 @@ T.check("R23 a command that opens a panel (cost): `panel field-notes --wait 6` r
 st23 = json.loads(relay("push", "--dry-run").stdout)
 T.check("R23 (1.25) /state carries slash = relay.slash_commands without «/», and ops carries slash",
         st23.get("slash") == ["compact", "clear", "exit", "context", "cost"] and "slash" in st23.get("ops", []) and F1["slash"] == st23["slash"], str(st23.get("slash")))
+# R24 (contratto 1.26, 02/10): op projects — l'elenco completo per «Lancia», dal piu' recente; fit_state tiene i recenti
+import os as _os24, re as _re24
+(ws / "personal" / "sketchbook").mkdir(parents=True, exist_ok=True)   # nessuna trascrizione: last_used null
+for _proj, _conf, _t in (("personal/atlas-shop", ".claude", 1789210700), ("work/clients/ledger-api", ".claude-pixel", 1789210500),
+                         ("work/own/orbit-docs", ".claude-pixel", 1789203600), ("personal/field-notes", ".claude", 1789120000)):
+    _d = home / _conf / "projects" / _re24.sub(r"[^A-Za-z0-9]", "-", str((ws / _proj).resolve()))
+    _d.mkdir(parents=True, exist_ok=True)
+    if not list(_d.glob("*.jsonl")):
+        (_d / "r24.jsonl").write_text("{}\n")
+    for _f in _d.glob("*.jsonl"):
+        _os24.utime(_f, (_t, _t))
+r24 = send_cmd(CMDS[26])
+_got24 = json.loads((r24 or {}).get("text") or "{}")
+for _p in _got24.get("projects", []):
+    _p["path"] = _p["path"].replace(str(ws.resolve()), ROOT_WS).replace(str(ws), ROOT_WS)
+T.check("R24 (1.26) projects → every project of every account, most recent first and null last, the fields of state.projects, more false; as in the fixture",
+        r24 and r24["ok"] is True and _got24 == json.loads(RES[26]["text"]), json.dumps(_got24)[:400])
+_many = [{"path": f"/p/{i:03d}", "name": f"p{i:03d}", "account": "personal", "last_used": (1789000000 + i if i % 7 == 0 else None)} for i in range(98)]
+_fit24 = S.fit_state({"v": 1, "ts": 1, "host": "", "sessions": [], "quota": {}, "projects": [dict(p) for p in _many], "night": {"queued": 0, "running": None, "items": []},
+                      "recap": {"date": "", "items": []}, "choices": None, "share": {"max_bytes": 1}, "ops": [], "slash": []}, 1)
+_names24 = [p["name"] for p in _fit24["projects"]]
+T.check("R24 (1.26) fit_state cutting projects keeps the most recently used (not the first by name), still listed by name",
+        len(_names24) in (5, 10) and _names24 == sorted(_names24) and all(int(n[1:]) % 7 == 0 for n in _names24)
+        and int(_names24[-1][1:]) == max(i for i in range(98) if i % 7 == 0), str(_names24))
+T.check("R24 (1.26) /state ops carries projects", "projects" in json.loads(relay("push", "--dry-run").stdout).get("ops", []), "")
 T.check("R14 (1.18) events-sample: a recap, a night_report and the quota resume, with the shape of the other events",
         [e["kind"] for e in EV[-3:]] == ["recap", "night_report", "quota"] and all(set(e) == set(EV[0]) for e in EV) and EV[-3]["ref"] == "2026-09-12", str(EV[-3:])[:300])
 rows_alive("ledger-api", "atlas-shop", "field-notes")

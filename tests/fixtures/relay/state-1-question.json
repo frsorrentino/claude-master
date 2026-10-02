@@ -282,7 +282,8 @@
     "interrupt",
     "transcript",
     "file",
-    "slash"
+    "slash",
+    "projects"
   ],
   "slash": [
     "compact",

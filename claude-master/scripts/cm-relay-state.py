@@ -371,6 +371,15 @@ def cut_at_word(text, n):
     return cut[:i].rstrip(" ,;:\n") if i > n // 2 else cut
 
 
+def most_recent(projects, n):
+    """1.26 (02/10): i progetti da tenere quando lo stato va tagliato: gli n usati piu' di recente (last_used, i null in
+    fondo, poi il nome), restituiti nell'ordine per nome del contratto. Prima si tenevano i primi n in ordine alfabetico:
+    dal vivo il 02/10, di 98 progetti al telefono ne arrivavano 5, nessuno recente."""
+    ranked = sorted(projects, key=lambda p: (p.get("last_used") is None, -(p.get("last_used") or 0), p.get("name") or ""))
+    keep = {id(p) for p in ranked[:n]}
+    return [p for p in projects if id(p) in keep]
+
+
 def fit_state(state, max_kb=8):
     """Sotto il tetto, togliendo in ordine: le sessioni finite piu' vecchie (restano le KEEP_GONE piu' recenti);
     i progetti oltre i primi dieci; `done` e `next` del recap a RECAP_CUT caratteri, a fine parola; `full` degli
@@ -390,7 +399,7 @@ def fit_state(state, max_kb=8):
         state["sessions"].remove(s)
         if fits():
             return state
-    state["projects"] = state["projects"][:10]
+    state["projects"] = most_recent(state["projects"], 10)
     if fits():
         return state
     items = state["recap"]["items"]
@@ -412,7 +421,7 @@ def fit_state(state, max_kb=8):
             s["tool_note"], s["next"], s["next_at"] = None, None, None
     if fits():
         return state
-    state["projects"] = state["projects"][:5]
+    state["projects"] = most_recent(state["projects"], 5)
     if fits():
         return state
     while not fits() and len(items) > 1:
