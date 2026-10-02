@@ -8,6 +8,9 @@
   claude-master host list [--json]
   claude-master host remove NOME
   claude-master host update NOME [--yes]
+  claude-master host admit NOME <cartella>   la cartella puo' avere una sessione su NOME? (la regola, exit 0/1)
+  claude-master host fetch NOME <sessione>   i commit fatti la' → ramo locale NOME/<cartella>
+  claude-master host sessions               le sessioni lanciate su altri host (launch --host)
   claude-master hosts poll [--force] [--cron]  un giro del sondatore (dal cron ogni minuto, con offload tick)
   claude-master hosts install | uninstall     la riga del sondatore nel crontab
 
@@ -791,7 +794,11 @@ def main(argv):
     cmd, rest = argv[0], argv[1:]
     fn = {"add": cmd_add, "doctor": cmd_doctor, "confirm": cmd_confirm, "list": cmd_list, "ls": cmd_list,
           "remove": cmd_remove, "rm": cmd_remove, "update": cmd_update, "poll": cmd_poll, "install": cmd_install,
-          "uninstall": cmd_uninstall}.get(cmd)
+          "uninstall": cmd_uninstall,
+          # sessioni su un altro host (piano 4.2): il codice sta in cm-rsession.py
+          "admit": lambda a: _load("cm-rsession").main(["admit"] + a),
+          "fetch": lambda a: _load("cm-rsession").main(["fetch"] + a),
+          "sessions": lambda a: _load("cm-rsession").main(["sessions"] + a)}.get(cmd)
     if not fn:
         print(__doc__)
         return 2

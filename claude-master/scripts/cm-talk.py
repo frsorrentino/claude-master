@@ -262,6 +262,10 @@ def cmd_talk(argv):
             die("talk.unknown_option", 2, opt=x)
         i += 1
 
+    # fase 2.2 del piano multi-PC: `HOST:nome` (o un nome lanciato con launch --host) va per la named pipe dell'host
+    rs = _load("cm-rsession")
+    if rs.resolve(name):
+        return rs.cmd_talk(argv)
     row = find(name)
     if not row:
         # 23/09: una sessione nota ma chiusa riceve il messaggio quando riparte (casella persistente); un nome mai
@@ -314,6 +318,9 @@ def cmd_wait(argv):
     if not name:
         die("wait.usage", 2)
     timeout = int(argv[argv.index("--timeout") + 1]) if "--timeout" in argv else 12 * 3600
+    rs = _load("cm-rsession")
+    if rs.resolve(name):
+        return rs.cmd_wait(argv)
     row = find(name)
     if not row:
         die("talk.missing", 3, name=name)

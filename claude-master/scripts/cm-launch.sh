@@ -33,7 +33,7 @@ if [ -n "${CM_TRACE:-}" ]; then PS4='+ $(date +%T) '; set -x; fi   # CM_TRACE=1:
 
 CARTELLA="${1:-}"
 CREA=no; CONTINUA=no; RIPRENDI=""; ACCOUNT=""; FINESTRA="$CM_SESSION_WINDOW_BY_DEFAULT"; BG=no; FORCE=no
-PROFILO=""; MODEL=""; EFFORT=""; TELEPORT=""; AGENT=claude
+PROFILO=""; MODEL=""; EFFORT=""; TELEPORT=""; AGENT=claude; HOST=""
 shift || true
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -50,6 +50,7 @@ while [ $# -gt 0 ]; do
     --model) shift; MODEL="${1:-}" ;;
     --effort) shift; EFFORT="${1:-}" ;;
     --agent) shift; AGENT="${1:-}" ;;   # S09: prova, `codex` solo con experimental.codex
+    --host) shift; HOST="${1:-}" ;;   # piano multi-PC 4.2: un altro host (cm-rsession.py), `auto` sceglie se la regia e' carica
     --aziendale)  # nome storico: vale il secondo account, con avviso
       ACCOUNT=$(for a in $CM_ACCOUNTS_KEYS; do [ "$a" != "$CM_DEFAULT_ACCOUNT" ] && { echo "$a"; break; }; done)
       cm_msg launch.legacy_flag "flag=--aziendale" "account=$ACCOUNT" >&2 ;;
@@ -70,6 +71,15 @@ case "$AGENT" in
 esac
 
 if [ "$CONTINUA" = si ] && [ -n "$RIPRENDI" ]; then cm_msg launch.continue_xor_resume >&2; exit 2; fi
+if [ -n "$HOST" ] && [ "$HOST" != local ]; then
+  for c in "BG=--bg" "RIPRENDI=--resume" "TELEPORT=--teleport"; do
+    v="${c%%=*}"; [ -n "${!v}" ] && [ "${!v}" != no ] && { cm_msg launch.host_conflict "opt=${c#*=}" >&2; exit 2; }
+  done
+  [ "$AGENT" = claude ] || { cm_msg launch.host_conflict "opt=--agent $AGENT" >&2; exit 2; }
+fi
+HOST_DATO="$HOST"
+if [ "$HOST" = auto ]; then HOST="$(python3 "$CM_SCRIPTS/cm-rsession.py" pick "${CARTELLA:-/}" 2>/dev/null || true)"; fi
+[ "$HOST" = local ] && HOST=""
 [ -n "$CARTELLA" ] || { cm_msg launch.usage >&2; exit 2; }
 case "$CARTELLA" in /*) ;; *) cm_msg launch.not_absolute "path=$CARTELLA" >&2; exit 2 ;; esac
 
@@ -95,7 +105,7 @@ python3 "$CM_SCRIPTS/cm-sessions.py" --quota-warn "$ACCOUNT" >&2 2>/dev/null || 
 # (lanciata da una sessione Claude) ci si ferma con exit 7 e si dice di ripetere con --force.
 # La master (la radice dei workspace) non passa dal tetto: e' l'ingresso dal telefono, e il Riapri dell'app la
 # lancia senza terminale (01/10/2026 23:17: «reopen master → 6 sessioni già al lavoro», exit 7).
-if [ "$FORCE" != si ] && [ "$(readlink -f "$CARTELLA")" != "$(readlink -f "$(eval echo "$CM_WORKSPACE_ROOT")")" ]; then
+if [ -z "$HOST" ] && [ "$FORCE" != si ] && [ "$(readlink -f "$CARTELLA")" != "$(readlink -f "$(eval echo "$CM_WORKSPACE_ROOT")")" ]; then
   ATTIVE="$(python3 "$CM_SCRIPTS/cm-sessions.py" --count-active 2>/dev/null || echo 0)"
   MAX="${CM_SESSIONS_MAX_SESSIONS:-5}"
   if [ "${ATTIVE:-0}" -ge "$MAX" ] 2>/dev/null; then
@@ -109,6 +119,9 @@ if [ "$FORCE" != si ] && [ "$(readlink -f "$CARTELLA")" != "$(readlink -f "$(eva
     fi
   fi
 fi
+# regia carica e cartella ammessa su un host con il ruolo sessions: una riga di proposta (il lancio resta qui)
+[ -z "$HOST_DATO" ] && [ "$BG" != si ] && python3 "$CM_SCRIPTS/cm-rsession.py" propose "$CARTELLA" || true
+if [ -z "$HOST" ]; then
 command -v tmux >/dev/null || { cm_msg launch.no_tmux >&2; exit 3; }
 # il binario: CM_CLAUDE_BIN (prove), poi il PATH, poi il link ~/.local/bin/claude (T81: dal cron il PATH
 # e' minimo; da shell `claude` e' una funzione wrapper, il binario e' quel link)
@@ -119,6 +132,7 @@ if [ "$AGENT" = codex ]; then   # S09: stessa regola del binario di claude
   CODEX="${CM_CODEX_BIN:-$(command -v codex 2>/dev/null || true)}"
   [ -n "$CODEX" ] && [ -x "$CODEX" ] || CODEX="$HOME/.local/bin/codex"
   [ -x "$CODEX" ] || { cm_msg launch.no_codex "tried=PATH ($PATH), $HOME/.local/bin/codex" >&2; exit 3; }
+fi
 fi
 
 if [ ! -e "$CARTELLA" ]; then
@@ -194,6 +208,11 @@ if [ "$(readlink -f "$CONF_DIR")" != "$(readlink -f "$(eval echo ~)/.claude")" ]
 fi
 [ "${#ENVARGS[@]}" -eq 0 ] && ENVARGS=(CM_LAUNCHED=1)   # `env` vuole almeno un argomento prima del comando
 LABEL="$(cm_get "$ACCOUNT" LABEL)"
+
+# --- --host: la sessione parte su un altro host (cm-rsession.py: ammissione, fotografia, avvio, link) ---------
+if [ -n "$HOST" ]; then
+  exec python3 "$CM_SCRIPTS/cm-rsession.py" launch "$HOST" "$CARTELLA" "$BASE" -- "${ARGS[@]}"
+fi
 
 # --- --bg: nel gestore di background di Claude Code, non in tmux (T47) --------------
 if [ "$BG" = si ]; then

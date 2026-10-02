@@ -1,0 +1,258 @@
+#!/usr/bin/env python3
+"""Verifica le sessioni su un altro host (cm-rsession.py, launch --host, host fetch; piano multi-PC 4.2, fase 2.1).
+L'host e' finto (tests/lib/fake-rsession-adapter.py): una cartella locale con il suo registro peer.
+
+RS1 ammissione: personali/x si'; pro/x no (account); personali/kb e personali/kb/sub no (deny); cartella fuori da
+    allow no; client_paths no; host non confermato, senza ruolo sessions o di altro tipo no; ricetta con segreti no
+RS2 launch --host win: fotografia di HEAD senza .env, repository nuovo col commit base, fiducia, avvio con
+    --remote-control e -n win-<nome> dopo gli argomenti di config, link dal registro, record locale; il tetto locale
+    non conta; le modifiche non committate restano qui e lo si dice
+RS3 un segreto nel contenuto (chiave privata) → rifiuto con il file, niente parte
+RS4 host fetch: i commit fatti la' (anche un file CRLF e uno binario) → ramo win/<nome> sopra la base, autore
+    conservato; il checkout condiviso non cambia, nessun worktree resta; senza commit nuovi lo dice
+RS5 secondo lancio sulla stessa cartella: la cartella la' si riusa (niente nuova fotografia), nome win-<nome>-2
+RS6 cartella gia' presente la' ma non nostra → rifiuto; sessione che non si registra → exit 5 con il messaggio
+RS8 talk win:<nome> (e il solo nome registrato): il testo arriva intero (virgolette, backtick, $, a capo, accenti),
+    la risposta si legge dal transcript la'; la casella locale lo segna consegnato via pipe; --no-wait torna subito
+RS9 wait win:<nome>: torna quando e' idle e stampa l'ultima risposta
+RS10 close win:<nome>: busy → rifiuto (exit 4) senza --force; con --force chiusa, record segnato; di nuovo: «non era
+     in esecuzione»; close --dry-run non chiude
+RS11 talk a una sessione chiusa: exit 5, il messaggio resta nella casella in attesa
+RS7 proposta e scelta automatica: regia carica → riga di proposta (il lancio resta in locale); --host auto carica →
+    remoto, scarica → locale; una cartella non ammessa non e' mai proposta
+"""
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import cm_test as T  # noqa: E402
+
+tmp = Path(T.tmpdir())
+home = tmp / "home"
+ws = home / "ws"
+for d in (".claude/sessions", ".claude-pixel/sessions", "ws/personali/alfa", "ws/personali/kb/sub", "ws/pro/beta",
+          "ws/altro/gamma", "ws/personali/cliente-x", "ws/personali/ricetta", "ws/personali/segreto", "ws/personali/locale"):
+    (home / d).mkdir(parents=True, exist_ok=True)
+winroot = tmp / "win"
+winroot.mkdir()
+WIN = {"kind": "windows-native", "transport": {"ssh": "win"}, "confirmed_at": "2026-10-01T23:50:00+02:00",
+       "roles": ["compute", "render", "sessions"],
+       "trust": {"level": "work", "accounts": ["personale"], "secrets": False, "clients": False},
+       "sessions": {"root": "W:/cm", "allow": ["personali/*"], "deny": ["personali/kb", "personali/docs"],
+                    "start_timeout_s": 4}}
+cfg = tmp / "config.json"
+base_cfg = {
+    "language": "it", "state_dir": str(tmp / "state"),
+    "workspace": {"root": str(ws), "root_session_name": "master"},
+    "accounts": {"personale": {"config_dir": str(home / ".claude")},
+                 "professionale": {"config_dir": str(home / ".claude-pixel"), "tmux_prefix": "pix-"}},
+    "default_account": "personale",
+    "folder_map": [{"path": str(ws / "pro"), "account": "professionale"}, {"path": str(ws / "personali"), "account": "personale"}],
+    "session": {"claude_args": ["--dangerously-skip-permissions"], "startup_timeout_s": 25, "death_check_s": 1},
+    "terminal": {"backend": "none"},
+    "registry": {"file": str(tmp / "registry.json")},
+    "sessions": {"max_sessions": 0},   # tetto locale a zero: un lancio remoto non ne tiene conto
+    "scheduler": {"client_paths": [str(ws / "personali" / "cliente-x")], "session_offload": {"load_per_core": 1.0, "free_ram_gb": 2}},
+    "hosts": {"win": WIN,
+              "spento": dict(WIN, confirmed_at=None),
+              "senza": dict(WIN, roles=["compute"]),
+              "linux": dict(WIN, kind="linux-tmux")},
+}
+cfg.write_text(json.dumps(base_cfg))
+FAKE_AD = T.ROOT / "tests" / "lib" / "fake-rsession-adapter.py"
+FAKE = T.ROOT / "tests" / "lib" / "fake-claude.sh"
+
+
+def env(**extra):
+    e = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg),
+         "CLAUDE_CONFIG_DIR": str(home / ".claude"), "CM_RSESSION_ADAPTER": str(FAKE_AD), "FAKE_WIN_ROOT": str(winroot),
+         "CM_LOADAVG": "0.1", "CM_NPROC": "8", "CM_MEMAVAIL_GB": "5", "CM_PROC_SCAN_PIDS": "", "CM_LAUNCH_NO_TTY": "1",
+         "GIT_AUTHOR_NAME": "Prova", "GIT_AUTHOR_EMAIL": "prova@example.com", "GIT_COMMITTER_NAME": "Prova",
+         "GIT_COMMITTER_EMAIL": "prova@example.com"}
+    e.update(extra)
+    return e
+
+
+def rs(*args, **extra):
+    return subprocess.run([sys.executable, str(T.SCRIPTS / "cm-rsession.py"), *args], capture_output=True, text=True, env=env(**extra), timeout=120)
+
+
+def launch(*args, **extra):
+    return subprocess.run([str(T.SCRIPTS / "cm-launch.sh"), *args], capture_output=True, text=True, env=env(**extra), timeout=120)
+
+
+def g(d, *a):
+    return subprocess.run(["git", "-C", str(d), *a], capture_output=True, text=True, env=env(), check=True).stdout
+
+
+def repo(d, files):
+    g(d, "init", "-q")
+    g(d, "config", "user.name", "Ada Prova")
+    g(d, "config", "user.email", "ada@example.com")
+    for k, v in files.items():
+        (d / k).parent.mkdir(parents=True, exist_ok=True)
+        (d / k).write_text(v)
+    g(d, "add", "-A")
+    g(d, "commit", "-q", "-m", "inizio")
+
+
+def calls():
+    p = winroot / "calls.jsonl"
+    return [json.loads(l) for l in p.read_text().splitlines()] if p.exists() else []
+
+
+# RS1
+alfa = ws / "personali" / "alfa"
+repo(alfa, {"README.md": "alfa\n", "src/a.txt": "uno\n", ".env": "TOKEN=x\n"})
+(alfa / "base-crlf.txt").write_bytes(b"uno\r\ndue\r\n")
+g(alfa, "add", "base-crlf.txt")
+g(alfa, "commit", "-q", "-m", "un file CRLF nella base")
+(ws / "personali" / "ricetta" / ".cm-offload.json").write_text(json.dumps({"recipes": {"r": {"needs": {"secrets": True}}}}))
+cases = [("win", alfa, 0, "ammessa"), ("win", ws / "pro" / "beta", 1, "account"), ("win", ws / "personali" / "kb", 1, "personali/kb"),
+         ("win", ws / "personali" / "kb" / "sub", 1, "personali/kb"), ("win", ws / "altro" / "gamma", 1, "allow"),
+         ("win", ws / "personali" / "cliente-x", 1, "clienti"), ("spento", alfa, 1, "confermato"), ("senza", alfa, 1, "sessions"),
+         ("linux", alfa, 1, "windows-native"), ("win", ws / "personali" / "ricetta", 1, "segreti"), ("boh", alfa, 1, "boh")]
+bad = []
+for h, d, want, word in cases:
+    r = rs("admit", h, str(d))
+    if r.returncode != want or word not in (r.stdout + r.stderr):
+        bad.append(f"{h} {d.name}: rc {r.returncode} «{(r.stdout + r.stderr).strip()[:160]}»")
+T.check("RS1 admission: the four conditions, each refusal names its rule", not bad, "\n".join(bad))
+
+# RS2
+(alfa / "nuovo-non-committato.txt").write_text("resta qui\n")
+r = launch(str(alfa), "--host", "win", "--no-window")
+out = r.stdout + r.stderr
+rdir = winroot / "cm" / "personali" / "alfa"
+starts = [c for c in calls() if c["verb"] == "start"]
+rec = tmp / "state" / "rsessions" / "win-alfa.json"
+T.check("RS2 launch --host win: exit 0, name win-alfa, link from the host's registry, local record",
+        r.returncode == 0 and "win-alfa" in out and "https://claude.ai/code/session_FAKE0" in out and rec.is_file(), out)
+T.check("RS2 the snapshot of HEAD becomes a new repository there: base commit, .cm-session.json, no .env, no uncommitted file",
+        (rdir / "README.md").is_file() and (rdir / "src" / "a.txt").is_file() and not (rdir / ".env").exists()
+        and not (rdir / "nuovo-non-committato.txt").exists() and (rdir / ".cm-session.json").is_file()
+        and g(rdir, "log", "--format=%s").strip().startswith("claude-master: base " + g(alfa, "rev-parse", "HEAD").strip()), out)
+T.check("RS2 trust written before the start; args: config's claude_args, then --remote-control win-alfa -n win-alfa",
+        [c["verb"] for c in calls() if c["verb"] in ("trust", "start")] == ["trust", "start"]
+        and starts and starts[0]["args"] == ["--dangerously-skip-permissions", "--remote-control", "win-alfa", "-n", "win-alfa"], json.dumps(starts))
+T.check("RS2 the local cap (max_sessions 0) does not hold a remote launch; uncommitted files: said, not sent",
+        "sessioni già al lavoro" not in out and "nuovo-non-committato.txt" in out, out)
+
+# RS3
+seg = ws / "personali" / "segreto"
+repo(seg, {"chiave.txt": "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n"})
+n0 = len(calls())
+r = launch(str(seg), "--host", "win", "--no-window")
+T.check("RS3 a private key in a tracked file → refused naming the file, nothing sent",
+        r.returncode == 6 and "chiave.txt" in r.stderr and not any(c["verb"] == "seed" for c in calls()[n0:]), r.stdout + r.stderr)
+
+# RS4
+(rdir / "src" / "a.txt").write_text("uno\ndue\n")
+(rdir / "win.txt").write_bytes(b"riga uno\r\nriga due\r\n")
+(rdir / "img.bin").write_bytes(bytes(range(256)) * 4)
+(rdir / "base-crlf.txt").write_bytes(b"uno\r\ndue\r\ntre da win\r\n")   # un file CRLF gia' nella base, cambiato la'
+subprocess.run(["git", "-C", str(rdir), "add", "-A"], check=True)
+subprocess.run(["git", "-C", str(rdir), "commit", "-q", "-m", "lavoro fatto su win", "--author", "Ada Prova <ada@example.com>"], check=True)
+(rdir / "sporco.txt").write_text("non committato\n")
+head_before = g(alfa, "rev-parse", "HEAD").strip()
+branch_before = g(alfa, "branch", "--show-current").strip()
+r = rs("fetch", "win", "win-alfa")
+out = r.stdout + r.stderr
+ok_branch = subprocess.run(["git", "-C", str(alfa), "rev-parse", "--verify", "-q", "win/alfa"], capture_output=True, text=True).returncode == 0
+T.check("RS4 host fetch: exit 0, branch win/alfa with the commit on top of the base, author kept; dirty files there said",
+        r.returncode == 0 and ok_branch and g(alfa, "log", "-1", "--format=%s|%an", "win/alfa").strip() == "lavoro fatto su win|Ada Prova"
+        and g(alfa, "rev-parse", "win/alfa~1").strip() == head_before and "1" in out and "non committat" in out, out)
+T.check("RS4 CRLF and binary files arrive byte for byte, also a CRLF file of the base changed there",
+        subprocess.run(["git", "-C", str(alfa), "show", "win/alfa:win.txt"], capture_output=True).stdout == b"riga uno\r\nriga due\r\n"
+        and subprocess.run(["git", "-C", str(alfa), "show", "win/alfa:img.bin"], capture_output=True).stdout == bytes(range(256)) * 4
+        and subprocess.run(["git", "-C", str(alfa), "show", "win/alfa:base-crlf.txt"], capture_output=True).stdout == b"uno\r\ndue\r\ntre da win\r\n", out)
+T.check("RS4 the shared checkout is untouched: same HEAD, same branch, no worktree left",
+        g(alfa, "rev-parse", "HEAD").strip() == head_before and g(alfa, "branch", "--show-current").strip() == branch_before
+        and len(g(alfa, "worktree", "list").strip().splitlines()) == 1, g(alfa, "worktree", "list"))
+(rdir / "sporco.txt").unlink()
+seg2 = ws / "personali" / "locale"
+repo(seg2, {"x.txt": "x\n"})
+r0 = launch(str(seg2), "--host", "win", "--no-window")
+r = rs("fetch", "win", "win-locale")
+T.check("RS4 no new commits there → says so, exit 0, no branch", r0.returncode == 0 and r.returncode == 0 and "nessun commit" in r.stdout
+        and subprocess.run(["git", "-C", str(seg2), "rev-parse", "--verify", "-q", "win/locale"], capture_output=True).returncode != 0, r0.stdout + r0.stderr + r.stdout + r.stderr)
+
+# RS5
+n0 = len(calls())
+r = launch(str(alfa), "--host", "win", "--no-window")
+T.check("RS5 second launch on the same folder: the folder there is reused (no new snapshot), name win-alfa-2",
+        r.returncode == 0 and "win-alfa-2" in r.stdout and not any(c["verb"] == "seed" for c in calls()[n0:]) and "riuso" in r.stderr.lower(), r.stdout + r.stderr)
+
+# RS6
+(winroot / "cm" / "personali" / "kb2").mkdir(parents=True)
+kb2 = ws / "personali" / "kb2"
+kb2.mkdir()
+repo(kb2, {"a": "a\n"})
+r = launch(str(kb2), "--host", "win", "--no-window")
+T.check("RS6 a folder already there but not ours → refused, nothing sent", r.returncode == 6 and "non è di claude-master" in r.stderr, r.stdout + r.stderr)
+nr = ws / "personali" / "noreg"
+nr.mkdir()
+repo(nr, {"a": "a\n"})
+r = launch(str(nr), "--host", "win", "--no-window", FAKE_WIN_NOREG="1")
+T.check("RS6 a session that never registers → exit 5 saying where to look", r.returncode == 5 and "win" in r.stderr and "4" in r.stderr, r.stdout + r.stderr)
+
+# RS7
+r = rs("propose", str(alfa), CM_LOADAVG="12", CM_NPROC="8")
+r2 = rs("propose", str(ws / "pro" / "beta"), CM_LOADAVG="12")
+r3 = rs("propose", str(alfa))
+r4 = rs("propose", str(alfa), CM_MEMAVAIL_GB="1.2")
+T.check("RS7 loaded control machine (load > cores, or free RAM < 2 GB) → one proposal line naming --host win; not for a refused folder; none when idle",
+        "--host win" in r.stderr and "12.0" in r.stderr and r2.stderr == "" and r3.stderr == "" and "--host win" in r4.stderr, r.stderr + "|" + r2.stderr + "|" + r3.stderr + "|" + r4.stderr)
+p1 = rs("pick", str(alfa), CM_LOADAVG="12").stdout.strip()
+p2 = rs("pick", str(alfa)).stdout.strip()
+p3 = rs("pick", str(ws / "pro" / "beta"), CM_LOADAVG="12").stdout.strip()
+T.check("RS7 pick: win when loaded, the control machine when idle or when the folder is not admitted", p1 == "win" and p2 == "" and p3 == "", f"{p1!r} {p2!r} {p3!r}")
+gam = ws / "personali" / "gamma2"
+gam.mkdir()
+repo(gam, {"a": "a\n"})
+r = launch(str(gam), "--host", "auto", "--no-window", CM_LOADAVG="12")
+T.check("RS7 --host auto with the control machine loaded → launched on win", r.returncode == 0 and "win-gamma2" in r.stdout, r.stdout + r.stderr)
+with T.PrivateTmux() as tm:
+    cfg.write_text(json.dumps(dict(base_cfg, sessions={"max_sessions": 50})))
+    loc = {"CM_TMUX_ARGS": tm.env["CM_TMUX_ARGS"], "CM_CLAUDE_BIN": str(FAKE), "FAKE_CLAUDE_SCENARIO": "plain"}
+    r = launch(str(ws / "personali" / "locale"), "--host", "auto", "--no-window", **loc)
+    T.check("RS7 --host auto with the control machine idle → launched here, in tmux", r.returncode == 0 and tm("has-session", "-t", "=locale").returncode == 0, r.stdout + r.stderr)
+    r = launch(str(ws / "personali" / "alfa"), "--no-window", CM_LOADAVG="12", **loc)
+    T.check("RS7 plain launch with the control machine loaded: launched here, with the proposal line",
+            r.returncode == 0 and "--host win" in r.stderr and tm("has-session", "-t", "=alfa").returncode == 0, r.stdout + r.stderr)
+# RS8-RS11 (fase 2.2): talk, wait, close
+cfg.write_text(json.dumps(base_cfg))
+TALK = [sys.executable, str(T.SCRIPTS / "cm-talk.py"), "talk"]
+CLOSE = [str(T.SCRIPTS / "cm-close.sh")]
+tricky = 'Rispondi "OK" con `echo $HOME` e l\'apostrofo;\nseconda riga: perché è così?'
+r = subprocess.run(TALK + ["win:win-alfa", tricky, "--wait", "30"], capture_output=True, text=True, env=env(), timeout=90)
+posts = [c for c in calls() if c["verb"] == "post"]
+inbox_recs = [json.loads(p.read_text()) for p in (tmp / "state" / "inbox" / "win-alfa").glob("*.json")] if (tmp / "state" / "inbox" / "win-alfa").exists() else []
+T.check("RS8 talk win:win-alfa: the text arrives whole (quotes, backtick, $, newline, accents), the reply comes from the transcript there",
+        r.returncode == 0 and posts and posts[-1]["text"] == tricky and ("RISPOSTA: " + tricky) in r.stdout, r.stdout + r.stderr)
+T.check("RS8 the local inbox has it, delivered via pipe:win", any(x["text"] == tricky and x["status"] == "delivered" and x.get("via") == "pipe:win" for x in inbox_recs), json.dumps(inbox_recs)[:400])
+r = subprocess.run(TALK + ["win-alfa", "secondo", "--no-wait"], capture_output=True, text=True, env=env(), timeout=60)
+T.check("RS8 the bare registered name works too; --no-wait returns without the reply", r.returncode == 0 and "RISPOSTA" not in r.stdout and calls()[-1]["verb"] == "post", r.stdout + r.stderr)
+r = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-talk.py"), "wait", "win:win-alfa", "--timeout", "30"], capture_output=True, text=True, env=env(), timeout=90)
+T.check("RS9 wait win:win-alfa: back at idle with the last reply", r.returncode == 0 and "RISPOSTA: secondo" in r.stdout, r.stdout + r.stderr)
+r = subprocess.run(CLOSE + ["win:win-alfa"], capture_output=True, text=True, env=env(FAKE_WIN_STATUS="win-alfa:busy"), timeout=60)
+T.check("RS10 close of a busy remote session without --force → exit 4, says why", r.returncode == 4 and "busy" in r.stderr and "--force" in r.stderr, r.stdout + r.stderr)
+nclose = sum(c["verb"] == "close" for c in calls())
+r = subprocess.run(CLOSE + ["--dry-run", "win:win-alfa"], capture_output=True, text=True, env=env(), timeout=60)
+T.check("RS10 close --dry-run says it would close and does not call the host", r.returncode == 0 and "win:win-alfa" in r.stdout
+        and sum(c["verb"] == "close" for c in calls()) == nclose, r.stdout + r.stderr)
+r = subprocess.run(CLOSE + ["win:win-alfa", "--force"], capture_output=True, text=True, env=env(FAKE_WIN_STATUS="win-alfa:busy"), timeout=60)
+recj = json.loads((tmp / "state" / "rsessions" / "win-alfa.json").read_text())
+T.check("RS10 close --force closes it; the local record says closed", r.returncode == 0 and "chiusa" in r.stdout and recj.get("closed"), r.stdout + r.stderr)
+r = subprocess.run(CLOSE + ["win:win-alfa"], capture_output=True, text=True, env=env(), timeout=60)
+T.check("RS10 closing it again: «was not running»", r.returncode == 0 and "non era in esecuzione" in r.stdout, r.stdout + r.stderr)
+r = subprocess.run(TALK + ["win:win-alfa", "dopo la chiusura"], capture_output=True, text=True, env=env(), timeout=60)
+inbox_recs = [json.loads(p.read_text()) for p in (tmp / "state" / "inbox" / "win-alfa").glob("*.json")]
+T.check("RS11 talk to a closed remote session → exit 5, the message waits in the inbox", r.returncode == 5
+        and any(x["text"] == "dopo la chiusura" and x["status"] == "pending" for x in inbox_recs), r.stdout + r.stderr)
+
+T.rm(tmp)
+T.finish()

@@ -218,6 +218,9 @@ DEFAULTS = {
         "secret_globs": [".env*", "*.pem", "*.key", "id_*", ".npmrc", "credentials*"],
         "ssh_connect_timeout_s": 4,
         "min_free_gb": 2,
+        # launch propone (e --host auto sceglie) un host con il ruolo sessions quando la regia e' carica: carico a
+        # 1 minuto oltre load_per_core per core, o RAM disponibile sotto free_ram_gb (proposta win, ok del maintainer 01/10)
+        "session_offload": {"load_per_core": 1.0, "free_ram_gb": 2},
     },
 }
 

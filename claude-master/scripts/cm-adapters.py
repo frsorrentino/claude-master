@@ -383,6 +383,160 @@ class WindowsNative(Adapter):
         return True
 
 
+    # --- sessioni Claude (piano multi-PC 4.2, fase 2.1): chiamate da cm-rsession.py
+    verbs = Adapter.verbs | {"launch_session"}
+    # i byte della fotografia restano quelli di qui: con core.autocrlf input il commit «base» di la' normalizzava i
+    # file CRLF in LF e le patch di ritorno non si applicavano piu' sulla base di qui (prova reale del 02/10, 00:45)
+    SEED_GIT_CONFIG = {"core.autocrlf": "false"}
+
+    def ps_json(self, script, timeout=120):
+        """Esegue uno script e legge l'ULTIMA riga dello stdout come JSON (il resto e' rumore di git o di PowerShell)."""
+        rc, out, err = self.exec(script, timeout=timeout)
+        lines = [l for l in (out or "").splitlines() if l.strip().startswith("{")]
+        try:
+            d = json.loads(lines[-1]) if lines else None
+        except ValueError:
+            d = None
+        if d is None:
+            raise HostError("remote", (err or out or f"rc {rc}").strip()[-300:])
+        if d.get("error"):
+            raise HostError("remote", d["error"])
+        return d
+
+    def rpath(self, p):
+        """Un percorso remoto per scp: %USERPROFILE%\\x diventa relativo alla home (scp parte da li')."""
+        p = str(p)
+        if p.upper().startswith("%USERPROFILE%"):
+            p = p[len("%USERPROFILE%"):].lstrip("\\/")
+        return p.replace("\\", "/")
+
+    _PS_DIR = "$d = [Environment]::ExpandEnvironmentVariables(%s); $m = Join-Path $d '.cm-session.json';"
+
+    def session_prepare(self, rdir):
+        """{exists, marker, base, root, ahead}: la cartella c'e'? e' nostra (.cm-session.json)? quanti commit oltre la base."""
+        return self.ps_json(self._PS_DIR % self.q(rdir) + r"""
+$r = @{ exists = [bool](Test-Path $d); marker = $false }
+if (Test-Path $m) {
+  $j = Get-Content $m -Raw | ConvertFrom-Json
+  $r.marker = $true; $r.base = $j.base; $r.root = $j.root
+  $r.ahead = [int](git -C $d rev-list --count "$($j.root)..HEAD" 2>$null)
+}
+ConvertTo-Json -InputObject $r -Compress""")
+
+    def session_seed(self, rdir, tar, sha, who):
+        """La fotografia diventa un repository nuovo: estrazione, git init, commit «base», .cm-session.json (escluso)."""
+        seed = self.rpath(rdir.rstrip("\\/") + ".cm-seed.tar")
+        rc, _, err = self.exec(self._PS_DIR % self.q(rdir) + "New-Item -ItemType Directory -Force -Path (Split-Path -Parent $d) | Out-Null")
+        if rc != 0:
+            raise HostError("remote", err)
+        self.put(tar, seed)
+        name, email = who
+        seedcfg = "\n".join(f"git -C $d config {k} {v}" for k, v in self.SEED_GIT_CONFIG.items())
+        return self.ps_json(self._PS_DIR % self.q(rdir) + f"""
+$t = [Environment]::ExpandEnvironmentVariables({self.q(rdir.rstrip(chr(92) + '/') + '.cm-seed.tar')})
+if (-not (Test-Path $t)) {{ $t = Join-Path $env:USERPROFILE {self.q(seed)} }}
+New-Item -ItemType Directory -Force -Path $d | Out-Null
+tar -xf $t -C $d; if ($LASTEXITCODE) {{ ConvertTo-Json -Compress @{{ error = "tar rc $LASTEXITCODE" }}; exit 1 }}
+Remove-Item -Force $t
+git -C $d init -q
+{seedcfg}
+git -C $d config user.name {self.q(name or 'claude-master')}
+git -C $d config user.email {self.q(email or 'claude-master@localhost')}
+Add-Content -Path (Join-Path $d '.git\\info\\exclude') -Value '.cm-session.json'
+git -C $d add -A
+git -C $d commit -q -m {self.q('claude-master: base ' + sha + ' from the control machine')}
+if ($LASTEXITCODE) {{ ConvertTo-Json -Compress @{{ error = "git commit rc $LASTEXITCODE" }}; exit 1 }}
+$root = (git -C $d rev-parse HEAD).Trim()
+$j = @{{ base = {self.q(sha)}; root = $root; created = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') }}
+[IO.File]::WriteAllText($m, (ConvertTo-Json -InputObject $j -Compress))
+ConvertTo-Json -Compress @{{ ok = $true; root = $root }}""", timeout=600)
+
+    # la fiducia nella cartella si scrive con node (c'e' su ogni host con Claude Code): PowerShell 5.1 riscrivendo
+    # .claude.json ne cambierebbe la forma (profondita' 2 di default, array singoli); scrittura atomica con rename
+    _TRUST_JS = (
+        "const fs=require('fs'),p=require('path'),os=require('os');"
+        "const f=p.join(os.homedir(),'.claude.json');const d=JSON.parse(fs.readFileSync(f,'utf8'));"
+        "const k=process.argv[2].replace(/\\\\/g,'/');d.projects=d.projects||{};"
+        "d.projects[k]=Object.assign({},d.projects[k]||{},{hasTrustDialogAccepted:true});"
+        "if(!fs.existsSync(f+'.cm-bak'))fs.copyFileSync(f,f+'.cm-bak');"
+        "const t=f+'.cm-tmp';fs.writeFileSync(t,JSON.stringify(d,null,2));fs.renameSync(t,f);"
+        "console.log(JSON.stringify({ok:true,key:k}))")
+
+    def session_trust(self, rdir):
+        js = base64.b64encode(self._TRUST_JS.encode()).decode()
+        return self.ps_json(self._PS_DIR % self.q(rdir) + f"""
+$js = Join-Path $env:TEMP 'cm-trust.js'
+[IO.File]::WriteAllText($js, [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{js}')))
+node $js $d""")
+
+    def session_start(self, name, rdir, args):
+        """Un'attivita' Interactive sull'utente collegato al desktop: la console visibile su quel desktop e' il terminale
+        di Claude Code (come CCwincompat). Senza nessuno collegato non parte: lo si dice."""
+        def cq(a):
+            a = str(a)
+            return '"' + a.replace('"', '""') + '"' if re.search(r'[\s&|<>^()"]', a) else a
+        line = "claude " + " ".join(cq(a) for a in args)
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", name):
+            raise HostError("remote", f"bad session name {name}")
+        return self.ps_json(self._PS_DIR % self.q(rdir) + f"""
+$u = (Get-CimInstance Win32_ComputerSystem).UserName
+if (-not $u) {{ ConvertTo-Json -Compress @{{ error = 'nobody is signed in to the desktop: an interactive session cannot start' }}; exit 1 }}
+$sd = Join-Path $env:USERPROFILE '{HELPER_DIR}\\sessions'
+New-Item -ItemType Directory -Force -Path $sd | Out-Null
+$cmdf = Join-Path $sd '{name}.cmd'
+[IO.File]::WriteAllText($cmdf, "@echo off`r`ntitle {name}`r`ncd /d `"$d`"`r`n" + {self.q(line)} + "`r`n")
+$a = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$cmdf`"" -WorkingDirectory $d
+$pr = New-ScheduledTaskPrincipal -UserId $u -LogonType Interactive -RunLevel Limited
+$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
+Register-ScheduledTask -TaskName 'cm-session-{name}' -TaskPath '\\claude-master\\' -Action $a -Principal $pr -Settings $s -Force -ErrorAction Stop | Out-Null
+Start-ScheduledTask -TaskPath '\\claude-master\\' -TaskName 'cm-session-{name}' -ErrorAction Stop
+ConvertTo-Json -Compress @{{ ok = $true; user = $u; task = 'cm-session-{name}' }}""")
+
+    def session_patches(self, rdir, local_mbox):
+        """{count, dirty}: i commit oltre la base come serie di patch, scritti byte per byte (cmd /c: la pipe di
+        PowerShell 5.1 ricodificherebbe il testo), poi copiati qui con scp."""
+        out_rel = f"{HELPER_DIR}/out/{hashlib.sha1(rdir.encode()).hexdigest()[:12]}.mbox"
+        d = self.ps_json(self._PS_DIR % self.q(rdir) + f"""
+if (-not (Test-Path $m)) {{ ConvertTo-Json -Compress @{{ error = "no .cm-session.json in $d" }}; exit 1 }}
+$j = Get-Content $m -Raw | ConvertFrom-Json
+$n = [int](git -C $d rev-list --count "$($j.root)..HEAD")
+$dirty = @(git -C $d status --porcelain | Where-Object {{ $_ }}).Count
+if ($n -gt 0) {{
+  $o = Join-Path $env:USERPROFILE {self.q(out_rel.replace('/', chr(92)))}
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $o) | Out-Null
+  cmd /c "git -C `"$d`" format-patch --stdout $($j.root)..HEAD > `"$o`""
+}}
+ConvertTo-Json -Compress @{{ count = $n; dirty = $dirty }}""", timeout=300)
+        if d.get("count"):
+            self.get(out_rel, local_mbox)
+        return d
+
+    # --- talk, wait e close verso le sessioni di questo host (fase 2.2): tutto in node (cm-session.js), passato in
+    # base64 a ogni chiamata come il testo: niente da installare, nessuna virgoletta persa fra PowerShell e node
+    def node_session(self, *args, timeout=120):
+        js = base64.b64encode((REMOTE / "cm-session.js").read_bytes()).decode()
+        argv = " ".join(self.q(a) for a in args)
+        return self.ps_json(f"""
+$js = Join-Path $env:TEMP 'cm-session.js'
+[IO.File]::WriteAllText($js, [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{js}')))
+node $js {argv}""", timeout=timeout)
+
+    def session_post(self, name, text, from_name, from_addr):
+        b64 = base64.b64encode(text.encode()).decode()
+        return self.node_session("post", name, b64, from_name, from_addr or "uds:")
+
+    def session_read(self, name, offset, last=False):
+        return self.node_session("read", name, str(offset), *(["last"] if last else []))
+
+    def session_close(self, name, force=False):
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", name):
+            raise HostError("remote", f"bad session name {name}")
+        d = self.node_session("close", name, *(["force"] if force else []))
+        self.exec(f"Unregister-ScheduledTask -TaskPath '\\claude-master\\' -TaskName 'cm-session-{name}' -Confirm:$false "
+                  f"-ErrorAction SilentlyContinue; Remove-Item -Force (Join-Path $env:USERPROFILE '{HELPER_DIR}\\sessions\\{name}.cmd') "
+                  f"-ErrorAction SilentlyContinue")
+        return d
+
 class Cloud(Adapter):
     """Le sessioni cloud di Claude Code: niente exec ne' sync (ogni lavoro li' consumerebbe token). Le sessioni
     arrivano nella v2 (2.5); qui l'adattatore esiste perche' lo scheduler lo scarti con la sua regola."""

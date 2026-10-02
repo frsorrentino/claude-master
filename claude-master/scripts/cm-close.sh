@@ -15,10 +15,11 @@
 set -u
 source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/cm-lib.sh"
 
-PROVA=no; BERSAGLIO=""; ABBANDONATE=no
+PROVA=no; BERSAGLIO=""; ABBANDONATE=no; FORZA=""
 for arg in "$@"; do
   case "$arg" in
     --dry-run|--prova) PROVA=si ;;
+    --force|--forza) FORZA=--force ;;   # solo per le sessioni su un altro host: chiude anche una busy o waiting
     --abandoned|--abbandonate) ABBANDONATE=si ;;
     -*) cm_msg close.unknown_option "opt=$arg" >&2; exit 2 ;;
     *) BERSAGLIO="$arg" ;;
@@ -53,6 +54,11 @@ if [ -z "$BERSAGLIO" ]; then
   cm_msg close.usage >&2
   echo "  $(cm_msg close.running): $(cm_tmux list-sessions -F '#{session_name}' 2>/dev/null | tr '\n' ' ')" >&2
   exit 2
+fi
+# fase 2.2 del piano multi-PC: `HOST:nome` o una sessione lanciata con launch --host si chiude sull'host
+if python3 "$CM_SCRIPTS/cm-rsession.py" resolve "$BERSAGLIO" >/dev/null 2>&1; then
+  [ "$PROVA" = si ] && { echo "  $(cm_msg close.would_close "name=$BERSAGLIO")"; exit 0; }
+  exec python3 "$CM_SCRIPTS/cm-rsession.py" close "$BERSAGLIO" $FORZA
 fi
 cm_tmux has-session -t "=$BERSAGLIO" 2>/dev/null || {
   cm_msg close.missing "name=$BERSAGLIO" >&2

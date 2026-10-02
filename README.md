@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.5.2-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.5.3-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 [![claude-master in 40 seconds: a question from a Claude Code session on a Wear OS watch — «Staging is green. Deploy 2.8.0?» — answered with one tap.](assets/readme/promo-poster.jpg)](https://www.francescosorrentino.com/plugins/claude-master-watch)
 
@@ -380,11 +380,29 @@ claude-master offload ~/film --recipe render   # the exact commit, the declared 
   heavy job's progress; `quota` merges the readings of every host and says
   where the freshest came from. An unreachable host is a line with the age of
   its last good read, never a hang.
+- **A whole session elsewhere.** `launch <dir> --host win` starts a Claude
+  session on a `windows-native` host with the `sessions` role, with Remote
+  Control on, so it shows in the app as `win-<name>`. A rule in the config
+  decides which folders may go, and every refusal names the condition it
+  failed: the folder's account is in the host's `trust.accounts`; the folder is
+  not in the client perimeter and is under the workspace root; it matches
+  `hosts.H.sessions.allow` and no `deny` entry; no secrets (not in a recipe,
+  not in the file names, not in the content). What goes there is a snapshot of
+  HEAD (`git archive`, no secret files), never the history; the host has no git
+  credentials. `host fetch win <name>` brings the commits made there back as
+  patches on a local branch `win/<name>`, applied in a temporary worktree so the
+  shared checkout is untouched; merge and push happen here. When this machine is
+  loaded (1-minute load above its cores, or less than 2 GB free) `launch`
+  suggests the host in one line; `--host auto` picks it.
+  `talk win:<name> "…"`, `wait win:<name>` and `close win:<name>` reach it
+  through its native inbox (the named pipe, the text in base64) and read the
+  reply from its transcript there; `close` refuses a session mid-turn without
+  `--force` and leaves the folder for `host fetch`.
 
 Host kinds: `linux-tmux` (this machine or over ssh), `windows-native` (OpenSSH,
 PowerShell 5.1+), `macos-tmux` and `wsl` over ssh. ssh options always go on the
 command line with a dedicated `known_hosts`; `~/.ssh/config` is never touched.
-Remote sessions (launch, talk and wait across machines) are the next step.
+Remote sessions start, talk and come back as above.
 
 ### Doctor, for both accounts
 
@@ -630,6 +648,7 @@ The complete reference. Italian aliases (`lancia`, `chiudi`, `sessioni`,
 | `claude-master observe add\|list\|show\|mark\|export\|report` | the local record of claude-master's own errors (see «What you are trusting»): add a workaround or a verdict, triage, or send them as one anonymized issue |
 | `claude-master night add <dir> "prompt" [--model M] [--effort E] [--max-turns N]` · `list` · `remove <id>` · `run [--dry-run\|--one] [--send]` · `install\|uninstall\|status` | the overnight queue |
 | `claude-master host add NAME --ssh ALIAS [--kind K] [--yes]` · `host doctor NAME\|local [--no-bench] [--force-bench]` · `host confirm NAME [--roles …] [--trust work\|full] [--limits …]` · `host list\|remove\|update NAME` | declare another machine, measure it, confirm roles, limits and trust; the remote helper is installed only on a yes |
+| `claude-master launch <dir> --host H\|auto` · `host admit H <dir>` · `host fetch H <name>` · `host sessions` · `talk\|wait\|close H:<name>` | a session on another host when the folder passes the host's rule; prompts and replies through its native inbox; its commits back on a local branch |
 | `claude-master hosts [poll [--cron]\|install\|uninstall]` | the host table; one round of the poller, or its crontab line |
 | `claude-master offload <dir> --recipe NAME [--host H] [--explain] [--dirty]` · `offload --needs k=v,… -- <command>` · `offload list\|status\|log [-f]\|wait\|fetch\|cancel\|clean <id>` | a heavy job on the host that does it best: exact commit, declared assets, results back with sha256 |
 | `claude-master heavy run [--needs …] -- <command>` · `heavy status` | the same scheduler for a command a session would run here: it stays here inside a lease, or becomes an offload and waits |
