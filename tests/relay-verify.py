@@ -986,6 +986,49 @@ T.check("R19 (1.22) typed while a turn runs: shown from the enqueue, with the ti
 T.check("R19 (1.22) «2:before=a4.0» → the two entries before it, more true; a bad arg, an unknown id and a session that is not running → ok false in plain words",
         [e["id"] for e in p19["entries"]] == ["a1.1", "a3.0"] and p19["more"] is True and bad[0]["ok"] is False and "expected n" in bad[0]["text"]
         and bad[1]["text"] == "no entry nope in the transcript" and none19["ok"] is False and none19["text"] == "atlas-shop-none is not running", str(p19) + str(bad) + str(none19))
+# R22 (contratto 1.24, 02/10): op file — il telefono apre un file che compare nei `files` della trascrizione
+import base64 as _b64, os as _os22
+_fx = (FIX / "transcript-sample.jsonl").read_text().replace("/home/demo/workspaces", str(ws.resolve()))
+(tdir19 / "S-F.jsonl").write_text(_fx)
+fn22 = (ws / "personal" / "field-notes").resolve()
+(fn22 / "docs").mkdir(parents=True, exist_ok=True)
+png22 = _b64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC")
+(fn22 / "docs" / "cover.png").write_bytes(png22)
+fcmd = [dict(c, arg=c["arg"].replace("/home/demo/workspaces", str(ws.resolve()))) for c in CMDS[22:24]]
+r22 = send_cmd(fcmd[0])
+doc22 = (STORE.get("file") or {}).get(fcmd[0]["id"])
+blob22 = C.decrypt(doc22, k) if doc22 else {}
+T.check("R22 (1.24) file: a path listed in the session's transcript → /file/<cmd id> as {v, enc}, plain {mime, data base64} byte for byte; /result as in the fixture",
+        r22 and r22["ok"] is True and r22["text"] == RES[22]["text"] and set(doc22 or {}) == {"v", "enc"}
+        and blob22.get("mime") == "image/png" and _b64.b64decode(blob22.get("data") or "") == png22, str(r22) + str(blob22)[:120])
+r22b = send_cmd(fcmd[1])
+T.check("R22 (1.24) a path not in the transcript (as in the fixture) → «not in the transcript», nothing written to /file",
+        r22b and r22b["ok"] is False and r22b["text"] == RES[23]["text"] and fcmd[1]["id"] not in (STORE.get("file") or {}), str(r22b))
+pdf22 = str(fn22 / "docs" / "minutes.pdf")
+r22c = send_cmd(dict(fcmd[0], id="6f1c2d3e-0140-4000-8000-000000000201", arg=pdf22))
+(fn22 / "docs" / "minutes.pdf").write_bytes(_os22.urandom(1_300_000))
+r22d = send_cmd(dict(fcmd[0], id="6f1c2d3e-0140-4000-8000-000000000202", arg=pdf22))
+r22e = send_cmd(dict(fcmd[0], id="6f1c2d3e-0140-4000-8000-000000000203", session="atlas-shop-none"))
+T.check("R22 (1.24) refusals in plain words: a listed file that is missing, a listed non-image over the cap («too large: <bytes>»), a session that is not running",
+        r22c and r22c["text"] == "missing or unreadable" and r22d and r22d["text"] == "too large: 1300000" and r22e and r22e["text"] == "no session atlas-shop-none", str([r22c, r22d, r22e]))
+from PIL import Image as _Im22
+rep22 = (ws / "personal" / "atlas-shop").resolve() / "docs" / "reports"   # l'immagine archiviata da `claude-master report`
+rep22.mkdir(parents=True, exist_ok=True)
+_Im22.frombytes("RGB", (1600, 1600), _os22.urandom(1600 * 1600 * 3)).save(rep22 / "2026-09-12-checkout-is-grey.jpg", "JPEG", quality=95)
+jpg22 = str(rep22 / "2026-09-12-checkout-is-grey.jpg")
+r22f = send_cmd(dict(fcmd[0], id="6f1c2d3e-0140-4000-8000-000000000204", arg=jpg22))
+doc22f = (STORE.get("file") or {}).get("6f1c2d3e-0140-4000-8000-000000000204") or {}
+blob22f = C.decrypt(doc22f, k) if doc22f else {}
+T.check("R22 (1.24) a listed image over the cap is reduced to a JPEG that fits (enc ≤ 1 500 000)",
+        _os22.path.getsize(jpg22) > 1_200_000 and r22f and r22f["ok"] is True and blob22f.get("mime") == "image/jpeg"
+        and len(doc22f.get("enc") or "") <= 1_500_000 and _b64.b64decode(blob22f.get("data") or "")[:2] == b"\xff\xd8", f"{_os22.path.getsize(jpg22)} {r22f} {len(doc22f.get('enc') or '')}")
+T.check("R22 (1.24) /state ops carries file", "file" in json.loads(relay("push", "--dry-run").stdout).get("ops", []), "")
+old22, fresh22 = "6f1c2d3e-0140-4000-8000-00000000f001", "6f1c2d3e-0140-4000-8000-00000000f002"
+http("PUT", f"/file/{old22}.json", {"v": 1, "enc": "x"}); http("PUT", f"/file/{fresh22}.json", {"v": 1, "enc": "x"})
+(rdir2 / "file-seen.json").write_text(json.dumps({old22: time.time() - 700}))
+relay("push")
+T.check("R22 (1.24) push prunes a /file node not read for more than 10 minutes, keeps a fresh one",
+        old22 not in (STORE.get("file") or {}) and fresh22 in (STORE.get("file") or {}), str(list(STORE.get("file") or {})))
 T.check("R14 (1.18) events-sample: a recap, a night_report and the quota resume, with the shape of the other events",
         [e["kind"] for e in EV[-3:]] == ["recap", "night_report", "quota"] and all(set(e) == set(EV[0]) for e in EV) and EV[-3]["ref"] == "2026-09-12", str(EV[-3:])[:300])
 rows_alive("ledger-api", "atlas-shop", "field-notes")

@@ -78,6 +78,7 @@
     "night_remove",
     "report",
     "interrupt",
-    "transcript"
+    "transcript",
+    "file"
   ]
 }

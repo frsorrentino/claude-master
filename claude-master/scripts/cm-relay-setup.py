@@ -71,6 +71,8 @@ RULES = {"rules": {
     "cmd": {".read": ALLOWED, ".write": ALLOWED},
     # 1.19: l'immagine di «Condividi», scritta dal telefono e letta (poi cancellata) dal PC con il service account
     "share": {"$id": {".write": ALLOWED, ".validate": "newData.child('enc').isString() && newData.child('enc').val().length <= 1500000"}},
+    # 1.24: il file aperto dal telefono, scritto dal PC con il service account; il dispositivo lo legge e lo cancella
+    "file": {"$id": {".read": ALLOWED, ".write": ALLOWED + " && !newData.exists()"}},
     # 1.20: ogni dispositivo scrive solo il proprio /seen/<uid>, l'ora (del server) dell'ultima lettura di /state
     "seen": {"$uid": {".write": "auth != null && auth.uid === $uid && root.child('allowed').child($uid).val() === true", ".validate": "newData.isNumber()"}},
     "pair": {"$node": {".read": "auth != null", "watch": {".write": "auth != null"}}},

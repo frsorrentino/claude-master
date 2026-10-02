@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.5.3-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.5.4-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 [![claude-master in 40 seconds: a question from a Claude Code session on a Wear OS watch — «Staging is green. Deploy 2.8.0?» — answered with one tap.](assets/readme/promo-poster.jpg)](https://www.francescosorrentino.com/plugins/claude-master-watch)
 
@@ -254,6 +254,15 @@ sent), and the tokens and times of each closed turn — at most 60 KB a page.
 Contract 1.23 adds `suggestion` to every session in `/state`: the prompt Claude
 Code suggests in dim text after `❯` when the input is empty, read with its
 colours from the pane, for a session at the prompt only — never typed text.
+
+Contract 1.24 opens a file from the conversation on the phone: `file` with the
+session and, as `arg`, a `path` exactly as `transcript` lists it in `files`.
+The relay serves only a path listed in that session's transcript and writes it
+to `/file/<command id>`, encrypted like `/share`, as `{mime, data}`. An image
+over the 1.5 MB envelope is reduced to a JPEG; any other file over it is
+refused. The device deletes the node after reading it; unread nodes go after
+10 minutes. Refusals: «no session …», «not in the transcript», «missing or
+unreadable», «too large: <bytes>».
 
 Contract 1.20 counts the phone as well as the watch before falling back to
 Telegram. Each paired device writes `/seen/<uid>` (the Firebase server time)

@@ -181,6 +181,22 @@
       "device": "phone",
       "issued": 1789210780,
       "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0140-4000-8000-000000000140",
+      "op": "file",
+      "session": "field-notes",
+      "arg": "/home/demo/workspaces/personal/field-notes/docs/cover.png",
+      "issued": 1789210790,
+      "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0141-4000-8000-000000000141",
+      "op": "file",
+      "session": "field-notes",
+      "arg": "/home/demo/.ssh/id_ed25519",
+      "issued": 1789210795,
+      "by": "phone-pixel8"
     }
   ],
   "result": [
@@ -317,6 +333,18 @@
       "ok": true,
       "text": "delivered",
       "at": 1789210781
+    },
+    {
+      "id": "6f1c2d3e-0140-4000-8000-000000000140",
+      "ok": true,
+      "text": "file ready (image/png, 69 bytes)",
+      "at": 1789210791
+    },
+    {
+      "id": "6f1c2d3e-0141-4000-8000-000000000141",
+      "ok": false,
+      "text": "not in the transcript",
+      "at": 1789210796
     }
   ]
 }

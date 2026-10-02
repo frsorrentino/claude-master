@@ -60,7 +60,7 @@ M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
 R = CFG["relay"]
 CM_BIN = os.environ.get("CM_RELAY_CM") or str(HERE / "claude-master")
 BACKOFF = [1, 2, 5, 15, 30]
-OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report", "interrupt", "transcript")
+OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report", "interrupt", "transcript", "file")
 LAST_MAX = 4000   # 1.4: l'ultimo messaggio per la lettura vocale — oltre, l'ascolto non regge
 
 
@@ -619,6 +619,7 @@ def _push(dry_run=False, now=None):
         raise
     prune_events(now)
     prune_share(now)
+    prune_share(now, "file")
     woken = True
     for e in events:
         try:
@@ -1019,25 +1020,92 @@ def _share_report(cmd, tm, session, sid):
     return True, M("relay.cmd_report_sent", name=session)
 
 
-def prune_share(now):
+def prune_share(now, node="share"):
     """Via i /share/<id> che nessun comando ha letto entro SHARE_TTL_S: le chiavi sono uuid senza istante, quindi si
-    ricorda quando il relay li ha visti la prima volta (share-seen.json)."""
+    ricorda quando il relay li ha visti la prima volta (share-seen.json). 1.24: lo stesso per /file/<id> che il
+    dispositivo non ha letto (e quindi non ha cancellato)."""
     try:
-        keys = rtdb("GET", "share", None, {"shallow": "true"}) or {}
+        keys = rtdb("GET", node, None, {"shallow": "true"}) or {}
     except (urllib.error.URLError, OSError, ValueError):
         return
-    seen_p = rdir() / "share-seen.json"
+    seen_p = rdir() / f"{node}-seen.json"
     seen = {k: v for k, v in read_json(seen_p, {}).items() if k in keys}
     for k in keys:
         seen.setdefault(k, now)
     old = [k for k, t in seen.items() if now - float(t) > SHARE_TTL_S]
     for k in old:
         try:
-            rtdb("DELETE", f"share/{k}")
+            rtdb("DELETE", f"{node}/{k}")
             seen.pop(k, None)
         except (urllib.error.URLError, OSError, ValueError):
             pass
     write_json(seen_p, seen)
+
+
+def _fit_image(data, cap_enc):
+    """Un'immagine troppo grande per la busta diventa JPEG, sempre piu' piccola, finche' la busta cifrata ci sta
+    (base64 di base64 e AES-GCM: si stima dal JPEG e si verifica sulla busta vera). None se non ci sta mai."""
+    from io import BytesIO
+    try:
+        from PIL import Image
+        im = Image.open(BytesIO(data))
+        im.load()
+    except Exception:   # noqa: BLE001 — non e' un'immagine che PIL sa leggere
+        return None
+    im = im.convert("RGB")
+    side = max(im.size)
+    for edge, q in ((2048, 85), (1600, 80), (1280, 75), (1024, 70), (800, 65), (640, 60)):
+        if edge < side:
+            im2 = im.copy()
+            im2.thumbnail((edge, edge))
+        else:
+            im2 = im
+        buf = BytesIO()
+        im2.save(buf, "JPEG", quality=q, optimize=True)
+        out = buf.getvalue()
+        if len(C.encrypt({"mime": "image/jpeg", "data": base64.b64encode(out).decode()}, key()).get("enc") or "") <= cap_enc:
+            return out
+    return None
+
+
+def file_open(cmd, session, tm, arg):
+    """1.24 (02/10, chiesto dalla sessione dell'app, approvato dal maintainer alle 09:10): aprire dal telefono un file
+    che compare nella conversazione. arg = il `path` esatto di transcript.entries[].files[]; si serve SOLO un percorso
+    che compare nei `files` del transcript di quella sessione. Il file va in /file/<id del comando>, busta {v, enc}
+    come /share, in chiaro {mime, data base64}; oltre S.SHARE_MAX_BYTES di `enc` un'immagine si riduce (JPEG), il
+    resto si rifiuta. Il dispositivo lo cancella dopo averlo letto; il relay quelli non letti dopo SHARE_TTL_S (10 minuti)."""
+    path = str(arg or "").strip()
+    row = next((r for r in (_json_cmd("sessions", "--json", "--no-screen") or []) if (r.get("tmux") or r.get("name")) == tm), None)
+    tr = core.transcript_of(row) if row else None
+    if not row or not tr:
+        return False, M("relay.cmd_file_no_session", name=session or "?")
+    size = os.path.getsize(tr)
+    listed = False
+    for window in TRANSCRIPT_WINDOWS:
+        start = 0 if window is None or window >= size else size - window
+        listed = any(fr.get("path") == path for e in core.transcript_entries(tr, start) for fr in (e.get("files") or []))
+        if listed or not start:
+            break
+    if not path or not listed:
+        return False, M("relay.cmd_file_not_listed")
+    try:
+        data = Path(path).read_bytes()
+    except OSError:
+        return False, M("relay.cmd_file_unreadable")
+    import mimetypes
+    mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    doc = C.encrypt({"mime": mime, "data": base64.b64encode(data).decode()}, key())
+    if len(str(doc.get("enc") or "")) > S.SHARE_MAX_BYTES:
+        small = _fit_image(data, S.SHARE_MAX_BYTES) if mime.startswith("image/") else None
+        if small is None:
+            return False, M("relay.cmd_file_too_large", size=len(data))
+        mime, data = "image/jpeg", small
+        doc = C.encrypt({"mime": mime, "data": base64.b64encode(data).decode()}, key())
+    cid = str(cmd.get("id") or "")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", cid):
+        return False, M("relay.cmd_file_unreadable")
+    rtdb("PUT", f"file/{cid}", doc, {"print": "silent"})
+    return True, M("relay.cmd_file_ready", mime=mime, size=len(data))
 
 
 TRANSCRIPT_MAX_N = 200
@@ -1244,6 +1312,8 @@ def execute(cmd):
             return share_report(cmd, tm, session)
         if op == "transcript":
             return transcript_page(session, tm, arg)
+        if op == "file":
+            return file_open(cmd, session, tm, arg)
         if op == "interrupt":
             # 1.21 (30/09): il tasto Stop — `claude-master interrupt` manda un solo Esc, e solo a turno in corso
             if info.get("state") == "gone" or not is_live(tm):
@@ -1354,7 +1424,7 @@ def commands_from(ev, payload):
     return {}
 
 
-PASSIVE_OPS = ("transcript", "screen", "last")   # letture: non cambiano lo stato, vengono dopo i comandi dell'utente
+PASSIVE_OPS = ("transcript", "screen", "last", "file")   # letture: non cambiano lo stato, vengono dopo i comandi dell'utente
 
 
 def in_order(cmds):
