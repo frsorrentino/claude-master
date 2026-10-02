@@ -240,7 +240,14 @@
     },
     "google_services": "",
     "app_package": "",
-    "setup_location": "europe-west1"
+    "setup_location": "europe-west1",
+    "slash_commands": [
+      "compact",
+      "clear",
+      "exit",
+      "context",
+      "cost"
+    ]
   },
   "tune": {
     "timeout_s": 8,

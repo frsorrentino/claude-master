@@ -348,7 +348,9 @@ def build_state(src, now, fit=True):
         # 1.19: il relay sa ricevere «Condividi» (op report con /share); presente = l'app accende il pulsante
         "share": {"max_bytes": SHARE_MAX_BYTES},
         # 1.21: le op di /cmd che questo relay esegue; l'app accende un pulsante solo se la sua op c'e' (Stop = interrupt)
-        "ops": list(src.get("ops") or [])
+        "ops": list(src.get("ops") or []),
+        # 1.25: i comandi slash che il telefono puo' dare (senza «/»); l'app li propone scrivendo «/» nel campo
+        "slash": list(src.get("slash") or [])
     }
     # fit=False: lo stato intero, su cui il relay calcola gli eventi (23/09: gli eventi sullo stato tagliato davano
     # «Session closed» al polso per sessioni vive che fit_state aveva tolto per la dimensione)

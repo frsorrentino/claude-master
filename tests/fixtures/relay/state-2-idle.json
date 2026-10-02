@@ -122,6 +122,14 @@
     "report",
     "interrupt",
     "transcript",
-    "file"
+    "file",
+    "slash"
+  ],
+  "slash": [
+    "compact",
+    "clear",
+    "exit",
+    "context",
+    "cost"
   ]
 }

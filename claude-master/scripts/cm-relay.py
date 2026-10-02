@@ -60,7 +60,7 @@ M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
 R = CFG["relay"]
 CM_BIN = os.environ.get("CM_RELAY_CM") or str(HERE / "claude-master")
 BACKOFF = [1, 2, 5, 15, 30]
-OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report", "interrupt", "transcript", "file")
+OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report", "interrupt", "transcript", "file", "slash")
 LAST_MAX = 4000   # 1.4: l'ultimo messaggio per la lettura vocale — oltre, l'ascolto non regge
 
 
@@ -563,7 +563,7 @@ def collect_sources(now=None):
         "state_max_kb": R.get("state_max_kb") or 8,
         "rows": rows, "ledger": ledger, "questions": questions,
         "quota": _json_cmd("quota", "--json", expect="{") or {},
-        "projects": inventory(), "night": night_queue(), "recap": recap_today(now), "ops": list(OPS),
+        "projects": inventory(), "night": night_queue(), "recap": recap_today(now), "ops": list(OPS), "slash": slash_allowed(),
         "follow": followed(), "awaiting": aw, "next": nexts, "next_at": nexts_at, "tools": tools,
         "icons": icons, "colors": R.get("colors") or None, "tool_notes": notes, "runtime": runtime,
         # 1.12: le scelte valide per il polso, dalla config (tune.models / tune.efforts)
@@ -1108,6 +1108,38 @@ def file_open(cmd, session, tm, arg):
     return True, M("relay.cmd_file_ready", mime=mime, size=len(data))
 
 
+SLASH_RE = re.compile(r"[a-z][a-z0-9-]{0,40}")
+SLASH_TEXT_MAX = 2000
+
+
+def slash_allowed():
+    return [str(x).strip().lstrip("/").lower() for x in (R.get("slash_commands") or []) if str(x).strip()]
+
+
+def slash_send(cmd, session, tm, arg):
+    """1.25 (02/10, chiesto dalla sessione dell'app, approvato dal maintainer alle 11:12): un comando slash dal
+    telefono. arg = il comando senza «/», text = gli argomenti (o null). Solo i comandi di relay.slash_commands. Va
+    DIGITATO nel pannello (talk --via tmux), senza prefisso: dal socket arriverebbe come messaggio di un'altra sessione e
+    Claude Code non lo eseguirebbe. Una sessione al lavoro o ferma su un dialogo rifiuta: il testo finirebbe in coda o
+    risponderebbe al dialogo. /exit si digita come gli altri: `close` rifiuta una sessione attaccata, dal telefono
+    deve valere come la persona al terminale."""
+    name = str(arg or "").strip().lstrip("/").lower()
+    if not SLASH_RE.fullmatch(name) or name not in slash_allowed():
+        return False, M("relay.cmd_slash_not_allowed", cmd=name or "?")
+    row = next((r for r in (_json_cmd("sessions", "--json", "--no-screen") or []) if (r.get("tmux") or r.get("name")) == tm), None)
+    if not row or not row.get("tmux"):
+        return False, M("relay.cmd_slash_no_session", name=session or "?")
+    if row.get("status") in ("busy", "waiting") or row.get("waiting"):
+        return False, M("relay.cmd_slash_busy", name=session)
+    text = " ".join(str(cmd.get("text") or "").split())[:SLASH_TEXT_MAX]
+    rc, out = run_cm("talk", row["tmux"], f"/{name} {text}".rstrip(), "--via", "tmux", "--no-wait")
+    if rc == 4:
+        return False, M("relay.cmd_slash_typed", name=session)
+    if rc != 0:
+        return False, (out.splitlines() or ["slash failed"])[0]
+    return True, M("relay.cmd_slash_sent", cmd=name, name=session)
+
+
 TRANSCRIPT_MAX_N = 200
 TRANSCRIPT_MAX_BYTES = 60000   # 1.22: il JSON di una pagina in /result; oltre si toglie dalla parte vecchia e more=true
 TRANSCRIPT_WINDOWS = (2 * 1024 * 1024, 16 * 1024 * 1024, None)   # si legge dalla coda, e si allarga solo se serve
@@ -1314,6 +1346,8 @@ def execute(cmd):
             return transcript_page(session, tm, arg)
         if op == "file":
             return file_open(cmd, session, tm, arg)
+        if op == "slash":
+            return slash_send(cmd, session, tm, arg)
         if op == "interrupt":
             # 1.21 (30/09): il tasto Stop — `claude-master interrupt` manda un solo Esc, e solo a turno in corso
             if info.get("state") == "gone" or not is_live(tm):

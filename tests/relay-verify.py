@@ -191,7 +191,7 @@ SRC1 = {
     "night": {"queued": 2, "running": None, "items": [
         {"id": "a3f09c1e", "dir": ROOT_WS + "/personal/atlas-shop", "prompt": "Go through the open issues labelled flaky, reproduce each one locally with the seed from its report, fix the ones that are real and write a short note in docs/notte for the others, then run the full suite twice", "account": "personal", "model": "", "effort": "", "max_turns": 40, "added": iso(1789207200)},
         {"id": "7b21d4e8", "dir": ROOT_WS + "/work/clients/ledger-api", "prompt": "Update the changelog for 2.4 and check the migration notes", "account": "work", "model": "", "effort": "", "max_turns": 40, "added": iso(1789210620)}]},
-    "ops": list(R_OPS), "recap": {"date": "2026-09-12", "items": [{"project": "atlas-shop", "done": "Migrations 008-011 applied, tests green", "next": "Review the seeds and the admin page"}, {"project": "ledger-api", "done": "Deploy ready", "next": "Wait for the go"}]},
+    "ops": list(R_OPS), "slash": ["compact", "clear", "exit", "context", "cost"], "recap": {"date": "2026-09-12", "items": [{"project": "atlas-shop", "done": "Migrations 008-011 applied, tests green", "next": "Review the seeds and the admin page"}, {"project": "ledger-api", "done": "Deploy ready", "next": "Wait for the go"}]},
     "follow": {"work-ledger-api"}, "awaiting": set(),
     "next": {"work-ledger-api": "Wait for the go", "atlas-shop": "Review the seeds and the admin page", "work-orbit-docs": "Pick up the pricing page"},
     "tools": {"atlas-shop": "Bash pytest -q tests"},
@@ -269,7 +269,7 @@ SRC2 = {"host": "crostini-demo", "root": ROOT_WS, "prefixes": ["work-"],
         "rows": [{"name": "atlas-shop", "tmux": "atlas-shop", "low_priority": "off", "goal_status": None, "account": "personal", "cwd": ROOT_WS + "/personal/atlas-shop", "status": "idle", "waiting": False, "session_id": "f61903c0-ea6a-409c-a961-d01126a0f3ad", "link": "https://claude.ai/code/session_018CKZ1Pum1Qs7DX5hbRLQ6X", "attached": False, "started_at": 1789214000000}],
         "ledger": [{"event": "stop", "session_id": "f61903c0-ea6a-409c-a961-d01126a0f3ad", "ts": iso(1789213900), "last": "x", "esito": "Esito: seeds and admin page reviewed, 42 tests green.", "tail": "Esito: seeds and admin page reviewed, 42 tests green.\nWatch: Seeds and admin page reviewed", "watch": "Watch: Seeds and admin page reviewed"}],
         "questions": {}, "quota": {"personal": {"cinque_ore_pct": 24, "settimana_pct": 38, "reset_settimanale": 1789610400, "reset_cinque_ore": 1789228800, "vecchia": False}, "work": {"cinque_ore_pct": 3, "settimana_pct": 75, "reset_settimanale": 1789444800, "reset_cinque_ore": 1789225200, "vecchia": False}},
-        "projects": [{"path": ROOT_WS + "/personal/atlas-shop", "name": "atlas-shop", "account": "personal", "last_used": 1789213900}], "night": {"queued": 0, "running": None}, "ops": list(R_OPS), "recap": {"date": "2026-09-12", "items": []},
+        "projects": [{"path": ROOT_WS + "/personal/atlas-shop", "name": "atlas-shop", "account": "personal", "last_used": 1789213900}], "night": {"queued": 0, "running": None}, "ops": list(R_OPS), "slash": ["compact", "clear", "exit", "context", "cost"], "recap": {"date": "2026-09-12", "items": []},
         "follow": set(), "awaiting": set(), "next": {"atlas-shop": "Test deploy on staging"}, "tools": {}, "icons": {"atlas-shop": "🟢"}, "next_at": {"atlas-shop": 1789171200}, "choices": {"models": [{"id": "claude-opus-5[1m]", "label": "Opus 5"}, {"id": "claude-fable-5-1", "label": "Fable 5.1"}, {"id": "claude-sonnet-5", "label": "Sonnet 5"}, {"id": "claude-haiku-4-5", "label": "Haiku 4.5"}], "efforts": ["low", "medium", "high", "xhigh", "max"]},
         "runtime": {"atlas-shop": {"model": {"id": "claude-sonnet-5", "label": "Sonnet 5"}, "effort": "medium", "context": 18}}}
 SRC2["account_kinds"] = KINDS
@@ -277,7 +277,7 @@ st2 = S.build_state(SRC2, 1789214400)
 T.check("R2 build_state(src) == state-2-idle.json", st2 == F2, diff(st2, F2) or "equal")
 SRC3 = {"host": "crostini-demo", "root": ROOT_WS, "prefixes": [], "rows": [], "ledger": [], "questions": {},
         "quota": {"personal": {"cinque_ore_pct": 0, "settimana_pct": 36, "reset_settimanale": 1789610400, "reset_cinque_ore": 1789228800, "vecchia": True}, "work": {"cinque_ore_pct": None, "settimana_pct": 75, "reset_settimanale": 1789444800, "reset_cinque_ore": 1789225200, "vecchia": True}},
-        "projects": [], "night": {"queued": 0, "running": None}, "ops": list(R_OPS), "recap": {"date": "2026-09-12", "items": []}, "follow": set(), "awaiting": set(), "next": {}, "tools": {}, "choices": {"models": [{"id": "claude-opus-5[1m]", "label": "Opus 5"}, {"id": "claude-fable-5-1", "label": "Fable 5.1"}, {"id": "claude-sonnet-5", "label": "Sonnet 5"}, {"id": "claude-haiku-4-5", "label": "Haiku 4.5"}], "efforts": ["low", "medium", "high", "xhigh", "max"]}}
+        "projects": [], "night": {"queued": 0, "running": None}, "ops": list(R_OPS), "slash": ["compact", "clear", "exit", "context", "cost"], "recap": {"date": "2026-09-12", "items": []}, "follow": set(), "awaiting": set(), "next": {}, "tools": {}, "choices": {"models": [{"id": "claude-opus-5[1m]", "label": "Opus 5"}, {"id": "claude-fable-5-1", "label": "Fable 5.1"}, {"id": "claude-sonnet-5", "label": "Sonnet 5"}, {"id": "claude-haiku-4-5", "label": "Haiku 4.5"}], "efforts": ["low", "medium", "high", "xhigh", "max"]}}
 SRC3["account_kinds"] = KINDS
 st3 = S.build_state(SRC3, 1789200000)
 T.check("R2 build_state(src) == state-3-stale.json", st3 == F3, diff(st3, F3) or "equal")
@@ -1029,6 +1029,28 @@ http("PUT", f"/file/{old22}.json", {"v": 1, "enc": "x"}); http("PUT", f"/file/{f
 relay("push")
 T.check("R22 (1.24) push prunes a /file node not read for more than 10 minutes, keeps a fresh one",
         old22 not in (STORE.get("file") or {}) and fresh22 in (STORE.get("file") or {}), str(list(STORE.get("file") or {})))
+# R23 (contratto 1.25, 02/10): op slash — un comando slash digitato nel pannello della sessione, solo dalla lista
+rows_alive("ledger-api", "atlas-shop", "field-notes")
+n_calls = len(cm_calls())
+r23 = send_cmd(CMDS[24])
+r23b = send_cmd(CMDS[25])
+T.check("R23 (1.25) slash compact with its text → typed in the pane: `talk field-notes /compact <text> --via tmux --no-wait`, no prefix; /result as in the fixture",
+        r23 and r23["ok"] is True and r23["text"] == RES[24]["text"]
+        and "talk field-notes /compact keep the meeting notes and the open questions --via tmux --no-wait" in cm_calls()[n_calls:], str(r23) + str(cm_calls()[n_calls:]))
+T.check("R23 (1.25) a command not in relay.slash_commands (as in the fixture) → «not allowed: model», nothing typed",
+        r23b and r23b["ok"] is False and r23b["text"] == RES[25]["text"] and not any(c.startswith("talk field-notes /model") for c in cm_calls()[n_calls:]), str(r23b))
+n_calls = len(cm_calls())
+r23c = send_cmd(dict(CMDS[24], id="6f1c2d3e-0150-4000-8000-000000000201", session="atlas-shop"))
+r23d = send_cmd(dict(CMDS[24], id="6f1c2d3e-0150-4000-8000-000000000202", session="ledger-api"))
+r23e = send_cmd(dict(CMDS[24], id="6f1c2d3e-0150-4000-8000-000000000203", session="nessuna"))
+r23f = send_cmd(dict(CMDS[24], id="6f1c2d3e-0150-4000-8000-000000000204", arg="/exit", text=None))
+T.check("R23 (1.25) a busy session and one on a dialog → «<name> is busy», a missing one → «no session <name>», nothing typed; /exit (with its slash) is typed like the others",
+        r23c and r23c["text"] == "atlas-shop is busy" and r23d and r23d["text"] == "ledger-api is busy" and r23e and r23e["text"] == "no session nessuna"
+        and r23f and r23f["ok"] is True and r23f["text"] == "sent /exit to field-notes"
+        and [c for c in cm_calls()[n_calls:] if c.startswith("talk ")] == ["talk field-notes /exit --via tmux --no-wait"], str([r23c, r23d, r23e, r23f]) + str(cm_calls()[n_calls:]))
+st23 = json.loads(relay("push", "--dry-run").stdout)
+T.check("R23 (1.25) /state carries slash = relay.slash_commands without «/», and ops carries slash",
+        st23.get("slash") == ["compact", "clear", "exit", "context", "cost"] and "slash" in st23.get("ops", []) and F1["slash"] == st23["slash"], str(st23.get("slash")))
 T.check("R14 (1.18) events-sample: a recap, a night_report and the quota resume, with the shape of the other events",
         [e["kind"] for e in EV[-3:]] == ["recap", "night_report", "quota"] and all(set(e) == set(EV[0]) for e in EV) and EV[-3]["ref"] == "2026-09-12", str(EV[-3:])[:300])
 rows_alive("ledger-api", "atlas-shop", "field-notes")

@@ -197,6 +197,24 @@
       "arg": "/home/demo/.ssh/id_ed25519",
       "issued": 1789210795,
       "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0150-4000-8000-000000000150",
+      "op": "slash",
+      "session": "field-notes",
+      "arg": "compact",
+      "text": "keep the meeting notes and the open questions",
+      "issued": 1789210800,
+      "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0151-4000-8000-000000000151",
+      "op": "slash",
+      "session": "field-notes",
+      "arg": "model",
+      "text": null,
+      "issued": 1789210805,
+      "by": "phone-pixel8"
     }
   ],
   "result": [
@@ -345,6 +363,18 @@
       "ok": false,
       "text": "not in the transcript",
       "at": 1789210796
+    },
+    {
+      "id": "6f1c2d3e-0150-4000-8000-000000000150",
+      "ok": true,
+      "text": "sent /compact to field-notes",
+      "at": 1789210801
+    },
+    {
+      "id": "6f1c2d3e-0151-4000-8000-000000000151",
+      "ok": false,
+      "text": "not allowed: model",
+      "at": 1789210806
     }
   ]
 }

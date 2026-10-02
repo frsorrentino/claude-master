@@ -165,7 +165,9 @@ DEFAULTS = {
               # il client Android da prendere in quel file quando ne ha piu' d'uno (vuoto: l'unico che c'e')
               "app_package": "",
               # dove `relay setup` crea l'istanza del Realtime Database
-              "setup_location": "europe-west1"},
+              "setup_location": "europe-west1",
+              # 1.25 (02/10/2026): i comandi slash che il telefono puo' dare a una sessione (senza «/»), in state.slash
+              "slash_commands": ["compact", "clear", "exit", "context", "cost"]},
     # cambio di modello ed effort di una sessione dal suo selettore, SOLO per quella sessione (16/09/2026, contratto
     # 1.12): `pick` e' l'etichetta della voce nel selettore di /model, `id` quello che la sessione riporta in model.id.
     # Dalla 2.1.280 (catturato il 22/09/2026) «Opus (1M context)» e' Opus 5.5 e Opus 5 non ha piu' una voce: tenere
