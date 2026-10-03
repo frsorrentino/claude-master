@@ -62,7 +62,7 @@ M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
 R = CFG["relay"]
 CM_BIN = os.environ.get("CM_RELAY_CM") or str(HERE / "claude-master")
 BACKOFF = [1, 2, 5, 15, 30]
-OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report", "interrupt", "transcript", "file", "slash", "projects", "search")
+OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report", "interrupt", "transcript", "file", "slash", "projects", "search", "timeline")
 LAST_MAX = 4000   # 1.4: l'ultimo messaggio per la lettura vocale — oltre, l'ascolto non regge
 
 
@@ -1341,6 +1341,41 @@ def search(arg):
     return True, json.dumps({"hits": hits, "more": more}, ensure_ascii=False)
 
 
+TIMELINE_MAX_S = 7 * 86400
+
+
+def timeline_page(session, arg):
+    """1.29 (03/10, fase 2 approvata dal maintainer alle 18:32): la cronologia di cosa hanno fatto le sessioni per il
+    riepilogo del telefono, da `claude-master timeline`: per sessione prompt, test, commit, esiti e compiti in ordine di
+    tempo. session = un nome di sessions[].name o null per tutte; project come state.sessions[].project; arg = «6h», «90m», «2d» (al massimo 7 giorni) o un
+    epoch s da cui partire; null = 6h. text = JSON {since, sessions, more}; oltre 60 KB si tolgono gli eventi piu'
+    vecchi della sessione piu' lunga e more = true."""
+    a = str(arg or "6h").strip()
+    now = float(os.environ.get("CM_RELAY_NOW") or time.time())   # CM_RELAY_NOW: solo per i test, con dati di prova datati
+    m = re.fullmatch(r"(\d{1,4})([mhd])", a)
+    if m:
+        secs = int(m.group(1)) * {"m": 60, "h": 3600, "d": 86400}[m.group(2)]
+    elif re.fullmatch(r"\d{9,11}", a):
+        secs = now - int(a)
+    else:
+        return False, M("relay.cmd_timeline_bad_arg", arg=a)
+    if secs <= 0 or secs > TIMELINE_MAX_S:
+        return False, M("relay.cmd_timeline_bad_arg", arg=a)
+    tl = _load("cm-timeline").timeline(secs, str(session) if session else None, now=now,
+                                       live=_json_cmd("sessions", "--json", "--no-screen") or [])
+    root = cm.expand(CFG["workspace"]["root"])
+    for r in tl["sessions"]:
+        r["project"] = S.project_of(r["project"], root)   # come state.sessions[].project: relativo alla radice
+    more = False
+    while tl["sessions"] and len(json.dumps(dict(tl, more=True), ensure_ascii=False).encode()) > TRANSCRIPT_MAX_BYTES:
+        big = max(tl["sessions"], key=lambda r: len(r["events"]))
+        big["events"].pop(0)
+        if not big["events"]:
+            tl["sessions"].remove(big)
+        more = True
+    return True, json.dumps(dict(tl, more=more), ensure_ascii=False)
+
+
 TRANSCRIPT_MAX_N = 200
 TRANSCRIPT_MAX_BYTES = 60000   # 1.22: il JSON di una pagina in /result; oltre si toglie dalla parte vecchia e more=true
 TRANSCRIPT_WINDOWS = (2 * 1024 * 1024, 16 * 1024 * 1024, None)   # si legge dalla coda, e si allarga solo se serve
@@ -1553,6 +1588,8 @@ def execute(cmd):
             return projects_list()
         if op == "search":
             return search(arg)
+        if op == "timeline":
+            return timeline_page(cmd.get("session"), arg)
         if op == "interrupt":
             # 1.21 (30/09): il tasto Stop — `claude-master interrupt` manda un solo Esc, e solo a turno in corso
             if info.get("state") == "gone" or not is_live(tm):
@@ -1663,7 +1700,7 @@ def commands_from(ev, payload):
     return {}
 
 
-PASSIVE_OPS = ("transcript", "screen", "last", "file", "projects", "search")   # letture: non cambiano lo stato, vengono dopo i comandi dell'utente
+PASSIVE_OPS = ("transcript", "screen", "last", "file", "projects", "search", "timeline")   # letture: non cambiano lo stato, vengono dopo i comandi dell'utente
 
 
 def in_order(cmds):

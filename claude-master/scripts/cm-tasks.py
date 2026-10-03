@@ -12,7 +12,7 @@
   claude-master task wait-ok ID --what W --where D   attende ok (corsia chiusa fuori da un piano approvato)
   claude-master task approve ID --by B --text T [--what W] [--where D]
   claude-master task cancel ID
-  claude-master task board [--json]             stati ed esiti aggregati dal codice
+  claude-master task board [--json] [--timeline [--since 6h]]   stati ed esiti dal codice; con --timeline la cronologia
   claude-master task constraint add (--project P | --topic T) TESTO
   claude-master task constraint list [--project P] [--topic T]
 
@@ -20,6 +20,7 @@ Il contratto e' schemas/task-contract.v1.json, condiviso con fable-director (cop
 registro e' SQLite in ~/.config/claude-master/tasks.db (CM_TASKS_DB per i test). Nessun «fatto» a giudizio:
 solo il controllo rieseguito e verde. Senza registro nessun altro comando di claude-master cambia.
 """
+import importlib.util
 import json
 import os
 import re
@@ -368,6 +369,13 @@ def main(argv):
         return 0
     if verb == "board":
         b = board(con)
+        since = _opt(args, "--since", "6h")
+        if _flag(args, "--timeline"):
+            # fase 2 (03/10): sotto i conteggi, la cronologia delle sessioni (prompt, test, commit, esiti, compiti)
+            spec = importlib.util.spec_from_file_location("cm_timeline", HERE / "cm-timeline.py")
+            tl_mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(tl_mod)
+            b["timeline"] = tl_mod.timeline(tl_mod.parse_since(since))
         if as_json:
             print(json.dumps(b, ensure_ascii=False))
             return 0
@@ -376,6 +384,8 @@ def main(argv):
             for r in b[key]:
                 last = r["last"]
                 print(f"{key:<11} {r['id']}  {r['title']}" + (f"  [{last['outcome']} #{last['attempt']}: {last['reason']}]" if last else ""))
+        if "timeline" in b:
+            print("\n" + tl_mod.render(b["timeline"]))
         return 0
     if verb == "constraint":
         sub = args.pop(0) if args else ""

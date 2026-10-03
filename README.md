@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.6.1-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.6.2-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 [![claude-master in 40 seconds: a question from a Claude Code session on a Wear OS watch — «Staging is green. Deploy 2.8.0?» — answered with one tap.](assets/readme/promo-poster.jpg)](https://www.francescosorrentino.com/plugins/claude-master-watch)
 
@@ -395,6 +395,12 @@ account, the unit's brief asks it to open its budget with the unit's check as
 (`schemas/task-contract.v1.json`) is the same file in both plugins. Without it,
 nothing changes: the engine reruns the check itself.
 
+`claude-master timeline` shows what the sessions did, in time order: the
+prompts, the tests they ran with their summary line, the folder's commits, the
+«Esito:» lines and the registry's outcomes, from code. The phone reads the same
+timeline (contract 1.29, op `timeline`) for its summary; there each session's
+`project` is relative to the projects' root, as in `state.sessions[].project`.
+
 ### More machines
 
 One control machine, other computers doing the heavy work. You declare a host
@@ -718,6 +724,8 @@ The complete reference. Italian aliases (`lancia`, `chiudi`, `sessioni`,
 | `claude-master heavy run [--needs …] -- <command>` · `heavy status` | the same scheduler for a command a session would run here: it stays here inside a lease, or becomes an offload and waits |
 | `claude-master task add FILE\|- [--topic T]` · `list` · `show ID` · `start ID` · `result ID FILE` · `done ID [--constraint T]` · `wait-ok ID --what W --where D` · `approve ID --by B --text T` · `cancel ID` · `board [--json]` · `constraint add\|list` | the task registry: contracts validated, done only when the check rerun here is green, results, approvals and constraints recorded; `board` aggregates states and outcomes |
 | `claude-master plan check FILE` · `approve FILE --by B --text T` · `run FILE\|ID [--parallel N] [--turn-timeout S] [--dry-run]` · `status ID` | the map engine: approve a plan once, run its units in parallel where no edge joins them, retry only the red unit |
+| `claude-master timeline [NAME] [--since 6h] [--json] [--limit N]` | per session, in time order: prompts, tests with their summary, commits, «Esito:» lines, registry outcomes |
+| `claude-master render FILE.md\|- [--title T] [--meta M] [--out F]` | a Markdown summary as one HTML page with a fixed template, shown in the phone's chat under the command |
 
 ## Tests
 

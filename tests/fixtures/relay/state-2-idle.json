@@ -126,7 +126,8 @@
     "file",
     "slash",
     "projects",
-    "search"
+    "search",
+    "timeline"
   ],
   "slash": [
     "compact",

@@ -438,7 +438,8 @@ def write_cfg(enabled=True, **extra):
 write_cfg()
 rdir2.mkdir(parents=True, exist_ok=True)
 (rdir2 / "follow.json").write_text(json.dumps(["work-ledger-api"]))
-ENV = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg), "CM_RELAY_CM": str(fake_cm)}
+ENV = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg), "CM_RELAY_CM": str(fake_cm),
+       "CM_RELAY_NOW": "1789210840"}   # 1.29: solo la cronologia lo legge (i dati di prova sono del 12/09/2026)
 
 
 def relay(*args, timeout=60, env=None):
@@ -1158,6 +1159,48 @@ T.check("R26 (1.28) no name → «file» with the type's extension, no text need
         r26b and r26b["ok"] is True and r26b["text"] == "sent file.txt to atlas-shop" and any(inbox26.glob("*-file.txt"))
         and r26c and r26c["ok"] is False and r26c["text"] == "bad name" and r26d and r26d["text"] == "bad name", str([r26b, r26c, r26d]))
 T.check("R26 (1.28) /state share.any = true (the app shows «File» only with this relay)", json.loads(relay("push", "--dry-run").stdout).get("share", {}).get("any") is True and F1["share"]["any"] is True, "")
+# R27 (contratto 1.29, 03/10): op timeline — la cronologia delle sessioni per il riepilogo del telefono
+# ledger-api (chiusa, account work): due test (verde e rosso), un commit, un esito e un compito, fra since e l'istante
+_la = (ws / "work" / "clients" / "ledger-api").resolve()
+_tl = home / ".claude-pixel" / "projects" / _re24.sub(r"[^A-Za-z0-9]", "-", str(_la))
+_tl.mkdir(parents=True, exist_ok=True)
+def _l27(kind, uid, t, content, **kw):
+    from datetime import datetime as _dt, timezone as _tz
+    return json.dumps(dict({"type": kind, "uuid": uid, "timestamp": _dt.fromtimestamp(t, _tz.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z"), "isSidechain": False,
+                            "cwd": str(_la), "message": {"role": kind, "content": content}}, **kw), separators=(",", ":"))
+(_tl / "S-L27.jsonl").write_text("\n".join([
+    _l27("user", "l1", 1789205000, "add the invoices endpoint", origin={"kind": "human"}),
+    _l27("assistant", "l2", 1789205600, [{"type": "tool_use", "id": "x1", "name": "Bash", "input": {"command": "python3 tests/api-verify.py 2>&1 | tail -1"}}]),
+    _l27("user", "l3", 1789205660, [{"type": "tool_result", "tool_use_id": "x1", "is_error": False, "content": "3/4 OK, FAIL: A2 invoices"}]),
+    _l27("assistant", "l4", 1789206600, [{"type": "tool_use", "id": "x2", "name": "Bash", "input": {"command": "python3 tests/api-verify.py"}}]),
+    _l27("user", "l5", 1789206660, [{"type": "tool_result", "tool_use_id": "x2", "is_error": False, "content": "4/4 OK"}]),
+    _l27("assistant", "l6", 1789207800, [{"type": "text", "text": "Done.\n\nEsito: invoices endpoint added, api suite green"}]),
+]) + "\n")
+_g27 = lambda *a, t=None: subprocess.run(["git", "-C", str(_la), *a], capture_output=True, text=True, env=dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
+    GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t", **({"GIT_AUTHOR_DATE": f"@{t}", "GIT_COMMITTER_DATE": f"@{t}"} if t else {})))  # noqa: E731
+if not (_la / ".git").exists():
+    _g27("init", "-q", "-b", "main")
+    (_la / "api.py").write_text("x")
+    _g27("add", "api.py")
+    _g27("commit", "-qm", "feat(api): invoices endpoint", t=1789207000)
+import sqlite3 as _sq27
+_db27 = Path(str(cfg)).parent / "tasks.db"
+_tk27 = {"schema_version": 1, "task": {"id": "invoices", "title": "Invoices endpoint", "plan": None, "where": {"project": str(_la), "session": None, "host": "local", "account": None},
+         "check": {"cmd": "true", "cwd": None, "timeout_s": 10}, "perimeter": [], "lane": "open", "depends_on": [], "route": "session", "hold": False,
+         "attempts_max": 3, "data_class": "internal", "requested_by": "test"}}
+subprocess.run([str(T.SCRIPTS / "claude-master"), "task", "add", "-"], input=json.dumps(_tk27), capture_output=True, text=True, env=dict(os.environ, **ENV))
+subprocess.run([str(T.SCRIPTS / "claude-master"), "task", "done", "invoices"], capture_output=True, text=True, env=dict(os.environ, **ENV))
+_c27 = _sq27.connect(str(_db27)); _c27.execute("UPDATE results SET at=1789208000 WHERE task='invoices'"); _c27.commit(); _c27.close()
+rows_alive("field-notes")
+r27 = send_cmd(CMDS[29])
+_got27 = json.loads((r27 or {}).get("text") or "{}")
+T.check("R27 (1.29) timeline from an epoch → the live session (prompts typed, queued and from the phone) and a closed one with a red and a green test, a commit, an outcome and a task; project relative to the root as in state.sessions; nothing after the instant asked; as in the fixture",
+        r27 and r27["ok"] is True and _got27 == json.loads(RES[29]["text"]), json.dumps(_got27, ensure_ascii=False)[:500])
+_one27 = json.loads(send_cmd(dict(CMDS[29], id="6f1c2d3e-0190-4000-8000-000000000191", session="field-notes"))["text"])
+_bad27 = [send_cmd(dict(CMDS[29], id=f"6f1c2d3e-0190-4000-8000-00000000019{i}", arg=a)) for i, a in ((2, "yesterday"), (3, "8d"))]
+T.check("R27 (1.29) one session by its name; a bad arg and more than 7 days → ok false in plain words",
+        [x["session"] for x in _one27["sessions"]] == ["field-notes"] and all(b and b["ok"] is False and "expected 90m, 6h, 2d" in b["text"] for b in _bad27), str(_one27)[:200] + str(_bad27))
+T.check("R27 (1.29) /state ops carries timeline", "timeline" in json.loads(relay("push", "--dry-run").stdout).get("ops", []), "")
 T.check("R14 (1.18) events-sample: a recap, a night_report and the quota resume, with the shape of the other events",
         [e["kind"] for e in EV[-3:]] == ["recap", "night_report", "quota"] and all(set(e) == set(EV[0]) for e in EV) and EV[-3]["ref"] == "2026-09-12", str(EV[-3:])[:300])
 rows_alive("ledger-api", "atlas-shop", "field-notes")

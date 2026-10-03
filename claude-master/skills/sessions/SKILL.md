@@ -164,6 +164,16 @@ esatto, poi prefisso, poi sottostringa. L'immagine finisce in `docs/segnalazioni
 (o `report.subdir`), la sessione viene lanciata se manca, il testo consegnato senza aspettare.
 Le foto arrivate via Remote Control hanno già un percorso su disco: passalo a `report`.
 
+## Riepiloghi per il telefono
+
+    claude-master render riepilogo.md [--title T] [--meta "sessione · progetto"] [--out F.html]
+
+Un riepilogo lungo (giornata, release, rapporto con tabelle) non si scrive in HTML: si scrive in Markdown
+e `render` lo mette nel modello fisso, una pagina sola leggibile sul telefono, chiara e scura (circa un
+settimo dei token). La pagina va in `.claude-master-reports/` della cartella (ignorata da git) e compare
+nella chat del telefono sotto la voce del comando, da aprire con un tocco. I file arrivati dal telefono
+(PDF, testi, archivi) sono invece in `.claude-master-inbox/`: il messaggio dice il percorso, leggili da lì.
+
 ## Chiudere
 
     claude-master close <nome>                  chiude quella sessione

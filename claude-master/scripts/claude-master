@@ -89,6 +89,8 @@ case "$cmd" in
   heavy|pesante)          exec python3 "$S/cm-offload.py" heavy "$@" ;;
   task|compito)           exec python3 "$S/cm-tasks.py" "$@" ;;   # 03/10: registro dei compiti (fase 1)
   plan|piano)             exec python3 "$S/cm-plan.py" "$@" ;;    # 03/10: il motore della mappa (fase 1)
+  timeline|cronologia)    exec python3 "$S/cm-timeline.py" "$@" ;;   # 03/10: cosa hanno fatto le sessioni (fase 2)
+  render|rendi)           exec python3 "$S/cm-render.py" "$@" ;;     # 03/10: un riepilogo Markdown diventa una pagina HTML
   observe|osserva)        exec python3 "$S/../observe/observe.py" "$@" ;;   # copia di claude-observe (sync.py)
   *)
     python3 "$S/cm-config.py" --msg cli.unknown "cmd=$cmd" >&2

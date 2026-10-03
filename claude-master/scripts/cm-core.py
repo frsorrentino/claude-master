@@ -516,6 +516,7 @@ FILE_EXTS = {"png", "jpg", "jpeg", "webp", "gif", "svg", "mp4", "webm", "mov", "
              "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "csv", "html", "zip"}
 WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
 _REPORT_IMAGE = re.compile(r"^\s*(?:image|immagine):\s*(/\S.*?)\s*$", re.M)
+_RENDER_HTML = re.compile(r"^\s*html:\s*(/\S.*?\.html)\s*$", re.M)   # 03/10: `claude-master render` stampa la pagina fatta
 
 
 def _file_ref(path, cwd):
@@ -672,10 +673,11 @@ def transcript_entries(path, offset=0, limit=None, text_max=ENTRY_TEXT_MAX, chat
                         e["error"] = bool(b.get("is_error"))
                         if e["error"]:
                             e["files"] = None   # la scrittura non e' riuscita: nessun file da mostrare
-                        elif e["tool"] == "Bash" and "claude-master report" in e["text"]:
+                        elif e["tool"] == "Bash" and ("claude-master report" in e["text"] or "claude-master render" in e["text"]):
                             res = b.get("content")
-                            res = res if isinstance(res, str) else " ".join(str(x.get("text") or "") for x in (res or []) if isinstance(x, dict))
-                            refs = [_file_ref(m, d.get("cwd")) for m in _REPORT_IMAGE.findall(res)]
+                            res = res if isinstance(res, str) else "\n".join(str(x.get("text") or "") for x in (res or []) if isinstance(x, dict))
+                            found = _REPORT_IMAGE.findall(res) if "claude-master report" in e["text"] else _RENDER_HTML.findall(res)
+                            refs = [_file_ref(m, d.get("cwd")) for m in found]
                             e["files"] = [f for f in refs if f] or None
             rel = relayed(d.get("origin"))
             if rel:
