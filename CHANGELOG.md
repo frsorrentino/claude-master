@@ -2,6 +2,9 @@
 
 ## 0.3.x
 
+- **0.5.10 — 2026-10-03: aligned with Claude Code 2.1.288.**
+  - Kernel rule 4 (and the sessions skill): «Failed to send» can still lie, but since 2.1.288 a «not delivered» notice is reliable: it names the session that held the message, and the message then goes with `claude-master talk`, where it waits in the inbox. The `launch --bg` help and the skill name the agents view's Ctrl+F, the `n:` filter opening the best match and Alt+↑/↓. The README says that a background command's time limit applies only to unattended sessions (2.1.288). Checked with nothing to change: restore and restart, Remote Control, the `waiting` hooks, git-subdir installs. Real run on win with 2.1.288: launch 17 s, talk 7 s, close.
+
 - **0.5.9 — 2026-10-02: every project for «Launch» on the phone.**
   - Relay, contract 1.26 (asked by the phone app session, approved by the maintainer on 02/10 17:15; additive, `v` stays 1). Seen on 02/10 at 17:10: `fit_state` cut `/state.projects` to 10, then 5, in name order, so of 98 projects the phone got 5 (none recent) and the search of «Launch» found nothing. Now `/cmd` op `projects` (no session, no arg) answers `text` = JSON `{projects, more}`: every project of every account with the fields of `state.projects`, most recently used first (null `last_used` last), then by name; over 60 KB the least recent are dropped and `more` is true. It is a read: no push after it. `fit_state` keeps the most recently used projects when it cuts to 10 and 5, still listed by name. `ops` carries `projects`. Fixtures: a `projects` result with five projects of two accounts (one never used) in `cmd-result-sample`, `projects` in the three states' `ops`. Test R24. Real run: 98 projects, 14 KB, 0.1 s; the cut state keeps the five most recent.
 

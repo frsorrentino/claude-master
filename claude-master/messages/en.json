@@ -107,7 +107,7 @@
   "launch.unknown_profile": "claude-master launch: unknown profile “{profile}” (configured: {known})",
   "launch.bg_failed": "claude-master launch: claude --bg failed (exit {rc}):",
   "launch.bg_started": "background session started",
-  "launch.bg_howto": "  follow it: claude agents (filter n:{name})  ·  claude attach <id>  ·  claude logs <id>\n  stop it:   claude stop <id>\n  prompt it from a terminal: claude --resume <id> \"prompt\" (opens the session in that terminal; refused without one)\n  from another session: ListAgents -> SendMessage {{\"to\": \"{name}\"}}  ·  from a script: claude-master talk {name} \"prompt\"",
+  "launch.bg_howto": "  follow it: claude agents (Ctrl+F or filter n:{name}, Enter opens the best match)  ·  claude attach <id>  ·  claude logs <id>\n  stop it:   claude stop <id>\n  prompt it from a terminal: claude --resume <id> \"prompt\" (opens the session in that terminal; refused without one)\n  from another session: ListAgents -> SendMessage {{\"to\": \"{name}\"}}  ·  from a script: claude-master talk {name} \"prompt\"",
   "launch.deduced": "deduced from the path",
   "launch.died": "claude-master launch: session “{name}” died right after starting.\n  try by hand: cd {dir} && claude",
   "launch.stuck_dialog": "claude-master launch: session “{name}” is stuck on a dialog (trust/permissions).\n  answer by hand: tmux attach -t ={name}",

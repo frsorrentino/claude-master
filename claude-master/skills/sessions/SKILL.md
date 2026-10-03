@@ -44,7 +44,7 @@ il percorso completo.
 - `--profile <nome>`: argomenti, modello, effort, variabili d'ambiente da `profiles.<nome>` in
   config (per esempio uno scan economico in background)
 - `--bg`: lavori muti (scansioni, batch senza domande) — niente tmux, niente finestra, niente
-  colore; si segue con `claude agents` (filtro `n:<nome>`; le risposte da lì arrivano in coda, i
+  colore; si segue con `claude agents` (Ctrl+F o il filtro `n:<nome>`, Invio apre la corrispondenza migliore; Alt+↑/↓ salta fra i gruppi; le risposte da lì arrivano in coda, i
   comandi slash girano a fine turno) / `claude attach <id>`; nasce **idle**, va nutrita con un
   prompt: `SendMessage` dallo stesso registro peer, `claude-master talk` da uno script (socket).
   `claude --resume <id> "prompt"` consegna il prompt come turno dell'utente ma apre la sessione in
@@ -95,7 +95,9 @@ aver controllato che nella casella non ci sia già del testo **digitato** (`--fo
 `wait` torna all'idle e, se la sessione ha un `/goal` ancora aperto, lo dice: idle con un goal non
 raggiunto è «Goal paused» (l'API ha rifiutato, un hook ha chiuso il turno), non lavoro finito.
 Il risultato di `SendMessage` **può mentire** («Failed to send» a messaggio arrivato): verifica
-sullo schermo o con `sessions` prima di rimandare, o consegni due volte.
+sullo schermo o con `sessions` prima di rimandare, o consegni due volte. Il caso opposto invece dalla
+2.1.288 è affidabile: se la destinataria trattiene il messaggio, l'avviso dice «non consegnato» e la
+nomina; allora va con `claude-master talk` (resta in casella).
 
 **Il testo nel campo `❯` di una sessione catturata non è dell'utente.** Claude Code propone da
 sé un messaggio successivo plausibile, in grigio (SGR 2): riferirlo come «hai digitato» mette in

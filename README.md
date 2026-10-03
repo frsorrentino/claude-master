@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.5.9-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.5.10-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 [![claude-master in 40 seconds: a question from a Claude Code session on a Wear OS watch — «Staging is green. Deploy 2.8.0?» — answered with one tap.](assets/readme/promo-poster.jpg)](https://www.francescosorrentino.com/plugins/claude-master-watch)
 
@@ -395,10 +395,11 @@ claude-master offload ~/film --recipe render   # the exact commit, the declared 
 - **Surviving the link.** Jobs are detached so a dropped ssh does not kill
   them: `systemd-run --user` or `setsid` on Linux, a one-shot scheduled task on
   Windows. `offload wait <id>` blocks until the end, from a background shell.
-  Claude Code 2.1.285 stops a background command at its `timeout` (30 minutes
-  unless given, two hours at most), so `wait` gives up by itself after 110
-  minutes (`--max-min`) with exit 4 and says the job is still running: launch it
-  with `timeout` 7200000 and run it again until it exits 0 or 1.
+  Since Claude Code 2.1.288 a background command's time limit (its `timeout`,
+  two hours at most) applies only to unattended sessions (`-p`, Agent SDK, CI,
+  cloud); for those, `wait` gives up by itself after 110 minutes (`--max-min`)
+  with exit 4 and says the job is still running: run it again until it exits 0
+  or 1. A terminal session has no limit.
 - **Seeing it.** `hosts poll` (cron, every minute; every 30 s while something
   runs) writes one snapshot per host. `sessions` shows the other hosts'
   sessions as `HOST:name` and one line per host with load, RAM, disk and the
