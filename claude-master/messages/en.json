@@ -769,5 +769,13 @@
   "relay.cmd_slash_busy": "{name} is busy",
   "relay.cmd_slash_typed": "{name} has text typed in its prompt",
   "relay.cmd_slash_sent": "sent /{cmd} to {name}",
-  "relay.cmd_slash_panel_open": "(the panel is still open on the PC: Esc did not close it)"
+  "relay.cmd_slash_panel_open": "(the panel is still open on the PC: Esc did not close it)",
+  "plan.brief": "Unit {id} of an approved plan: {title}.\nCheck (must exit 0; the engine reruns it): {check}\nPerimeter (only these files): {perimeter}\nLane: {lane}.\nWork until the check is green, then stop.",
+  "plan.brief_constraints": "Constraints from earlier tasks: {items}",
+  "plan.brief_retry": "Attempt {attempt} of {max}. The check is red: {reason}. Fix only that, inside the perimeter.",
+  "plan.brief_fd": "Before delegating, open the fable-director budget with --verify \"{check}\" --paths \"{paths}\" --data-class {data_class}{type}.",
+  "plan.brief_result": "End your answer with one line: CM-RESULT {{\"task\": \"{id}\", \"attempt\": {attempt}, \"outcome\": \"green|red\", \"reason\": \"…\", \"proof\": {{\"kind\": \"check|commit|link\", \"value\": \"…\"}}, \"at\": <epoch s>}} (with outcome red add \"perimeter\": [the files to fix]).",
+  "plan.failed_notice": "plan run: unit {id} ({title}) is red after {n} attempts: {reason}. The nodes depending on it are cancelled; the user decides.",
+  "plan.read_only": "none: read-only",
+  "guard.lane_closed": "Closed lane: «{cmd}» publishes something, and this folder has no task of an approved plan and no recorded ok. Register it (claude-master plan approve, or task add + task wait-ok and the user's ok) and retry."
 }

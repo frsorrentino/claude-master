@@ -769,5 +769,13 @@
   "relay.cmd_slash_busy": "{name} is busy",
   "relay.cmd_slash_typed": "{name} has text typed in its prompt",
   "relay.cmd_slash_sent": "sent /{cmd} to {name}",
-  "relay.cmd_slash_panel_open": "(the panel is still open on the PC: Esc did not close it)"
+  "relay.cmd_slash_panel_open": "(the panel is still open on the PC: Esc did not close it)",
+  "plan.brief": "Unità {id} di un piano approvato: {title}.\nControllo (deve uscire con 0, lo riesegue il motore): {check}\nPerimetro (solo questi file): {perimeter}\nCorsia: {lane}.\nLavora finché il controllo è verde, poi fermati.",
+  "plan.brief_constraints": "Vincoli da compiti precedenti: {items}",
+  "plan.brief_retry": "Tentativo {attempt} di {max}. Il controllo è rosso: {reason}. Correggi solo questo, dentro il perimetro.",
+  "plan.brief_fd": "Prima di delegare apri il budget di fable-director con --verify \"{check}\" --paths \"{paths}\" --data-class {data_class}{type}.",
+  "plan.brief_result": "Chiudi la risposta con una riga sola: CM-RESULT {{\"task\": \"{id}\", \"attempt\": {attempt}, \"outcome\": \"green|red\", \"reason\": \"…\", \"proof\": {{\"kind\": \"check|commit|link\", \"value\": \"…\"}}, \"at\": <epoch s>}} (con outcome red aggiungi \"perimeter\": [i file da sistemare]).",
+  "plan.failed_notice": "plan run: l'unità {id} ({title}) è rossa dopo {n} tentativi: {reason}. I nodi che ne dipendono sono annullati; decide l'utente.",
+  "plan.read_only": "nessuno: sola lettura",
+  "guard.lane_closed": "Corsia chiusa: «{cmd}» pubblica qualcosa, e in questa cartella non c'è un compito di un piano approvato né un ok registrato. Registralo (claude-master plan approve, o task add + task wait-ok e l'ok dell'utente) e riprova."
 }

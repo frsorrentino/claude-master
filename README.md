@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.5.11-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.6.0-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 [![claude-master in 40 seconds: a question from a Claude Code session on a Wear OS watch — «Staging is green. Deploy 2.8.0?» — answered with one tap.](assets/readme/promo-poster.jpg)](https://www.francescosorrentino.com/plugins/claude-master-watch)
 
@@ -364,6 +364,33 @@ job at a time, only while free memory and quota allow, leaving a report in the
 project. What waits for you in the morning is on the watch, which never stops
 showing it.
 
+### Tasks and plans
+
+A plan is a JSON file of units of work. Each unit names its folder, a check
+that can fail (a command that exits 0 when the work is right), the files it may
+touch, and a lane: open (local commits, tests, docs), wide (shared code) or
+closed (push, release, publication). Edges exist only where one unit's output
+really enters the next, and each edge says what passes. `claude-master plan
+approve` records the approval once; `claude-master plan run` does the rest:
+ready units run in parallel, each in a session of its folder (opened and closed
+for it), a script unit without a session; the session's own outcome is
+recorded, but only the check rerun by the engine marks a unit done. A red unit
+goes back alone, with the reason and the narrowed perimeter, three times at
+most; then it is failed, the units after it are cancelled and the root session
+is told. The registry (`claude-master task`, SQLite next to the configuration)
+keeps every task, result and approval, and the constraints that failed tasks
+leave behind are attached to the next tasks of the same project.
+
+The closed-lane guard (`tasks.guard`, off by default) is a PreToolUse hook on
+Bash: `git push`, `gh release`, `npm publish` and `release.sh` pass only inside
+a running task of an approved plan, or after a recorded ok.
+
+fable-director is optional. When it is installed and enabled in the session's
+account, the unit's brief asks it to open its budget with the unit's check as
+`--verify` and its files as `--paths`; the task contract
+(`schemas/task-contract.v1.json`) is the same file in both plugins. Without it,
+nothing changes: the engine reruns the check itself.
+
 ### More machines
 
 One control machine, other computers doing the heavy work. You declare a host
@@ -685,6 +712,8 @@ The complete reference. Italian aliases (`lancia`, `chiudi`, `sessioni`,
 | `claude-master hosts [poll [--cron]\|install\|uninstall]` | the host table; one round of the poller, or its crontab line |
 | `claude-master offload <dir> --recipe NAME [--host H] [--explain] [--dirty]` · `offload --needs k=v,… -- <command>` · `offload list\|status\|log [-f]\|wait\|fetch\|cancel\|clean <id>` | a heavy job on the host that does it best: exact commit, declared assets, results back with sha256 |
 | `claude-master heavy run [--needs …] -- <command>` · `heavy status` | the same scheduler for a command a session would run here: it stays here inside a lease, or becomes an offload and waits |
+| `claude-master task add FILE\|- [--topic T]` · `list` · `show ID` · `start ID` · `result ID FILE` · `done ID [--constraint T]` · `wait-ok ID --what W --where D` · `approve ID --by B --text T` · `cancel ID` · `board [--json]` · `constraint add\|list` | the task registry: contracts validated, done only when the check rerun here is green, results, approvals and constraints recorded; `board` aggregates states and outcomes |
+| `claude-master plan check FILE` · `approve FILE --by B --text T` · `run FILE\|ID [--parallel N] [--turn-timeout S] [--dry-run]` · `status ID` | the map engine: approve a plan once, run its units in parallel where no edge joins them, retry only the red unit |
 
 ## Tests
 

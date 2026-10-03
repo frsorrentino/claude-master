@@ -297,6 +297,10 @@
   "inbox": {
     "expires_h": 48
   },
+  "tasks": {
+    "guard": false,
+    "notify": "master"
+  },
   "hooks": {
     "local_time": {
       "enabled": true,

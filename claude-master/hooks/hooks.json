@@ -106,6 +106,18 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/py.sh\" \"${CLAUDE_PLUGIN_ROOT}/scripts/cm-lane-guard.py\"",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

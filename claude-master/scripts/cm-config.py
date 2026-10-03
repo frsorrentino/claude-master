@@ -182,6 +182,9 @@ DEFAULTS = {
     # casella persistente (23/09/2026, docs/plans/2026-09-23-approvazioni-casella-registro-design.md): scadenza dei
     # messaggi in attesa. La coda degli ok e' stata tolta la sera stessa (decisione dell'utente, 22:39)
     "inbox": {"expires_h": 48},
+    # 03/10: registro dei compiti. guard = la guardia della corsia chiusa (push, release, publish) nega quei comandi
+    # fuori da un compito approvato: spenta di default, perche' vale per ogni sessione della macchina
+    "tasks": {"guard": False, "notify": "master"},
     "hooks": {
         "local_time": {"enabled": True, "format": "%A %Y-%m-%d %H:%M", "prefix": "[local time]"},
         "restart_stop": {"enabled": True},
