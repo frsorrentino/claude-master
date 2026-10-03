@@ -261,7 +261,8 @@
     ]
   },
   "share": {
-    "max_bytes": 1500000
+    "max_bytes": 1500000,
+    "any": true
   },
   "ops": [
     "answer",

@@ -30,6 +30,7 @@ import fcntl
 import copy
 import importlib.util
 import json
+import mimetypes
 import os
 import re
 import socket
@@ -998,12 +999,15 @@ def _share_report(cmd, tm, session, sid):
             return False, M("relay.cmd_report_too_big", max=S.SHARE_MAX_BYTES)
         try:
             blob = C.decrypt(doc, key()) if isinstance(doc, dict) else None
-            ext = IMAGE_EXT.get(str((blob or {}).get("mime") or ""))
-            data = base64.b64decode(str(blob["data"]), validate=True) if ext else b""
+            mime = str((blob or {}).get("mime") or "").strip().lower()
+            ext = IMAGE_EXT.get(mime)
+            data = base64.b64decode(str(blob["data"]), validate=True) if ext or MIME_RE.fullmatch(mime) else b""
         except (ValueError, KeyError, TypeError, binascii.Error):
-            ext, data = None, b""
-        if not ext or not data:
-            return False, M("relay.cmd_report_no_image")
+            ext, data, mime = None, b"", ""
+        if not data:
+            return False, M("relay.cmd_report_no_image" if ext or not mime or mime.startswith("image/") else "relay.cmd_report_no_file")
+        if not ext:
+            return share_file(cmd, tm, session, row, mime, data, blob.get("name"), text)
         tmpd = rdir() / "share-tmp"
         tmpd.mkdir(parents=True, exist_ok=True)
         img = tmpd / f"{sid}.{ext}"
@@ -1019,6 +1023,51 @@ def _share_report(cmd, tm, session, sid):
     if saved:
         return True, M("relay.cmd_report_sent_image", name=session, file=os.path.relpath(saved, row["cwd"]))
     return True, M("relay.cmd_report_sent", name=session)
+
+
+MIME_RE = re.compile(r"[a-z0-9][a-z0-9.+-]{0,63}/[a-z0-9][a-z0-9.+-]{0,126}")
+SHARE_NAME_MAX = 120
+SHARE_INBOX = ".claude-master-inbox"
+
+
+def clean_name(name, mime):
+    """1.28: il nome che arriva dal telefono, ripulito: solo l'ultimo pezzo del percorso, lettere, cifre e « ._-()+,@=»,
+    spazi uniti, niente punto iniziale; None se ne resta niente o supera 120 caratteri. Senza nome: «file» con
+    l'estensione del tipo."""
+    if name is None or str(name).strip() == "":
+        return "file" + (mimetypes.guess_extension(mime) or ".bin")
+    n = str(name).replace("\\", "/").rsplit("/", 1)[-1]
+    n = "".join(ch for ch in n if ch.isalnum() or ch in " ._-()+,@=")
+    n = " ".join(n.split()).lstrip(". ")
+    return n if n and len(n) <= SHARE_NAME_MAX else None
+
+
+def _human_size(n):
+    return f"{n} B" if n < 1024 else f"{n / 1024:.0f} KB" if n < 1024 * 1024 else f"{n / 1024 / 1024:.1f} MB"
+
+
+def share_file(cmd, tm, session, row, mime, data, name, text):
+    """1.28 (03/10, chiesto dalla sessione dell'app, approvato dal maintainer): un file di qualunque formato dal
+    telefono. I byte vanno nella cartella della sessione, in .claude-master-inbox/ (con un .gitignore «*»: mai in un
+    commit), e la sessione riceve, con il prefisso del dispositivo, «ti ho mandato il file …: <percorso>» e il testo.
+    Il file non si esegue: la sessione lo legge. Le immagini restano su `report` come prima."""
+    clean = clean_name(name, mime)
+    if not clean:
+        return False, M("relay.cmd_report_bad_name")
+    inbox = Path(row["cwd"]) / SHARE_INBOX
+    inbox.mkdir(exist_ok=True)
+    if not (inbox / ".gitignore").exists():
+        (inbox / ".gitignore").write_text("*\n")
+    dest = inbox / f"{time.strftime('%Y%m%d-%H%M%S')}-{clean}"
+    dest.write_bytes(data)
+    os.chmod(dest, 0o600)
+    msg = M("relay.share_file", name=clean, mime=mime, size=_human_size(len(data)), path=str(dest))
+    rc, out = run_cm("talk", tm, prefix_for(cmd) + " " + msg + ("\n\n" + text if text else ""), "--no-wait")
+    if rc != 0:
+        return False, out.splitlines()[0] if out else "talk failed"
+    if saved_in_inbox(out):
+        return False, M("relay.cmd_inbox_only", name=session)
+    return True, M("relay.cmd_report_sent_file", name=session, file=clean)
 
 
 def prune_share(now, node="share"):

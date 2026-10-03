@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.6.0-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.6.1-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 [![claude-master in 40 seconds: a question from a Claude Code session on a Wear OS watch — «Staging is green. Deploy 2.8.0?» — answered with one tap.](assets/readme/promo-poster.jpg)](https://www.francescosorrentino.com/plugins/claude-master-watch)
 
@@ -286,6 +286,10 @@ sessions and of those closed in the last 7 days, on both accounts, ignoring case
 and accents. It answers at most 50 hits, newest first, each with the session,
 the folder, the entry id of `transcript` to jump to, and a snippet of up to 160
 characters with the word's position; past 50 hits, 60 KB or 10 s, `more` is true.
+
+Contract 1.28 lets the phone send files of any format, not only images: a PDF,
+a text, an archive lands in `.claude-master-inbox/` inside the session's folder
+(ignored by git) and the session is told its name, type, size and path.
 
 Contract 1.20 counts the phone as well as the watch before falling back to
 Telegram. Each paired device writes `/seen/<uid>` (the Firebase server time)

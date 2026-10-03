@@ -895,16 +895,16 @@ T.check("R15 (1.19) text only → `report <folder> - <text> --session field-note
 n_calls = len(cm_calls())
 res = send_cmd(CMDS[16])
 bad = "6f1c2d3e-0125-4000-8000-00000000b001"
-http("PUT", f"/share/{bad}.json", C.encrypt({"mime": "text/plain", "data": "aGk="}, k))
+http("PUT", f"/share/{bad}.json", C.encrypt({"mime": "nonsense", "data": "aGk="}, k))   # 1.28: ogni formato, ma un tipo vero (tipo/sottotipo)
 res2 = send_cmd(dict(CMDS[14], id="6f1c2d3e-0125-4000-8000-000000000201", arg=bad))
 res3 = send_cmd(dict(CMDS[14], id="6f1c2d3e-0125-4000-8000-000000000202", arg="0000-missing"))
 big = "6f1c2d3e-0125-4000-8000-00000000b002"
 http("PUT", f"/share/{big}.json", {"v": 1, "enc": "A" * 1500001})
 res4 = send_cmd(dict(CMDS[14], id="6f1c2d3e-0125-4000-8000-000000000203", arg=big))
 res5 = send_cmd(dict(CMDS[15], id="6f1c2d3e-0126-4000-8000-000000000201", text="  "))
-T.check("R15 (1.19) refusals in plain words, no report run: a gone session (as in the fixture), a wrong mime, a missing node, a blob over 1.5 MB, nothing to send; the bad nodes deleted",
-        res and res["ok"] is False and res["text"] == RES[16]["text"] and res2 and res2["text"] == "image missing or unreadable" and res3 and res3["text"] == "image missing or unreadable"
-        and res4 and res4["text"] == "image too large" and res5 and res5["text"] == "empty report: nothing to send"
+T.check("R15 (1.19) refusals in plain words, no report run: a gone session (as in the fixture), a mime that is not type/subtype, a missing node, a blob over 1.5 MB, nothing to send; the bad nodes deleted",
+        res and res["ok"] is False and res["text"] == RES[16]["text"] and res2 and res2["text"] == "file missing or unreadable" and res3 and res3["text"] == "image missing or unreadable"
+        and res4 and res4["text"] == "too large" and res5 and res5["text"] == "empty report: nothing to send"
         and not any(c.startswith("report ") for c in cm_calls()[n_calls:]) and bad not in (STORE.get("share") or {}) and big not in (STORE.get("share") or {}), str([res, res2, res3, res4, res5]))
 old, fresh = "6f1c2d3e-0125-4000-8000-00000000b003", "6f1c2d3e-0125-4000-8000-00000000b004"
 http("PUT", f"/share/{old}.json", {"v": 1, "enc": "x"}); http("PUT", f"/share/{fresh}.json", {"v": 1, "enc": "x"})
@@ -912,8 +912,8 @@ http("PUT", f"/share/{old}.json", {"v": 1, "enc": "x"}); http("PUT", f"/share/{f
 relay("push")
 T.check("R15 (1.19) push prunes a /share node first seen more than 10 minutes ago, keeps a fresh one (remembered in share-seen.json)",
         old not in (STORE.get("share") or {}) and fresh in (STORE.get("share") or {}) and fresh in json.loads((rdir2 / "share-seen.json").read_text()), str(list(STORE.get("share") or {})))
-T.check("R15 (1.19) /state carries share {max_bytes: 1500000}, also when there is nothing else (its presence turns «Share» on in the app)",
-        json.loads(relay("push", "--dry-run").stdout).get("share") == {"max_bytes": 1500000} and S.build_state({}, 1)["share"] == {"max_bytes": 1500000} and F1["share"] == {"max_bytes": 1500000}, "")
+T.check("R15 (1.19) /state carries share {max_bytes: 1500000, any: true}, also when there is nothing else (its presence turns «Share» on in the app)",
+        json.loads(relay("push", "--dry-run").stdout).get("share") == {"max_bytes": 1500000, "any": True} and S.build_state({}, 1)["share"] == {"max_bytes": 1500000, "any": True} and F1["share"] == {"max_bytes": 1500000, "any": True}, "")
 # R17 (30/09, dal telefono): «x» chiusa e «work-x» viva nella stessa cartella hanno lo stesso nome corto — vince la
 # viva, la chiusa non entra; e un prompt a una sessione non viva non e' «delivered»
 good_bak = good_json.read_text()
@@ -1126,6 +1126,38 @@ _os24.utime(_d25 / "C-MANY.jsonl", (_now25 - 3600, _now25 - 3600))
 _m25 = json.loads(send_cmd(dict(CMDS[27], id="6f1c2d3e-0170-4000-8000-000000000174", arg="zanzibar"))["text"])
 T.check("R25 (1.27) over 50 hits → the 50 newest, more true", len(_m25["hits"]) == 50 and _m25["more"] is True and _m25["hits"][0]["entry"] == "m069.0" and _m25["hits"][-1]["entry"] == "m020.0", str([h["entry"] for h in _m25["hits"]][:3]))
 T.check("R25 (1.27) /state ops carries search", "search" in json.loads(relay("push", "--dry-run").stdout).get("ops", []), "")
+# R26 (contratto 1.28, 03/10): file di ogni formato dal telefono — i byte nella cartella della sessione, la sessione avvisata
+PDF = b"%PDF-1.4\n" + bytes(range(256)) * 8
+rows_alive("ledger-api", "atlas-shop", "field-notes")
+sid26 = CMDS[28]["arg"]
+http("PUT", f"/share/{sid26}.json", C.encrypt({"mime": "application/pdf", "data": base64.b64encode(PDF).decode(), "name": "../../Preventivo  cliente?.pdf"}, k))
+n_calls = len(cm_calls())
+r26 = send_cmd(CMDS[28])
+inbox26 = atlas / ".claude-master-inbox"
+saved26 = sorted(inbox26.glob("*-Preventivo cliente.pdf"))
+_log26 = "\n".join(cm_calls()[n_calls:])   # il messaggio va a capo: una chiamata occupa piu' righe del registro
+talk26 = [_log26[_log26.index("talk atlas-shop "):]] if "talk atlas-shop " in _log26 else []
+T.check("R26 (1.28) a PDF with a dirty name → /result as in the fixture; the bytes intact in <session folder>/.claude-master-inbox/<stamp>-<clean name>, not readable by others; no report run",
+        r26 and r26["ok"] is True and r26["text"] == RES[28]["text"] and len(saved26) == 1 and saved26[0].read_bytes() == PDF and (saved26[0].stat().st_mode & 0o077) == 0
+        and not any(c.startswith("report ") for c in cm_calls()[n_calls:]), str(r26) + str(list(inbox26.glob("*"))))
+T.check("R26 (1.28) the inbox has a .gitignore «*» (never in a commit), and /share/<id> is deleted",
+        (inbox26 / ".gitignore").read_text() == "*\n" and sid26 not in (STORE.get("share") or {}), "")
+T.check("R26 (1.28) the session is told with the phone's prefix: file name, type, size, absolute path, then the text",
+        len(talk26) == 1 and "Dall'utente via telefono." in talk26[0] and f"ti ho mandato il file Preventivo cliente.pdf (application/pdf, 2 KB): {saved26[0] if saved26 else '?'}" in talk26[0]
+        and (CMDS[28]["text"] + " --no-wait") in talk26[0], str(talk26))
+sid26b = "6f1c2d3e-0180-4000-8000-00000000c001"
+http("PUT", f"/share/{sid26b}.json", C.encrypt({"mime": "text/plain", "data": base64.b64encode(b"hello").decode()}, k))
+r26b = send_cmd(dict(CMDS[28], id="6f1c2d3e-0180-4000-8000-000000000181", arg=sid26b, text=""))
+sid26c = "6f1c2d3e-0180-4000-8000-00000000c002"
+http("PUT", f"/share/{sid26c}.json", C.encrypt({"mime": "application/zip", "data": base64.b64encode(b"PK").decode(), "name": "..//\x01"}, k))
+r26c = send_cmd(dict(CMDS[28], id="6f1c2d3e-0180-4000-8000-000000000182", arg=sid26c))
+sid26d = "6f1c2d3e-0180-4000-8000-00000000c003"
+http("PUT", f"/share/{sid26d}.json", C.encrypt({"mime": "application/zip", "data": base64.b64encode(b"PK").decode(), "name": "x" * 121}, k))
+r26d = send_cmd(dict(CMDS[28], id="6f1c2d3e-0180-4000-8000-000000000183", arg=sid26d))
+T.check("R26 (1.28) no name → «file» with the type's extension, no text needed; a name that cleans to nothing or over 120 characters → ok false «bad name»",
+        r26b and r26b["ok"] is True and r26b["text"] == "sent file.txt to atlas-shop" and any(inbox26.glob("*-file.txt"))
+        and r26c and r26c["ok"] is False and r26c["text"] == "bad name" and r26d and r26d["text"] == "bad name", str([r26b, r26c, r26d]))
+T.check("R26 (1.28) /state share.any = true (the app shows «File» only with this relay)", json.loads(relay("push", "--dry-run").stdout).get("share", {}).get("any") is True and F1["share"]["any"] is True, "")
 T.check("R14 (1.18) events-sample: a recap, a night_report and the quota resume, with the shape of the other events",
         [e["kind"] for e in EV[-3:]] == ["recap", "night_report", "quota"] and all(set(e) == set(EV[0]) for e in EV) and EV[-3]["ref"] == "2026-09-12", str(EV[-3:])[:300])
 rows_alive("ledger-api", "atlas-shop", "field-notes")

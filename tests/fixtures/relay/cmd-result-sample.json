@@ -231,6 +231,16 @@
       "arg": "tuesday",
       "issued": 1789210820,
       "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0180-4000-8000-000000000180",
+      "op": "report",
+      "session": "atlas-shop",
+      "arg": "6f1c2d3e-0180-4000-8000-00000000a180",
+      "text": "the client's quote, check the totals",
+      "device": "phone",
+      "issued": 1789210830,
+      "by": "phone-pixel8"
     }
   ],
   "result": [
@@ -403,6 +413,12 @@
       "ok": true,
       "text": "{\"hits\": [{\"session\": \"orbit-docs\", \"live\": false, \"project\": \"/home/demo/workspaces/work/own/orbit-docs\", \"entry\": \"c5.0\", \"role\": \"user\", \"at\": 1789286460, \"snippet\": \"move the review to tuesday\", \"match\": [19, 26]}, {\"session\": \"orbit-docs\", \"live\": false, \"project\": \"/home/demo/workspaces/work/own/orbit-docs\", \"entry\": \"c2.0\", \"role\": \"assistant\", \"at\": 1789286410, \"snippet\": \"ll blocks the release is the review of the migration scripts, which moved to TUESDAY after the client asked for one more pass on the data model and the exports.\", \"match\": [77, 84]}, {\"session\": \"orbit-docs\", \"live\": false, \"project\": \"/home/demo/workspaces/work/own/orbit-docs\", \"entry\": \"c1.0\", \"role\": \"user\", \"at\": 1789286400, \"snippet\": \"Perché la riunione di Tuesday è saltata? Rispondi breve.\", \"match\": [22, 29]}, {\"session\": \"field-notes\", \"live\": true, \"project\": \"/home/demo/workspaces/personal/field-notes\", \"entry\": \"a4.0\", \"role\": \"assistant\", \"at\": 1789207240, \"snippet\": \"The notes file was missing, so I added the Tuesday section to the draft by hand.\", \"match\": [43, 50]}, {\"session\": \"field-notes\", \"live\": true, \"project\": \"/home/demo/workspaces/personal/field-notes\", \"entry\": \"u1.0\", \"role\": \"user\", \"at\": 1789207200, \"snippet\": \"Add the Tuesday meeting notes to the draft\", \"match\": [8, 15]}], \"more\": false}",
       "at": 1789210821
+    },
+    {
+      "id": "6f1c2d3e-0180-4000-8000-000000000180",
+      "ok": true,
+      "text": "sent Preventivo cliente.pdf to atlas-shop",
+      "at": 1789210831
     }
   ]
 }

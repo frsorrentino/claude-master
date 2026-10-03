@@ -346,7 +346,8 @@ def build_state(src, now, fit=True):
         # 1.12: modelli ed effort che il polso puo' chiedere per una sessione; null se il relay non li conosce
         "choices": src.get("choices") or None,
         # 1.19: il relay sa ricevere «Condividi» (op report con /share); presente = l'app accende il pulsante
-        "share": {"max_bytes": SHARE_MAX_BYTES},
+        # 1.28: any = ogni formato (non solo immagini): l'app mostra «File» nel menu del «+» solo con questo relay
+        "share": {"max_bytes": SHARE_MAX_BYTES, "any": True},
         # 1.21: le op di /cmd che questo relay esegue; l'app accende un pulsante solo se la sua op c'e' (Stop = interrupt)
         "ops": list(src.get("ops") or []),
         # 1.25: i comandi slash che il telefono puo' dare (senza «/»); l'app li propone scrivendo «/» nel campo
