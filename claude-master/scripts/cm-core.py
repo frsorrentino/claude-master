@@ -11,6 +11,7 @@ della domanda): venivano da cm-bot-ui.py, che con il bot interattivo non esiste 
 La configurazione si carica PIGRA (_cfg, una volta sola): cosi' importare questo modulo non costa I/O.
 Testato da tests/core-verify.py, e dal vivo dalle suite del relay e di answer.
 """
+import functools
 import importlib.util
 import json
 import os
@@ -596,27 +597,31 @@ def _clean(text):
     return t, 0
 
 
-def _entry(eid, role, text, at, tool=None, note=None, error=None):
+def _entry(eid, role, text, at, tool=None, note=None, error=None, text_max=ENTRY_TEXT_MAX):
     t = str(text or "")
-    return {"id": eid, "role": role, "text": t[:ENTRY_TEXT_MAX], "at": at, "tool": tool, "note": note or None,
-            "error": error, "cut": len(t) > ENTRY_TEXT_MAX, "turn": None, "files": None, "origin": None, "queued": False}
+    return {"id": eid, "role": role, "text": t[:text_max], "at": at, "tool": tool, "note": note or None,
+            "error": error, "cut": len(t) > text_max, "turn": None, "files": None, "origin": None, "queued": False}
 
 
-def transcript_entries(path, offset=0):
+def transcript_entries(path, offset=0, limit=None, text_max=ENTRY_TEXT_MAX, chat_only=False):
     """1.22 (30/09): la conversazione di una sessione come chat, dal transcript dopo `offset` byte. Voci in ordine:
     user (quello che la persona ha scritto), assistant (il testo di Claude), tool (una per chiamata: nome, dettaglio
     corto, la description come note, error dal tool_result, files = [{path, mime, size}] dei media e documenti scritti
     o mandati). `turn` = {started, ended, in, out} sull'ultima voce
-    di un turno chiuso (system turn_duration; token sommati dagli usage dei messaggi del turno)."""
+    di un turno chiuso (system turn_duration; token sommati dagli usage dei messaggi del turno).
+    1.27 (03/10, search): `limit` = si legge fino a quel byte; `text_max` = il testo intero invece dei 4000 caratteri;
+    `chat_only` = solo voci user e assistant, e le righe dei soli strumenti si saltano senza decodificarle (sono quasi
+    tutti i byte di una trascrizione)."""
     try:
         with open(path, "rb") as f:
             f.seek(offset)
-            data = f.read()
+            data = f.read() if limit is None else f.read(max(0, limit - offset))
     except OSError:
         return []
     lines = data.split(b"\n")
     if offset:
         lines = lines[1:]   # la prima riga puo' essere a meta'
+    _entry = functools.partial(globals()["_entry"], text_max=text_max)
     out, by_tool, tokens, peer_seen, queued = [], {}, [0, 0], set(), {}
 
     def human_entry(eid, raw, at):
@@ -648,6 +653,8 @@ def transcript_entries(path, offset=0):
         return t, origin
     for raw in lines:
         if not raw.strip():
+            continue
+        if chat_only and (b'"tool_result"' in raw or (b'"tool_use"' in raw and b'"type":"text"' not in raw)):
             continue
         try:
             d = json.loads(raw)
@@ -719,7 +726,7 @@ def transcript_entries(path, offset=0):
                 ms = int(d.get("durationMs") or 0)
                 last["turn"] = {"started": at - ms // 1000 if ms else None, "ended": at, "in": tokens[0] or None, "out": tokens[1] or None}
             tokens = [0, 0]
-    return out
+    return [e for e in out if e["role"] != "tool"] if chat_only else out
 
 
 def transcript_events(path, offset):

@@ -1082,6 +1082,50 @@ T.check("R24 (1.26) fit_state cutting projects keeps the most recently used (not
         len(_names24) in (5, 10) and _names24 == sorted(_names24) and all(int(n[1:]) % 7 == 0 for n in _names24)
         and int(_names24[-1][1:]) == max(i for i in range(98) if i % 7 == 0), str(_names24))
 T.check("R24 (1.26) /state ops carries projects", "projects" in json.loads(relay("push", "--dry-run").stdout).get("ops", []), "")
+# R25 (contratto 1.27, 03/10): op search — un testo in tutte le conversazioni, vive e chiuse degli ultimi 7 giorni
+import time as _t25
+_od25 = (ws / "work" / "own" / "orbit-docs").resolve()
+_d25 = home / ".claude-pixel" / "projects" / _re24.sub(r"[^A-Za-z0-9]", "-", str(_od25))
+_pfx25 = json.loads((T.SCRIPTS.parent / "messages" / "it.json").read_text())["relay.prompt_prefix_phone"]
+def _l25(kind, uid, ts, content, **kw):
+    return json.dumps(dict({"type": kind, "uuid": uid, "timestamp": ts, "isSidechain": False, "cwd": str(_od25),
+                            **({"origin": {"kind": "human"}} if kind == "user" else {}), "message": {"role": kind, "content": content}}, **kw), separators=(",", ":"))
+_long25 = "We went through the whole backlog again and the only thing that still blocks the release is the review of the migration scripts, which moved to TUESDAY after the client asked for one more pass on the data model and the exports."
+(_d25 / "C-O.jsonl").write_text("\n".join([
+    _l25("user", "c1", "2026-09-13T08:00:00.000Z", "Perché la riunione di Tuesday è saltata?\nRispondi breve."),
+    _l25("assistant", "c2", "2026-09-13T08:00:10.000Z", [{"type": "text", "text": _long25}]),
+    _l25("assistant", "c3", "2026-09-13T08:00:20.000Z", [{"type": "tool_use", "id": "x1", "name": "Bash", "input": {"command": "grep -rn Tuesday ."}}]),
+    _l25("assistant", "c4", "2026-09-13T08:00:30.000Z", [{"type": "text", "text": "subagent: Tuesday is fine"}], isSidechain=True),
+    _l25("user", "c5", "2026-09-13T08:01:00.000Z", _pfx25 + "\n\nmove the review to tuesday"),
+    _l25("user", "c6", "2026-09-13T08:01:30.000Z", [{"type": "tool_result", "tool_use_id": "x1", "content": "notes.md: Tuesday"}]),
+]) + "\n")
+(_d25 / "C-OLD.jsonl").write_text(_l25("user", "o1", "2026-09-01T08:00:00.000Z", "Tuesday, eight days ago") + "\n")
+_now25 = _t25.time()
+_os24.utime(_d25 / "C-O.jsonl", (_now25 - 86400, _now25 - 86400))
+_os24.utime(_d25 / "C-OLD.jsonl", (_now25 - 8 * 86400, _now25 - 8 * 86400))
+(tdir19 / "S-F.jsonl").write_text((FIX / "transcript-sample.jsonl").read_text().replace("/home/demo/workspaces", str(ws.resolve())))
+_os24.utime(tdir19 / "S-F.jsonl", (1789120000, 1789120000))   # vecchia ma viva: entra lo stesso
+rows_alive("field-notes")
+r25 = send_cmd(CMDS[27])
+_got25 = json.loads((r25 or {}).get("text") or "{}")
+for _h in _got25.get("hits", []):
+    _h["project"] = _h["project"].replace(str(ws.resolve()), ROOT_WS).replace(str(ws), ROOT_WS)
+T.check("R25 (1.27) search «tuesday» → user and assistant entries of the live session (even with an old transcript) and of a closed one of the last 7 days, newest first; no tool call, tool result, subagent or 8-day-old transcript; the relay's prefix stripped; case and accents ignored; as in the fixture",
+        r25 and r25["ok"] is True and _got25 == json.loads(RES[27]["text"]), json.dumps(_got25, ensure_ascii=False)[:600])
+_h25 = {h["entry"]: h for h in _got25.get("hits", [])}
+T.check("R25 (1.27) snippet: at most 160 characters around the word, newlines joined into spaces, no «…», match = [start, end] of the word in it",
+        all(len(h["snippet"]) <= 160 and "\n" not in h["snippet"] and "…" not in h["snippet"] and h["snippet"][h["match"][0]:h["match"][1]].lower() == "tuesday" for h in _got25.get("hits", []))
+        and _h25.get("c2.0", {}).get("snippet", "") != _long25 and len(_h25.get("c2.0", {}).get("snippet", "")) == 160 and _h25.get("c1.0", {}).get("snippet") == "Perché la riunione di Tuesday è saltata? Rispondi breve.", str(_h25)[:400])
+_acc25 = json.loads(send_cmd(dict(CMDS[27], id="6f1c2d3e-0170-4000-8000-000000000171", arg="PERCHE"))["text"])
+_bad25 = [send_cmd(dict(CMDS[27], id=f"6f1c2d3e-0170-4000-8000-00000000017{i}", arg=a)) for i, a in ((2, "   "), (3, "x" * 201))]
+T.check("R25 (1.27) «PERCHE» finds «Perché»; an empty text and one over 200 characters → ok false «bad query»",
+        [h["entry"] for h in _acc25["hits"]] == ["c1.0"] and _acc25["hits"][0]["match"] == [0, 6] and all(b and b["ok"] is False and b["text"].startswith("bad query") for b in _bad25), str(_acc25) + str(_bad25))
+_many25 = "\n".join(_l25("assistant", f"m{i:03d}", f"2026-09-14T08:{i // 60:02d}:{i % 60:02d}.000Z", [{"type": "text", "text": f"zanzibar note number {i}"}]) for i in range(70))
+(_d25 / "C-MANY.jsonl").write_text(_many25 + "\n")
+_os24.utime(_d25 / "C-MANY.jsonl", (_now25 - 3600, _now25 - 3600))
+_m25 = json.loads(send_cmd(dict(CMDS[27], id="6f1c2d3e-0170-4000-8000-000000000174", arg="zanzibar"))["text"])
+T.check("R25 (1.27) over 50 hits → the 50 newest, more true", len(_m25["hits"]) == 50 and _m25["more"] is True and _m25["hits"][0]["entry"] == "m069.0" and _m25["hits"][-1]["entry"] == "m020.0", str([h["entry"] for h in _m25["hits"]][:3]))
+T.check("R25 (1.27) /state ops carries search", "search" in json.loads(relay("push", "--dry-run").stdout).get("ops", []), "")
 T.check("R14 (1.18) events-sample: a recap, a night_report and the quota resume, with the shape of the other events",
         [e["kind"] for e in EV[-3:]] == ["recap", "night_report", "quota"] and all(set(e) == set(EV[0]) for e in EV) and EV[-3]["ref"] == "2026-09-12", str(EV[-3:])[:300])
 rows_alive("ledger-api", "atlas-shop", "field-notes")

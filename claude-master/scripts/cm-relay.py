@@ -36,6 +36,7 @@ import socket
 import subprocess
 import sys
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -60,7 +61,7 @@ M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
 R = CFG["relay"]
 CM_BIN = os.environ.get("CM_RELAY_CM") or str(HERE / "claude-master")
 BACKOFF = [1, 2, 5, 15, 30]
-OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report", "interrupt", "transcript", "file", "slash", "projects")
+OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report", "interrupt", "transcript", "file", "slash", "projects", "search")
 LAST_MAX = 4000   # 1.4: l'ultimo messaggio per la lettura vocale — oltre, l'ascolto non regge
 
 
@@ -1165,6 +1166,132 @@ def projects_list():
     return True, json.dumps({"projects": rows, "more": more}, ensure_ascii=False)
 
 
+SEARCH_MAX_HITS = 50
+SEARCH_MAX_S = 10
+SEARCH_DAYS = 7
+SEARCH_SNIPPET = 160
+_SEARCH_CACHE = {}   # path -> {size, mtime, end, cwd, entries: [(id, role, at, testo a una riga, testo piegato)]}
+
+
+def _fold(t):
+    """Il testo per il confronto: minuscole e niente accenti («Perché» -> «perche»)."""
+    if t.isascii():
+        return t.lower()
+    return "".join(ch for ch in unicodedata.normalize("NFD", t) if not unicodedata.combining(ch)).casefold()
+
+
+def _fold_map(t):
+    """Come _fold, carattere per carattere: (piegato, indice nel testo originale di ogni carattere piegato)."""
+    out, idx = [], []
+    for i, ch in enumerate(t):
+        f = _fold(ch)
+        out.append(f)
+        idx.extend([i] * len(f))
+    return "".join(out), idx
+
+
+def _search_file(path):
+    """Le voci user e assistant di una trascrizione, dalla cache. Un file cresciuto si legge solo nella parte nuova,
+    fino all'ultimo a capo (una riga a meta' si rilegge la volta dopo); uno cambiato in altro modo da capo."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    c = _SEARCH_CACHE.get(path)
+    if c and c["size"] == st.st_size and c["mtime"] == st.st_mtime:
+        return c
+    if not c or st.st_size < c["end"]:
+        c = {"end": 0, "entries": [], "cwd": None}
+    with open(path, "rb") as f:
+        f.seek(max(c["end"], st.st_size - 65536))
+        tail = f.read(st.st_size - f.tell())
+        nl = tail.rfind(b"\n")
+        end = st.st_size - len(tail) + nl + 1 if nl >= 0 else c["end"]
+        if c["cwd"] is None:
+            f.seek(0)
+            m = re.search(rb'"cwd":\s*("(?:[^"\\]|\\.)*")', f.read(65536))
+            c["cwd"] = json.loads(m.group(1)) if m else ""
+    if end > c["end"]:
+        # offset un byte prima: transcript_entries scarta la prima riga (puo' essere a meta'), qui e' vuota
+        for e in core.transcript_entries(path, max(0, c["end"] - 1), limit=end, text_max=10 ** 9, chat_only=True):
+            t = re.sub(r"\s*\n\s*", " ", e["text"]).strip()
+            if t:
+                c["entries"].append((e["id"], e["role"], e["at"], t, _fold(t)))
+    c.update(size=st.st_size, mtime=st.st_mtime, end=end)
+    _SEARCH_CACHE[path] = c
+    return c
+
+
+def _snippet(text, folded_q):
+    """(snippet, [inizio, fine]) intorno alla prima occorrenza: fino a SEARCH_SNIPPET caratteri, senza «…»."""
+    folded, idx = _fold_map(text)
+    i = folded.find(folded_q)
+    if i < 0:   # piegato a pezzi non coincide col piegato intero (rarissimo): l'inizio del testo
+        return text[:SEARCH_SNIPPET], [0, 0]
+    a, b = idx[i], idx[i + len(folded_q) - 1] + 1
+    if b - a >= SEARCH_SNIPPET:
+        return text[a:a + SEARCH_SNIPPET], [0, SEARCH_SNIPPET]
+    lo = max(0, min(a - (SEARCH_SNIPPET - (b - a)) // 2, len(text) - SEARCH_SNIPPET))
+    return text[lo:lo + SEARCH_SNIPPET], [a - lo, b - lo]
+
+
+def search(arg):
+    """1.27 (03/10, chiesto dalla sessione dell'app, approvato dal maintainer alle 16:57): cerca un testo nelle
+    conversazioni di tutte le sessioni dei due account — le vive e le chiuse con la trascrizione degli ultimi 7 giorni;
+    solo le voci user e assistant di `transcript` (niente strumenti, niente subagenti, user senza il prefisso del
+    relay); maiuscole e accenti non contano. text = JSON {hits, more}: al massimo 50 hit e 60 KB, dal piu' recente;
+    oltre, o dopo 10 s, quello trovato e more = true. La prima ricerca dopo l'avvio legge tutto (~1 GB a settimana) e
+    puo' fermarsi ai 10 s: la cache resta, e le ricerche dopo vanno avanti da li'."""
+    q = " ".join(str(arg or "").split())
+    if not q or len(q) > 200:
+        return False, M("relay.cmd_search_bad_query")
+    fq = _fold(q)
+    t0, now = time.monotonic(), time.time()
+    live = {}
+    for r in (_json_cmd("sessions", "--json", "--no-screen") or []):
+        p = core.transcript_of(r)
+        if p:
+            live[os.path.realpath(p)] = r
+    files = set(live)
+    for acc in (CFG.get("accounts") or {}).values():
+        for f in (Path(cm.expand(acc.get("config_dir") or "~/.claude")) / "projects").glob("*/*.jsonl"):
+            try:
+                if now - f.stat().st_mtime <= SEARCH_DAYS * 86400:
+                    files.add(os.path.realpath(str(f)))
+            except OSError:
+                pass
+    order = sorted(files, key=lambda p: (os.path.getmtime(p) if os.path.exists(p) else 0), reverse=True)
+    hits, more = [], False
+    for p in order:
+        if len(hits) >= SEARCH_MAX_HITS and os.path.getmtime(p) < (hits[SEARCH_MAX_HITS - 1]["at"] or 0):
+            more = True   # i file dopo sono tutti piu' vecchi dei 50 gia' trovati
+            break
+        if time.monotonic() - t0 > SEARCH_MAX_S:
+            more = True
+            break
+        c = _search_file(p)
+        if not c:
+            continue
+        row = live.get(p)
+        cwd = (row or {}).get("cwd") or c["cwd"] or ""
+        name = S.short_name(row.get("name") or row.get("tmux") or "", prefixes()) if row else (os.path.basename(cwd.rstrip("/")) or Path(p).parent.name)
+        for eid, role, at, text, folded in c["entries"]:
+            if fq in folded:
+                snip, span = _snippet(text, fq)
+                hits.append({"session": name, "live": bool(row), "project": cwd, "entry": eid, "role": role, "at": at,
+                             "snippet": snip, "match": span})
+        hits.sort(key=lambda h: (h["at"] is None, -(h["at"] or 0)))
+    for p in list(_SEARCH_CACHE):
+        if p not in files:
+            del _SEARCH_CACHE[p]
+    if len(hits) > SEARCH_MAX_HITS:
+        hits, more = hits[:SEARCH_MAX_HITS], True
+    while hits and len(json.dumps({"hits": hits, "more": True}, ensure_ascii=False).encode()) > TRANSCRIPT_MAX_BYTES:
+        hits.pop()
+        more = True
+    return True, json.dumps({"hits": hits, "more": more}, ensure_ascii=False)
+
+
 TRANSCRIPT_MAX_N = 200
 TRANSCRIPT_MAX_BYTES = 60000   # 1.22: il JSON di una pagina in /result; oltre si toglie dalla parte vecchia e more=true
 TRANSCRIPT_WINDOWS = (2 * 1024 * 1024, 16 * 1024 * 1024, None)   # si legge dalla coda, e si allarga solo se serve
@@ -1375,6 +1502,8 @@ def execute(cmd):
             return slash_send(cmd, session, tm, arg)
         if op == "projects":
             return projects_list()
+        if op == "search":
+            return search(arg)
         if op == "interrupt":
             # 1.21 (30/09): il tasto Stop — `claude-master interrupt` manda un solo Esc, e solo a turno in corso
             if info.get("state") == "gone" or not is_live(tm):
@@ -1485,7 +1614,7 @@ def commands_from(ev, payload):
     return {}
 
 
-PASSIVE_OPS = ("transcript", "screen", "last", "file", "projects")   # letture: non cambiano lo stato, vengono dopo i comandi dell'utente
+PASSIVE_OPS = ("transcript", "screen", "last", "file", "projects", "search")   # letture: non cambiano lo stato, vengono dopo i comandi dell'utente
 
 
 def in_order(cmds):

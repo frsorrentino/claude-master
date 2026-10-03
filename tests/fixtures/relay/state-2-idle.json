@@ -124,7 +124,8 @@
     "transcript",
     "file",
     "slash",
-    "projects"
+    "projects",
+    "search"
   ],
   "slash": [
     "compact",

@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.5.10-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.5.11-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 [![claude-master in 40 seconds: a question from a Claude Code session on a Wear OS watch — «Staging is green. Deploy 2.8.0?» — answered with one tap.](assets/readme/promo-poster.jpg)](https://www.francescosorrentino.com/plugins/claude-master-watch)
 
@@ -279,6 +279,13 @@ Contract 1.26 gives the phone the whole project list for «Launch»: `projects`
 answers with every project of every account (the fields of `/state.projects`),
 most recently used first, at most 60 KB. When `/state` must drop projects to
 fit in 8 KB, it keeps the most recently used ones instead of the first by name.
+
+Contract 1.27 lets the phone search every conversation: `search` with the text
+(1 to 200 characters) looks through the user and assistant messages of the live
+sessions and of those closed in the last 7 days, on both accounts, ignoring case
+and accents. It answers at most 50 hits, newest first, each with the session,
+the folder, the entry id of `transcript` to jump to, and a snippet of up to 160
+characters with the word's position; past 50 hits, 60 KB or 10 s, `more` is true.
 
 Contract 1.20 counts the phone as well as the watch before falling back to
 Telegram. Each paired device writes `/seen/<uid>` (the Firebase server time)
