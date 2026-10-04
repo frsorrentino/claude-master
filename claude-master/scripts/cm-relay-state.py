@@ -383,6 +383,9 @@ def build_state(src, now, fit=True):
         # 1.32: i dispositivi accoppiati, per lo schema dei collegamenti dell'app
         "devices": build_devices(src.get("devices"), src.get("seen"))
     }
+    # 1.33: le azioni ricorrenti della master (box «Ricorrenti»); senza lista il campo manca e l'app non mostra il box
+    if src.get("recurring"):
+        state["recurring"] = [dict(x) for x in src["recurring"]][:8]
     # fit=False: lo stato intero, su cui il relay calcola gli eventi (23/09: gli eventi sullo stato tagliato davano
     # «Session closed» al polso per sessioni vive che fit_state aveva tolto per la dimensione)
     return fit_state(state, int(src.get("state_max_kb") or 8)) if fit else state

@@ -174,6 +174,17 @@ settimo dei token). La pagina va in `.claude-master-reports/` della cartella (ig
 nella chat del telefono sotto la voce del comando, da aprire con un tocco. I file arrivati dal telefono
 (PDF, testi, archivi) sono invece in `.claude-master-inbox/`: il messaggio dice il percorso, leggili da lì.
 
+## Azioni ricorrenti (per la master)
+
+    claude-master recurring list | add ID --label L --prompt P [--param] | remove ID | used ID
+
+Il box «Ricorrenti» dell'app mostra questa lista (dall'ultima usata, al massimo 8). La tiene la master, sempre con
+l'ok dell'utente: la prima volta propone dal suo storico (registro dei compiti, recap, `claude-master timeline`)
+le azioni fatte almeno 3 volte, col prompt che ha funzionato; poi propone un'aggiunta quando nota una ripetizione,
+o quando l'utente dice «aggiungi ai ricorrenti». `--param` se il prompt aspetta un pezzo (un link, un numero di
+release). Quando esegue un'azione della lista arrivata dal terminale, `recurring used ID` la porta in cima; dal
+telefono lo fa il relay da solo.
+
 ## Chiudere
 
     claude-master close <nome>                  chiude quella sessione

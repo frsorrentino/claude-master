@@ -216,6 +216,10 @@ DEV_SRC = {"devices": {"phoneUid00000000000000000000": {"name": "Pixel 9", "pair
                        "spareUid00000000000000000000": {"name": "Pixel 7", "paired_at": 1789170000}},
            "seen": {"phoneUid00000000000000000000": 1789210790.0, "watchUid0000000000000000000": 1789210500.4,
                     "tabletUid0000000000000000000": 1789209000.0, "crbookUid0000000000000000000": 1789190000.0}}
+# 1.33: le azioni ricorrenti della master, gia' in ordine (l'ultima usata in cima), una con param
+DEV_SRC["recurring"] = [{"id": "x-posts", "label": "Review this week's posts on X", "prompt": "Review this week's posts on X and suggest replies", "param": False},
+                        {"id": "release-changelog", "label": "Changelog of a release", "prompt": "Write the changelog of release", "param": True},
+                        {"id": "plugin-rivals", "label": "What competing plugins shipped", "prompt": "Check what the competing plugins shipped this week and sum it up", "param": False}]
 SRC1.update(DEV_SRC)
 st1 = S.build_state(SRC1, 1789210800)
 
@@ -293,17 +297,18 @@ SRC3["account_kinds"] = KINDS
 SRC3.update(DEV_SRC)
 st3 = S.build_state(SRC3, 1789200000)
 T.check("R2 build_state(src) == state-3-stale.json", st3 == F3, diff(st3, F3) or "equal")
+T.check("R2 (1.33) no recurring list → no `recurring` field (the app shows no box)", "recurring" not in S.build_state(dict(SRC3, recurring=[]), 1789200000), "")
 T.check("R2 (1.8) every session carries account_kind and every quota entry its kind (personal | work)",
         all(x["account_kind"] in ("personal", "work") for x in st1["sessions"]) and st1["quota"]["personal"]["kind"] == "personal" and st1["quota"]["work"]["kind"] == "work", str([(x["name"], x["account"], x["account_kind"]) for x in st1["sessions"]]))
 T.check("R2 (1.8) kinds_of: an explicit kind wins; else the default account is personal and the others work; a single account is personal",
         S.kinds_of({"a": {}, "b": {}}, "a") == {"a": "personal", "b": "work"} and S.kinds_of({"x": {}}, "") == {"x": "personal"} and S.kinds_of({"a": {"kind": "work"}, "b": {"kind": "personal"}}, "a") == {"a": "work", "b": "personal"}, "")
-big = dict(SRC1, devices={}, seen={}); big["projects"] = [{"path": f"{ROOT_WS}/personal/p{i:03d}", "name": f"p{i:03d}", "account": "personal"} for i in range(120)]
+big = dict(SRC1, devices={}, seen={}, recurring=[]); big["projects"] = [{"path": f"{ROOT_WS}/personal/p{i:03d}", "name": f"p{i:03d}", "account": "personal"} for i in range(120)]
 stb = S.build_state(big, 1789210800)
 T.check("R2 over 8 KB → fit_state trims (old gone sessions, projects past 10, …), the question stays whole", S.size_of(stb) <= 8192 and stb["sessions"][0]["question"]["text"] == F1["sessions"][0]["question"]["text"] and len(stb["projects"]) <= 10, str(S.size_of(stb)))
 # (job-*: work- e' il prefisso tmux dell'account work; 60 progetti: lo stato resta oltre gli 8 KB finche' le sessioni
 # finite non scendono a tre anche con i nomi inglesi, piu' corti)
 # 14/09 dal vivo: tre sessioni al lavoro con un esito lungo + dieci finite → prima ogni full diventava short
-live = dict(SRC1, devices={}, seen={})   # 1.32: questi casi misurano i tagli delle sessioni, senza i dispositivi
+live = dict(SRC1, devices={}, seen={}, recurring=[])   # 1.32: questi casi misurano i tagli delle sessioni, senza i dispositivi
 long_tail = "Ho messo in pausa a un punto pulito; i passi per riprendere sono nel piano. " * 9
 live["rows"] = [{"name": f"job-{i}", "tmux": f"job-{i}", "account": "personal", "cwd": ROOT_WS + f"/personal/job-{i}", "status": "idle", "waiting": False, "session_id": f"sid-job-{i}", "link": "https://claude.ai/code/session_" + "x" * 24, "attached": False, "started_at": 1789200000000} for i in range(3)] + \
     [{"name": f"old-{i:02d}", "tmux": f"old-{i:02d}", "account": "personal", "cwd": ROOT_WS + f"/personal/old-progetto-{i:02d}", "status": "dead", "session_id": f"0000000{i:02d}-aaaa-bbbb-cccc-dddddddddddd", "link": "https://claude.ai/code/session_" + "y" * 24, "visto_ts": 1789100000 + i, "started_at": 1789000000000} for i in range(10)]

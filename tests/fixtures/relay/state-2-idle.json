@@ -168,5 +168,25 @@
       "kind": null,
       "seen": null
     }
+  ],
+  "recurring": [
+    {
+      "id": "x-posts",
+      "label": "Review this week's posts on X",
+      "prompt": "Review this week's posts on X and suggest replies",
+      "param": false
+    },
+    {
+      "id": "release-changelog",
+      "label": "Changelog of a release",
+      "prompt": "Write the changelog of release",
+      "param": true
+    },
+    {
+      "id": "plugin-rivals",
+      "label": "What competing plugins shipped",
+      "prompt": "Check what the competing plugins shipped this week and sum it up",
+      "param": false
+    }
   ]
 }

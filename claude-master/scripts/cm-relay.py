@@ -586,7 +586,7 @@ def collect_sources(now=None):
         "quota": _json_cmd("quota", "--json", expect="{") or {},
         "projects": inventory(), "night": night_queue(), "recap": recap_today(now), "ops": list(OPS), "slash": slash_allowed(),
         "follow": followed(), "awaiting": aw, "next": nexts, "next_at": nexts_at, "tools": tools,
-        "devices": read_json(devices_path(), {}), "seen": seen_cached(now),
+        "devices": read_json(devices_path(), {}), "seen": seen_cached(now), "recurring": _load("cm-recurring").for_state(),
         "icons": icons, "colors": R.get("colors") or None, "tool_notes": notes, "runtime": runtime,
         # 1.12: le scelte valide per il polso, dalla config (tune.models / tune.efforts)
         "choices": {"models": [{"id": m["id"], "label": m.get("label") or m["id"]} for m in ((CFG.get("tune") or {}).get("models") or []) if m.get("id")],
@@ -1740,6 +1740,10 @@ def execute(cmd):
             if saved_in_inbox(out):
                 return False, M("relay.cmd_inbox_only", name=session)
             aw = read_json(rdir() / "awaiting.json", {}); aw[tm] = int(time.time()); write_json(rdir() / "awaiting.json", aw)
+            try:   # 1.33: un'azione ricorrente mandata dal telefono sale in cima alla lista
+                _load("cm-recurring").mark_used(text)
+            except Exception:   # noqa: BLE001 — un extra: mai far fallire il prompt
+                pass
             return True, M("relay.cmd_delivered")
         if op == "launch":
             path = str(arg or "")
