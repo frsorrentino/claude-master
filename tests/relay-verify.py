@@ -1157,6 +1157,8 @@ _os24.utime(_d25 / "C-OLD.jsonl", (_now25 - 8 * 86400, _now25 - 8 * 86400))
 _os24.utime(tdir19 / "S-F.jsonl", (1789120000, 1789120000))   # vecchia ma viva: entra lo stesso
 rows_alive("field-notes")
 r25 = send_cmd(CMDS[27])
+T.check("R25 (04/10) serve fills the search cache in the background at start: the log says «cache pronta» with how many transcripts",
+        bool(re.search(r"search: cache pronta, \d+ trascrizioni in \d+ s", (rdir2 / "relay.log").read_text())), (rdir2 / "relay.log").read_text()[-300:])
 _got25 = json.loads((r25 or {}).get("text") or "{}")
 for _h in _got25.get("hits", []):
     _h["project"] = _h["project"].replace(str(ws.resolve()), ROOT_WS).replace(str(ws), ROOT_WS)
@@ -1250,6 +1252,35 @@ _bad27 = [send_cmd(dict(CMDS[29], id=f"6f1c2d3e-0190-4000-8000-00000000019{i}", 
 T.check("R27 (1.29) one session by its name; a bad arg and more than 7 days → ok false in plain words",
         [x["session"] for x in _one27["sessions"]] == ["field-notes"] and all(b and b["ok"] is False and "expected 90m, 6h, 2d" in b["text"] for b in _bad27), str(_one27)[:200] + str(_bad27))
 T.check("R27 (1.29) /state ops carries timeline", "timeline" in json.loads(relay("push", "--dry-run").stdout).get("ops", []), "")
+# R28 (contratto 1.31, 04/10): pair_add dal telefono — il relay apre da solo un pair --add e risponde con QR e codice
+_dev28 = (rdir2 / "devices.json").read_text(); _all28 = STORE.get("allowed") or {}
+(rdir2 / "devices.json").write_text(json.dumps({"u2": {"name": "Pixel 9", "paired_at": 1}, "u3": {"name": "Pixel Watch 5", "paired_at": 1}}))
+http("PUT", "/allowed.json", {"u2": True, "u3": True})
+_k28 = C.load_key(rdir2)
+CMD28 = {"id": "6f1c2d3e-0200-4000-8000-000000000200", "op": "pair_add", "session": None, "arg": None, "issued": 1789210850, "by": "phone-pixel8"}
+r28 = send_cmd(CMD28, wait=40)
+_inv = json.loads((r28 or {}).get("text") or "{}") if (r28 or {}).get("ok") else {}
+_node28 = _inv.get("code") or ""
+T.check("R28 (1.31) pair_add → ok, text {qr, code, exp}: a six-digit code whose /pair node carries mode «add», exp in the future; qr null or with m «add»",
+        r28 and r28["ok"] is True and re.fullmatch(r"\d{6}", _node28) and ((STORE.get("pair") or {}).get(_node28) or {}).get("mode") == "add"
+        and _inv.get("exp", 0) > time.time() and (_inv.get("qr") is None or _inv["qr"].get("m") == "add"), str(r28))
+r28b = send_cmd(dict(CMD28, id="6f1c2d3e-0200-4000-8000-000000000201"), wait=40)
+T.check("R28 (1.31) a second pair_add while the first is open → ok false «a pairing is already open»", r28b and r28b["ok"] is False and "already open" in r28b["text"], str(r28b))
+if _node28:
+    _tp, _tpub = C.pair_keys(); _kt = C.shared_key(_tp, STORE["pair"][_node28]["pc_pub"])
+    http("PUT", f"/pair/{_node28}/watch.json", {"watch_pub": _tpub, "uid": "u7", "name": "Pixel Tablet", "check": C.check_code(_kt, _node28)})
+    T.wait_until(lambda: set((STORE.get("pair") or {}).get(_node28, {})) == {"ok"}, 15)
+    _ok28 = (STORE.get("pair") or {}).get(_node28, {}).get("ok") or {}
+    T.check("R28 (1.31) the tablet answers the invite → the 1.30 confirmation with the relay's key, the key unchanged, u7 added to u2 and u3",
+            _ok28.get("key") and C.decrypt(_ok28["key"], _kt) == {"key": _k28.hex()} and C.load_key(rdir2) == _k28
+            and STORE.get("allowed") == {"u2": True, "u3": True, "u7": True}, str(_ok28)[:200] + str(STORE.get("allowed")))
+    T.wait_until(lambda: subprocess.run(["pgrep", "-f", "cm-relay.py pair --add"], capture_output=True).returncode != 0, 10)
+http("PUT", "/allowed.json", {"u2": True, "u3": True, "u7": True, "u8": True})
+(rdir2 / "devices.json").write_text(json.dumps({u: {"name": u, "paired_at": 1} for u in ("u2", "u3", "u7", "u8")}))
+r28c = send_cmd(dict(CMD28, id="6f1c2d3e-0200-4000-8000-000000000202"), wait=40)
+T.check("R28 (1.31) already 4 devices → ok false «already 4 devices», no pairing started", r28c and r28c["ok"] is False and "already 4 devices" in r28c["text"], str(r28c))
+(rdir2 / "devices.json").write_text(_dev28); http("PUT", "/allowed.json", _all28 or {})
+T.check("R28 (1.31) /state ops carries pair_add", "pair_add" in json.loads(relay("push", "--dry-run").stdout).get("ops", []), "")
 T.check("R14 (1.18) events-sample: a recap, a night_report and the quota resume, with the shape of the other events",
         [e["kind"] for e in EV[-3:]] == ["recap", "night_report", "quota"] and all(set(e) == set(EV[0]) for e in EV) and EV[-3]["ref"] == "2026-09-12", str(EV[-3:])[:300])
 rows_alive("ledger-api", "atlas-shop", "field-notes")

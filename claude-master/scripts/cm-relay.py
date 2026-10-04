@@ -36,6 +36,7 @@ import re
 import socket
 import subprocess
 import sys
+import threading
 import time
 import unicodedata
 import urllib.error
@@ -62,7 +63,7 @@ M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
 R = CFG["relay"]
 CM_BIN = os.environ.get("CM_RELAY_CM") or str(HERE / "claude-master")
 BACKOFF = [1, 2, 5, 15, 30]
-OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report", "interrupt", "transcript", "file", "slash", "projects", "search", "timeline")
+OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report", "interrupt", "transcript", "file", "slash", "projects", "search", "timeline", "pair_add")
 LAST_MAX = 4000   # 1.4: l'ultimo messaggio per la lettura vocale — oltre, l'ascolto non regge
 
 
@@ -810,6 +811,60 @@ def add_ok(ok, k_pair, relay_key):
 
 
 PAIR_MAX_DEVICES = 4
+PAIR_INVITE_TTL_S = 300
+
+
+def pair_add_invite():
+    """1.31 (04/10, dal telefono, chiesto dal maintainer): un dispositivo in piu' senza stare al PC. Il telefono (gia'
+    accoppiato: il comando arriva cifrato con la chiave) chiede l'invito; il relay lancia da solo `relay pair --add
+    --text` in un processo a parte e risponde con il QR e il codice, che il telefono mostra al tablet. Il resto e' la
+    1.30: stessa stretta di mano, chiave consegnata cifrata nella conferma, /allowed come unione. Solo il relay scrive
+    /allowed e consegna la chiave. text = JSON {qr, code, exp}; qr = il documento del QR (con m «add») o null senza i
+    dati dell'app Firebase. Rifiuti: un pairing gia' aperto, nessuna chiave salvata, gia' 4 dispositivi."""
+    if not C.load_key(rdir()):
+        return False, M("relay.pair_add_no_key")
+    try:
+        before = set(read_json(devices_path(), {})) | set(rtdb("GET", "allowed") or {})
+    except (urllib.error.URLError, OSError, ValueError):
+        before = set(read_json(devices_path(), {}))
+    if len(before) >= PAIR_MAX_DEVICES:
+        return False, M("relay.cmd_pair_add_full", max=PAIR_MAX_DEVICES)
+    lock = rdir() / "pair-invite.pid"
+    try:
+        old = int(lock.read_text().strip())
+        os.kill(old, 0)
+        return False, M("relay.cmd_pair_add_busy")
+    except (OSError, ValueError):
+        pass
+    out = rdir() / "pair-invite.out"
+    with open(out, "w") as f:
+        p = subprocess.Popen([sys.executable, str(HERE / "cm-relay.py"), "pair", "--add", "--text", "--timeout", str(PAIR_INVITE_TTL_S)],
+                             stdout=f, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True)
+    lock.write_text(str(p.pid))
+    deadline = time.time() + 20
+    qr, code = None, None
+    while time.time() < deadline and p.poll() is None:
+        for ln in out.read_text().splitlines():
+            if ln.startswith("{") and qr is None:
+                try:
+                    qr = json.loads(ln)
+                except ValueError:
+                    pass
+            m = re.search(r"\b(\d{6})\b", ln) if not ln.startswith("{") else None
+            if m:
+                code = m.group(1)
+        if code:
+            break
+        time.sleep(0.3)
+    if not code:
+        rc = p.poll()
+        tail = (out.read_text().strip().splitlines() or ["?"])[-1]
+        if rc is None:
+            p.terminate()
+        return False, M("relay.cmd_pair_add_failed", why=tail[:160])
+    log(f"pair_add: invito aperto dal telefono, pid {p.pid}, codice {code}")
+    exp = int(qr["e"]) if isinstance(qr, dict) and qr.get("e") else int(time.time() + PAIR_INVITE_TTL_S)
+    return True, json.dumps({"qr": qr, "code": code, "exp": exp}, ensure_ascii=False)
 
 
 def pair(timeout=None, text=False, add=False):
@@ -1275,6 +1330,8 @@ SEARCH_MAX_S = 10
 SEARCH_DAYS = 7
 SEARCH_SNIPPET = 160
 _SEARCH_CACHE = {}   # path -> {size, mtime, end, cwd, entries: [(id, role, at, testo a una riga, testo piegato)]}
+_SEARCH_LOCK = threading.Lock()   # la cache la toccano la ricerca e l'indicizzazione in background
+_WARM = {"thread": None}
 
 
 def _fold(t):
@@ -1339,18 +1396,10 @@ def _snippet(text, folded_q):
     return text[lo:lo + SEARCH_SNIPPET], [a - lo, b - lo]
 
 
-def search(arg):
-    """1.27 (03/10, chiesto dalla sessione dell'app, approvato dal maintainer alle 16:57): cerca un testo nelle
-    conversazioni di tutte le sessioni dei due account — le vive e le chiuse con la trascrizione degli ultimi 7 giorni;
-    solo le voci user e assistant di `transcript` (niente strumenti, niente subagenti, user senza il prefisso del
-    relay); maiuscole e accenti non contano. text = JSON {hits, more}: al massimo 50 hit e 60 KB, dal piu' recente;
-    oltre, o dopo 10 s, quello trovato e more = true. La prima ricerca dopo l'avvio legge tutto (~1 GB a settimana) e
-    puo' fermarsi ai 10 s: la cache resta, e le ricerche dopo vanno avanti da li'."""
-    q = " ".join(str(arg or "").split())
-    if not q or len(q) > 200:
-        return False, M("relay.cmd_search_bad_query")
-    fq = _fold(q)
-    t0, now = time.monotonic(), time.time()
+def search_files(now=None):
+    """(vive {trascrizione: riga}, insieme dei file, ordine dal piu' recente): le trascrizioni delle sessioni vive e
+    quelle toccate negli ultimi SEARCH_DAYS giorni, dei due account."""
+    now = now or time.time()
     live = {}
     for r in (_json_cmd("sessions", "--json", "--no-screen") or []):
         p = core.transcript_of(r)
@@ -1365,6 +1414,63 @@ def search(arg):
             except OSError:
                 pass
     order = sorted(files, key=lambda p: (os.path.getmtime(p) if os.path.exists(p) else 0), reverse=True)
+    return live, files, order
+
+
+def _trim():
+    """Rende al sistema la memoria della lettura (le trascrizioni intere passano in memoria un file alla volta): senza,
+    il relay restava a ~150 MB dopo l'indicizzazione invece dei ~40 della sola cache (misurato il 04/10)."""
+    import gc
+    gc.collect()
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except (OSError, AttributeError):
+        pass   # non glibc (macOS, Windows): resta com'e'
+
+
+def search_warm():
+    """04/10 (dall'utente: dopo un riavvio del relay la ricerca rispondeva «nessun risultato» senza aver letto tutto):
+    riempie la cache della ricerca leggendo tutte le trascrizioni, dalla piu' recente, un file alla volta col lock
+    preso solo per quel file (una ricerca puo' passare in mezzo). La lanciano l'avvio di `serve` e una ricerca che si
+    ferma ai 10 s."""
+    t0, n = time.monotonic(), 0
+    try:
+        _, _, order = search_files()
+        for p in order:
+            with _SEARCH_LOCK:
+                if _search_file(p):
+                    n += 1
+        _trim()
+        log(f"search: cache pronta, {n} trascrizioni in {time.monotonic() - t0:.0f} s")
+    except Exception as e:   # noqa: BLE001 — un aiuto in piu': mai far cadere il relay
+        log(f"search: indicizzazione interrotta ({e})")
+
+
+def search_warm_async():
+    """Un solo giro di indicizzazione alla volta, in un thread che non trattiene l'uscita del processo."""
+    th = _WARM["thread"]
+    if th is not None and th.is_alive():
+        return False
+    _WARM["thread"] = threading.Thread(target=search_warm, name="search-warm", daemon=True)
+    _WARM["thread"].start()
+    return True
+
+
+def search(arg):
+    """1.27 (03/10, chiesto dalla sessione dell'app, approvato dal maintainer alle 16:57): cerca un testo nelle
+    conversazioni di tutte le sessioni dei due account — le vive e le chiuse con la trascrizione degli ultimi 7 giorni;
+    solo le voci user e assistant di `transcript` (niente strumenti, niente subagenti, user senza il prefisso del
+    relay); maiuscole e accenti non contano. text = JSON {hits, more}: al massimo 50 hit e 60 KB, dal piu' recente;
+    oltre, o dopo 10 s, quello trovato e more = true. La cache si riempie in background dall'avvio del relay (circa
+    30 s per ~1 GB a settimana); una ricerca che arriva prima puo' fermarsi ai 10 s con more = true, e la cache finisce
+    di riempirsi da sola."""
+    q = " ".join(str(arg or "").split())
+    if not q or len(q) > 200:
+        return False, M("relay.cmd_search_bad_query")
+    fq = _fold(q)
+    t0 = time.monotonic()
+    live, files, order = search_files()
     hits, more = [], False
     for p in order:
         if len(hits) >= SEARCH_MAX_HITS and os.path.getmtime(p) < (hits[SEARCH_MAX_HITS - 1]["at"] or 0):
@@ -1372,8 +1478,10 @@ def search(arg):
             break
         if time.monotonic() - t0 > SEARCH_MAX_S:
             more = True
+            search_warm_async()   # la cache finisce di riempirsi da sola: la ricerca dopo trova tutto
             break
-        c = _search_file(p)
+        with _SEARCH_LOCK:
+            c = _search_file(p)
         if not c:
             continue
         row = live.get(p)
@@ -1385,9 +1493,10 @@ def search(arg):
                 hits.append({"session": name, "live": bool(row), "project": cwd, "entry": eid, "role": role, "at": at,
                              "snippet": snip, "match": span})
         hits.sort(key=lambda h: (h["at"] is None, -(h["at"] or 0)))
-    for p in list(_SEARCH_CACHE):
-        if p not in files:
-            del _SEARCH_CACHE[p]
+    with _SEARCH_LOCK:
+        for p in list(_SEARCH_CACHE):
+            if p not in files:
+                del _SEARCH_CACHE[p]
     if len(hits) > SEARCH_MAX_HITS:
         hits, more = hits[:SEARCH_MAX_HITS], True
     while hits and len(json.dumps({"hits": hits, "more": True}, ensure_ascii=False).encode()) > TRANSCRIPT_MAX_BYTES:
@@ -1645,6 +1754,8 @@ def execute(cmd):
             return search(arg)
         if op == "timeline":
             return timeline_page(cmd.get("session"), arg)
+        if op == "pair_add":
+            return pair_add_invite()
         if op == "interrupt":
             # 1.21 (30/09): il tasto Stop — `claude-master interrupt` manda un solo Esc, e solo a turno in corso
             if info.get("state") == "gone" or not is_live(tm):
@@ -1755,7 +1866,7 @@ def commands_from(ev, payload):
     return {}
 
 
-PASSIVE_OPS = ("transcript", "screen", "last", "file", "projects", "search", "timeline")   # letture: non cambiano lo stato, vengono dopo i comandi dell'utente
+PASSIVE_OPS = ("transcript", "screen", "last", "file", "projects", "search", "timeline", "pair_add")   # letture: non cambiano lo stato, vengono dopo i comandi dell'utente
 
 
 def in_order(cmds):
@@ -1888,6 +1999,7 @@ def serve():
         raise SystemExit(0)
     signal.signal(signal.SIGTERM, _stop); signal.signal(signal.SIGINT, _stop)
     log(f"serve: avvio pid {os.getpid()}")
+    search_warm_async()   # 04/10: la prima ricerca dal telefono trova la cache gia' piena
     done = list(read_json(rdir() / "done-cmds.json", []))
     st_ = {"pid": os.getpid(), "started": started, "last_cmd_ts": None, "last_cmd": "", "served": 0, "reconnects": 0}
     # subito su file: finche' lo stream regge il ciclo non torna qui, e `relay status` mostrerebbe i numeri del

@@ -249,6 +249,14 @@
       "arg": "1789200000",
       "issued": 1789210840,
       "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0200-4000-8000-000000000200",
+      "op": "pair_add",
+      "session": null,
+      "arg": null,
+      "issued": 1789210850,
+      "by": "phone-pixel8"
     }
   ],
   "result": [
@@ -433,6 +441,12 @@
       "ok": true,
       "text": "{\"since\": 1789200000, \"sessions\": [{\"session\": \"ledger-api\", \"live\": false, \"project\": \"work/clients/ledger-api\", \"events\": [{\"at\": 1789205000, \"kind\": \"prompt\", \"text\": \"add the invoices endpoint\", \"ok\": null, \"ref\": null}, {\"at\": 1789205600, \"kind\": \"test\", \"text\": \"api-verify.py\", \"ok\": false, \"ref\": \"3/4 OK, FAIL: A2 invoices\"}, {\"at\": 1789206600, \"kind\": \"test\", \"text\": \"api-verify.py\", \"ok\": true, \"ref\": \"4/4 OK\"}, {\"at\": 1789207000, \"kind\": \"commit\", \"text\": \"feat(api): invoices endpoint\", \"ok\": null, \"ref\": \"0f20786\"}, {\"at\": 1789207800, \"kind\": \"outcome\", \"text\": \"invoices endpoint added, api suite green\", \"ok\": null, \"ref\": null}, {\"at\": 1789208000, \"kind\": \"task\", \"text\": \"Invoices endpoint: check green\", \"ok\": true, \"ref\": \"invoices\"}]}, {\"session\": \"field-notes\", \"live\": true, \"project\": \"personal/field-notes\", \"events\": [{\"at\": 1789207200, \"kind\": \"prompt\", \"text\": \"Add the Tuesday meeting notes to the draft\", \"ok\": null, \"ref\": null}, {\"at\": 1789207320, \"kind\": \"prompt\", \"text\": \"Also fix the typo in the title\", \"ok\": null, \"ref\": null}, {\"at\": 1789207350, \"kind\": \"prompt\", \"text\": \"and push when done\", \"ok\": null, \"ref\": null}, {\"at\": 1789207357, \"kind\": \"prompt\", \"text\": \"Also add the attendees list\", \"ok\": null, \"ref\": \"phone\"}, {\"at\": 1789207364, \"kind\": \"prompt\", \"text\": \"this is how the header looks now\", \"ok\": null, \"ref\": null}]}], \"more\": false}",
       "at": 1789210841
+    },
+    {
+      "id": "6f1c2d3e-0200-4000-8000-000000000200",
+      "ok": true,
+      "text": "{\"qr\": {\"v\": 1, \"i\": \"q3Vb2mXz0rT8yKp1LwN4sA\", \"c\": \"j0DFrbaPJWJK5bIU6nZ6bslNgp09e14a0bpvPiE4KF8=\", \"h\": \"penguin\", \"e\": 1789211100, \"f\": {\"k\": \"AIzaSyD-example-key-000000000000000000\", \"p\": \"cmwatch-demo\", \"a\": \"1:123456789012:android:0a1b2c3d4e5f6a7b8c9d0e\", \"d\": \"https://cmwatch-demo-default-rtdb.europe-west1.firebasedatabase.app\", \"t\": \"watch\"}, \"m\": \"add\"}, \"code\": \"482913\", \"exp\": 1789211100}",
+      "at": 1789210851
     }
   ]
 }

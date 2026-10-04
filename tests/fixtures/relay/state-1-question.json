@@ -286,7 +286,8 @@
     "slash",
     "projects",
     "search",
-    "timeline"
+    "timeline",
+    "pair_add"
   ],
   "slash": [
     "compact",
