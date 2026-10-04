@@ -82,6 +82,25 @@ def encrypt(obj, key):
     return {"v": 1, "enc": base64.b64encode(nonce + ct).decode()}
 
 
+def encrypt_raw(data, key):
+    """1.34: byte grezzi nella stessa busta {v, enc} (AES-GCM, stesso AAD), senza JSON ne' base64 interni: i pezzi di
+    /file/<id>/parts/<k>."""
+    AESGCM = _crypto()[0]
+    nonce = secrets.token_bytes(12)
+    return {"v": 1, "enc": base64.b64encode(nonce + AESGCM(key).encrypt(nonce, bytes(data), AAD)).decode()}
+
+
+def decrypt_raw(doc, key):
+    AESGCM = _crypto()[0]
+    if not isinstance(doc, dict) or doc.get("v") != 1 or not doc.get("enc"):
+        raise ValueError("documento non cifrato nella forma {v:1, enc}")
+    try:
+        raw = base64.b64decode(doc["enc"])
+        return AESGCM(key).decrypt(raw[:12], raw[12:], AAD)
+    except Exception as e:
+        raise ValueError(f"decifratura fallita: {e.__class__.__name__}") from e
+
+
 def decrypt(doc, key):
     """L'oggetto in chiaro; ValueError se la chiave e' sbagliata o il documento non e' nella forma attesa."""
     AESGCM = _crypto()[0]

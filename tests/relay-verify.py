@@ -62,7 +62,7 @@ def app_contract(name):
     return None
 
 
-for f in ("state-1-question", "state-2-idle", "state-3-stale", "events-sample", "cmd-result-sample", "pair-qr", "pair-response", "pair-add", "pair-link"):
+for f in ("state-1-question", "state-2-idle", "state-3-stale", "events-sample", "cmd-result-sample", "pair-qr", "pair-response", "pair-add", "pair-link", "file-parts"):
     a = FIX / f"{f}.json"; b = app_contract(f"{f}.json")
     T.check(f"R0 fixture {f} identical to the app contract on its master (origin/master; skipped if the app repo is absent)", a.is_file() and (b is None or a.read_bytes() == b), f"{WATCH}@origin/master:contract/{f}.json")
 
@@ -1130,8 +1130,8 @@ r22c = send_cmd(dict(fcmd[0], id="6f1c2d3e-0140-4000-8000-000000000201", arg=pdf
 (fn22 / "docs" / "minutes.pdf").write_bytes(_os22.urandom(1_300_000))
 r22d = send_cmd(dict(fcmd[0], id="6f1c2d3e-0140-4000-8000-000000000202", arg=pdf22))
 r22e = send_cmd(dict(fcmd[0], id="6f1c2d3e-0140-4000-8000-000000000203", session="atlas-shop-none"))
-T.check("R22 (1.24) refusals in plain words: a listed file that is missing, a listed non-image over the cap («too large: <bytes>»), a session that is not running",
-        r22c and r22c["text"] == "missing or unreadable" and r22d and r22d["text"] == "too large: 1300000" and r22e and r22e["text"] == "no session atlas-shop-none", str([r22c, r22d, r22e]))
+T.check("R22 (1.24) refusals in plain words: a listed file that is missing, a listed non-image over the cap («too large: <bytes> max <bytes>», 1.34), a session that is not running",
+        r22c and r22c["text"] == "missing or unreadable" and r22d and r22d["text"] == f"too large: 1300000 max {RL.FILE_ONE_MAX}" and r22e and r22e["text"] == "no session atlas-shop-none", str([r22c, r22d, r22e]))
 from PIL import Image as _Im22
 rep22 = (ws / "personal" / "atlas-shop").resolve() / "docs" / "reports"   # l'immagine archiviata da `claude-master report`
 rep22.mkdir(parents=True, exist_ok=True)
@@ -1144,6 +1144,31 @@ T.check("R22 (1.24) a listed image over the cap is reduced to a JPEG that fits (
         _os22.path.getsize(jpg22) > 1_200_000 and r22f and r22f["ok"] is True and blob22f.get("mime") == "image/jpeg"
         and len(doc22f.get("enc") or "") <= 1_500_000 and _b64.b64decode(blob22f.get("data") or "")[:2] == b"\xff\xd8", f"{_os22.path.getsize(jpg22)} {r22f} {len(doc22f.get('enc') or '')}")
 T.check("R22 (1.24) /state ops carries file", "file" in json.loads(relay("push", "--dry-run").stdout).get("ops", []), "")
+# R29 (contratto 1.34, 04/10): il file a pezzi — con parts true meta e pezzi da ~1 MB, fino a 25 MB
+big29 = _os22.urandom(2 * 1024 * 1024 + 12345)
+(fn22 / "docs" / "minutes.pdf").write_bytes(big29)
+r29 = send_cmd(dict(fcmd[0], id="6f1c2d3e-0210-4000-8000-000000000210", arg=pdf22, parts=True), wait=40)
+node29 = (STORE.get("file") or {}).get("6f1c2d3e-0210-4000-8000-000000000210") or {}
+meta29 = C.decrypt(node29.get("meta"), k) if node29.get("meta") else {}
+parts29 = node29.get("parts") or {}
+parts29 = [parts29[str(i)] if isinstance(parts29, dict) else parts29[i] for i in range(len(parts29))]
+import hashlib as _h29
+joined29 = b"".join(C.decrypt_raw(x, k) for x in parts29)
+T.check("R29 (1.34) parts true → /file/<id>/meta {v, enc} of {n, size, sha256, mime, name} and /file/<id>/parts/0..n-1, raw bytes of 1 MB each; joined they are the file (sha256 checks)",
+        r29 and r29["ok"] is True and meta29 == {"n": 3, "size": len(big29), "sha256": _h29.sha256(big29).hexdigest(), "mime": "application/pdf", "name": "minutes.pdf"}
+        and len(parts29) == 3 and joined29 == big29 and all(set(x) == {"v", "enc"} for x in parts29), str(r29) + str(meta29))
+with open(fn22 / "docs" / "minutes.pdf", "wb") as _f29:
+    _f29.truncate(25 * 1024 * 1024 + 1)
+r29b = send_cmd(dict(fcmd[0], id="6f1c2d3e-0210-4000-8000-000000000211", arg=pdf22, parts=True), wait=40)
+T.check("R29 (1.34) over 25 MB → «too large: <bytes> max 26214400», nothing written", r29b and r29b["ok"] is False and r29b["text"] == f"too large: {25 * 1024 * 1024 + 1} max 26214400"
+        and "6f1c2d3e-0210-4000-8000-000000000211" not in (STORE.get("file") or {}), str(r29b))
+FP = json.loads((FIX / "file-parts.json").read_text())
+_kfp = bytes.fromhex(FP["key"])
+T.check("R29 (1.34) fixture file-parts.json: meta opens with the test key to its plain, the parts open to the file in order, sha256 of the joined bytes = meta.sha256",
+        C.decrypt(FP["meta"], _kfp) == FP["meta_plain"] and b"".join(C.decrypt_raw(x, _kfp) for x in FP["parts"]) == FP["file"].encode()
+        and _h29.sha256(FP["file"].encode()).hexdigest() == FP["meta_plain"]["sha256"] and FP["meta_plain"]["n"] == len(FP["parts"]) == 2, "")
+_one = _os22.urandom(RL.FILE_ONE_MAX)
+T.check("R29 (1.34) FILE_ONE_MAX, the «max» of the old way, is a file that still fits one {v, enc} under the cap", len(C.encrypt({"mime": "application/octet-stream", "data": _b64.b64encode(_one).decode()}, k)["enc"]) <= 1_500_000, str(RL.FILE_ONE_MAX))
 old22, fresh22 = "6f1c2d3e-0140-4000-8000-00000000f001", "6f1c2d3e-0140-4000-8000-00000000f002"
 http("PUT", f"/file/{old22}.json", {"v": 1, "enc": "x"}); http("PUT", f"/file/{fresh22}.json", {"v": 1, "enc": "x"})
 (rdir2 / "file-seen.json").write_text(json.dumps({old22: time.time() - 700}))

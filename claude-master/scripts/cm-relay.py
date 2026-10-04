@@ -1318,6 +1318,20 @@ def _fit_image(data, cap_enc):
     return None
 
 
+FILE_PART_BYTES = 1024 * 1024        # 1.34: un pezzo, prima della cifratura (in /file circa 1,4 MB di base64)
+FILE_PARTS_MAX = 25 * 1024 * 1024    # 1.34: il tetto di un file a pezzi
+FILE_ONE_MAX = S.SHARE_MAX_BYTES * 9 // 16 - 100   # il file piu' grande che sta in un solo {v, enc} (due base64)
+
+
+def file_parts(data, mime, name, k_, part=FILE_PART_BYTES):
+    """1.34: (meta, [pezzi]) — meta = {v, enc} di {n, size, sha256, mime, name}; ogni pezzo = {v, enc} dei suoi byte
+    grezzi (`C.encrypt_raw`)."""
+    import hashlib
+    chunks = [data[i:i + part] for i in range(0, len(data), part)] or [b""]
+    meta = {"n": len(chunks), "size": len(data), "sha256": hashlib.sha256(data).hexdigest(), "mime": mime, "name": name}
+    return C.encrypt(meta, k_), [C.encrypt_raw(c, k_) for c in chunks]
+
+
 def file_open(cmd, session, tm, arg):
     """1.24 (02/10, chiesto dalla sessione dell'app, approvato dal maintainer alle 09:10): aprire dal telefono un file
     che compare nella conversazione. arg = il `path` esatto di transcript.entries[].files[]; si serve SOLO un percorso
@@ -1344,14 +1358,26 @@ def file_open(cmd, session, tm, arg):
         return False, M("relay.cmd_file_unreadable")
     import mimetypes
     mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    cid = str(cmd.get("id") or "")
+    if cmd.get("parts") is True:
+        # 1.34: a pezzi, fino a FILE_PARTS_MAX; senza `parts` (un'app vecchia) tutto come prima
+        if len(data) > FILE_PARTS_MAX:
+            return False, M("relay.cmd_file_too_large", size=len(data), max=FILE_PARTS_MAX)
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", cid):
+            return False, M("relay.cmd_file_unreadable")
+        k_ = key()
+        meta, parts = file_parts(data, mime, os.path.basename(path), k_)
+        for i, part in enumerate(parts):
+            rtdb("PUT", f"file/{cid}/parts/{i}", part, {"print": "silent"})
+        rtdb("PUT", f"file/{cid}/meta", meta, {"print": "silent"})   # per ultimo: con meta i pezzi ci sono gia' tutti
+        return True, M("relay.cmd_file_ready", mime=mime, size=len(data))
     doc = C.encrypt({"mime": mime, "data": base64.b64encode(data).decode()}, key())
     if len(str(doc.get("enc") or "")) > S.SHARE_MAX_BYTES:
         small = _fit_image(data, S.SHARE_MAX_BYTES) if mime.startswith("image/") else None
         if small is None:
-            return False, M("relay.cmd_file_too_large", size=len(data))
+            return False, M("relay.cmd_file_too_large", size=len(data), max=FILE_ONE_MAX)
         mime, data = "image/jpeg", small
         doc = C.encrypt({"mime": mime, "data": base64.b64encode(data).decode()}, key())
-    cid = str(cmd.get("id") or "")
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", cid):
         return False, M("relay.cmd_file_unreadable")
     rtdb("PUT", f"file/{cid}", doc, {"print": "silent"})
