@@ -744,12 +744,15 @@ def firebase_app():
     return cm.relay_firebase_app(CFG)
 
 
-def qr_payload(pair_id, pub, host, exp, app):
+def qr_payload(pair_id, pub, host, exp, app, add=False):
     """Il documento del QR (contratto 1.15, tests/fixtures/relay/pair-qr.json): v, i (id del nodo /pair/<id>), c (pc_pub),
     h (host), e (exp) e f, i dati che l'app del telefono usa per entrare nel progetto Firebase: k chiave API, p id del
     progetto, a id dell'app Android, d URL del database (relay.firebase_url: il bus che il relay scrive), t topic FCM."""
-    return {"v": 1, "i": pair_id, "c": pub, "h": host, "e": int(exp),
-            "f": {"k": app["api_key"], "p": app["project_id"], "a": app["app_id"], "d": base_url(), "t": str(R.get("fcm_topic") or "watch")}}
+    doc = {"v": 1, "i": pair_id, "c": pub, "h": host, "e": int(exp),
+           "f": {"k": app["api_key"], "p": app["project_id"], "a": app["app_id"], "d": base_url(), "t": str(R.get("fcm_topic") or "watch")}}
+    if add:
+        doc["m"] = "add"   # 1.30: un dispositivo in piu' — la chiave del relay arriva cifrata nella conferma, non si deriva
+    return doc
 
 
 def qr_lines(text, margin=2):
@@ -799,7 +802,17 @@ def pair_accept(priv, node, w, host):
     return k, {"host": host, "check": C.check_code(k, node + ":pc")}, devices
 
 
-def pair(timeout=None, text=False):
+def add_ok(ok, k_pair, relay_key):
+    """1.30 (04/10, chiesto dalla sessione dell'app per il tablet): la conferma di un pairing `--add` porta la chiave
+    del relay che c'e' gia', cifrata (AES-GCM, la stessa busta {v, enc} di /state) con la chiave concordata del giro
+    (HKDF di X25519, come `check`). In chiaro dentro la busta: {"key": "<64 cifre hex>"}."""
+    return dict(ok, key=C.encrypt({"key": relay_key.hex()}, k_pair))
+
+
+PAIR_MAX_DEVICES = 4
+
+
+def pair(timeout=None, text=False, add=False):
     """Codice a 6 cifre e QR sullo schermo (1.15): lo stesso {pc_pub, host, exp} in /pair/<code> (l'orologio, con il
     codice) e in /pair/<id> (il telefono, che legge il QR); il relay interroga tutti e due, vince la prima risposta
     valida in /pair/<…>/watch e l'altro nodo si cancella; scadenza e tentativi sono in comune. La chiave e'
@@ -807,9 +820,17 @@ def pair(timeout=None, text=False):
     chiave. /allowed = {uid: true} per ogni uid accettato (il pairing nuovo revoca i vecchi, la chiave e' una sola),
     devices.json sul PC. Senza i dati dell'app Firebase il QR non compare, lo dice, e il codice funziona. `text`
     stampa il JSON del QR su una riga invece di disegnarlo. Esce 0 ok, 2 dopo relay.pair_attempts check sbagliati,
-    3 allo scadere di relay.pair_ttl_s."""
+    3 allo scadere di relay.pair_ttl_s.
+    1.30 `add`: un dispositivo IN PIU' (il tablet accanto a telefono e orologio). Nodi e QR portano il segno
+    `mode`/`m` = «add»; la stretta di mano e il `check` sono gli stessi, ma la chiave del relay resta quella di oggi e
+    arriva al dispositivo nuovo cifrata nella conferma (`add_ok`); /allowed e devices.json sono l'unione con i
+    dispositivi di prima (al massimo 4: oltre, la conferma e' {"error": "full"} ed esce 4); eventi e risultati
+    restano. Senza una chiave salvata non parte (esce 2): non c'e' niente a cui aggiungersi."""
     import base64 as _b64
     import secrets as _secrets
+    relay_key = C.load_key(rdir()) if add else None
+    if add and not relay_key:
+        print(M("relay.pair_add_no_key")); return 2
     ttl = float(timeout or R.get("pair_ttl_s") or 300)
     max_attempts = int(R.get("pair_attempts") or 5)
     code = f"{_secrets.randbelow(10 ** 6):06d}"
@@ -822,9 +843,9 @@ def pair(timeout=None, text=False):
     host = str(R.get("host") or socket.gethostname())
     app, why = firebase_app()
     for node in nodes:
-        rtdb("PUT", f"pair/{node}", {"pc_pub": pub, "host": host, "exp": exp}, {"print": "silent"})
+        rtdb("PUT", f"pair/{node}", dict({"pc_pub": pub, "host": host, "exp": exp}, **({"mode": "add"} if add else {})), {"print": "silent"})
     if app:
-        line = json.dumps(qr_payload(pair_id, pub, host, exp, app), ensure_ascii=False, separators=(",", ":"))
+        line = json.dumps(qr_payload(pair_id, pub, host, exp, app, add), ensure_ascii=False, separators=(",", ":"))
         if text:
             print(line)
         else:
@@ -852,6 +873,40 @@ def pair(timeout=None, text=False):
                 if not (isinstance(w, dict) and w.get("watch_pub") and w.get("uid")):
                     continue
                 got = pair_accept(priv, node, w, host)
+                if got and add:
+                    k, ok, devices = got
+                    try:
+                        before = set(read_json(devices_path(), {})) | set(rtdb("GET", "allowed") or {})
+                    except (urllib.error.URLError, OSError, ValueError):
+                        before = set(read_json(devices_path(), {}))
+                    union = before | set(devices)
+                    if len(union) > PAIR_MAX_DEVICES:
+                        rtdb("PUT", f"pair/{node}", {"error": "full"}, {"print": "silent"})
+                        print(M("relay.pair_add_full", n=len(union), max=PAIR_MAX_DEVICES))
+                        log(f"pair --add: {len(union)} dispositivi, oltre {PAIR_MAX_DEVICES}: rifiutato")
+                        paired = True   # la risposta {"error"} resta per il dispositivo, come la conferma
+                        for other in nodes:
+                            if other != node:
+                                try:
+                                    rtdb("DELETE", f"pair/{other}")
+                                except (urllib.error.URLError, OSError, ValueError):
+                                    pass
+                        return 4
+                    merged = dict(read_json(devices_path(), {}), **devices)
+                    write_json(devices_path(), merged)
+                    rtdb("PUT", "allowed", {u: True for u in union}, {"print": "silent"})
+                    rtdb("PUT", f"pair/{node}", {"ok": add_ok(ok, k, relay_key)}, {"print": "silent"})
+                    for other in nodes:
+                        if other != node:
+                            try:
+                                rtdb("DELETE", f"pair/{other}")
+                            except (urllib.error.URLError, OSError, ValueError):
+                                pass
+                    shown = ", ".join(f"{d['name']} (uid {u})" for u, d in devices.items())
+                    print(M("relay.pair_ok_add", devices=shown, n=len(union)))
+                    log(f"pair --add: ok su /pair/{'<code>' if node == code else '<id>'}: {shown}; {len(union)} dispositivi")
+                    paired = True
+                    return 0
                 if got:
                     k, ok, devices = got
                     C.save_key(rdir(), k)
@@ -1984,6 +2039,16 @@ def main(argv):
         return 0
     if cmd == "setup":   # il progetto Firebase, guidato (R2, 24/09): la sua CLI, non cryptography ne' crontab
         return _load("cm-relay-setup").main(rest)
+    if cmd == "pair":
+        # 04/10 (dall'app): `pair --help` avviava un pairing vero. L'aiuto, e un argomento sconosciuto, prima di tutto
+        known, i = {"--text", "--add"}, 0
+        while i < len(rest):
+            if rest[i] == "--timeout" and i + 1 < len(rest):
+                i += 2; continue
+            if rest[i] in ("-h", "--help") or rest[i] not in known:
+                print(M("relay.pair_usage"), file=sys.stdout if rest[i] in ("-h", "--help") else sys.stderr)
+                return 0 if rest[i] in ("-h", "--help") else 2
+            i += 1
     if cmd in ("pair", "install"):
         # prima di chiedere o scrivere qualcosa: le dipendenze che finora si scoprivano solo come
         # errore (ImportError di cryptography, crontab assente). Esce 5 con il comando da lanciare.
@@ -1997,7 +2062,7 @@ def main(argv):
     if cmd == "pair":
         tmo = float(rest[rest.index("--timeout") + 1]) if "--timeout" in rest else None
         try:
-            return pair(tmo, text="--text" in rest)
+            return pair(tmo, text="--text" in rest, add="--add" in rest)
         except (RelayError, urllib.error.URLError, OSError, ValueError) as e:
             print(f"relay pair: {e}", file=sys.stderr); return 1
     if cmd == "serve":

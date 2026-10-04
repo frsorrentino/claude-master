@@ -62,7 +62,7 @@ def app_contract(name):
     return None
 
 
-for f in ("state-1-question", "state-2-idle", "state-3-stale", "events-sample", "cmd-result-sample", "pair-qr", "pair-response"):
+for f in ("state-1-question", "state-2-idle", "state-3-stale", "events-sample", "cmd-result-sample", "pair-qr", "pair-response", "pair-add"):
     a = FIX / f"{f}.json"; b = app_contract(f"{f}.json")
     T.check(f"R0 fixture {f} identical to the app contract on its master (origin/master; skipped if the app repo is absent)", a.is_file() and (b is None or a.read_bytes() == b), f"{WATCH}@origin/master:contract/{f}.json")
 
@@ -579,6 +579,45 @@ T.check("R5 (1.15) pairing again from the phone on /pair/<id> with uids and name
 pr, code, head = pair_run(2)
 pr.wait(timeout=10)
 T.check("R5 nobody answers → exit 3 at the timeout, both nodes cleaned", pr.returncode == 3 and not pair_nodes(code), f"rc={pr.returncode} {STORE.get('pair')}")
+# R5d (contratto 1.30, 04/10, chiesto dall'app per il tablet): pair --help non accoppia; pair --add aggiunge senza revocare
+_n5d = len(STORE.get("pair") or {})
+_h = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-relay.py"), "pair", "--help"], capture_output=True, text=True, env=ENV, timeout=30)
+_u = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-relay.py"), "pair", "--bogus"], capture_output=True, text=True, env=ENV, timeout=30)
+T.check("R5d pair --help prints the usage (with --add) and exits 0; an unknown argument prints it on stderr and exits 2; neither touches /pair or the key",
+        _h.returncode == 0 and "relay pair [--add]" in _h.stdout and "Codice" not in _h.stdout and _u.returncode == 2 and "relay pair [--add]" in _u.stderr
+        and len(STORE.get("pair") or {}) == _n5d and C.load_key(rdir2) == k2, _h.stdout + _h.stderr + _u.stderr)
+_kp = C.key_path(rdir2); _kp.rename(_kp.with_suffix(".away"))
+_na = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-relay.py"), "pair", "--add", "--timeout", "3"], capture_output=True, text=True, env=ENV, timeout=30)
+_kp.with_suffix(".away").rename(_kp)
+T.check("R5d pair --add with no saved key → exit 2 «nothing to add to», no node on /pair", _na.returncode == 2 and "niente a cui aggiungersi" in _na.stdout and len(STORE.get("pair") or {}) == _n5d, _na.stdout + _na.stderr)
+_dev_before = (rdir2 / "devices.json").read_text()
+http("PUT", "/events/e-keep.json", {"v": 1, "enc": "kept"}); http("PUT", "/result/r-keep.json", {"v": 1, "enc": "kept"})
+pr, code, head = pair_run(8, "--add")
+T.wait_until(lambda: (STORE.get("pair") or {}).get(code, {}).get("pc_pub"), 3)
+pid_node = next(n for n in pair_nodes(code) if n != code)
+T.check("R5d (1.30) pair --add: both nodes carry mode «add» besides pc_pub, host, exp", all((STORE["pair"][n] or {}).get("mode") == "add" for n in (code, pid_node)), str(STORE.get("pair"))[:300])
+t_priv, t_pub = C.pair_keys(); kt = C.shared_key(t_priv, STORE["pair"][pid_node]["pc_pub"])
+http("PUT", f"/pair/{pid_node}/watch.json", {"watch_pub": t_pub, "uid": "u4", "name": "Pixel Tablet", "check": C.check_code(kt, pid_node)})
+pr.wait(timeout=10); out5d = pr.stdout.read()
+T.wait_until(lambda: set((STORE.get("pair") or {}).get(pid_node, {})) == {"ok"}, 3)
+okd = (STORE.get("pair") or {}).get(pid_node, {}).get("ok") or {}
+dev5d = json.loads((rdir2 / "devices.json").read_text())
+T.check("R5d (1.30) the tablet answers → exit 0; the relay's key UNCHANGED; /allowed = u2, u3 (still there) + u4; devices.json merged; events and results kept; «aggiunto … 3» printed",
+        pr.returncode == 0 and C.load_key(rdir2) == k2 and STORE.get("allowed") == {"u2": True, "u3": True, "u4": True} and set(dev5d) == {"u2", "u3", "u4"} and dev5d["u4"]["name"] == "Pixel Tablet"
+        and (STORE.get("events") or {}).get("e-keep") and (STORE.get("result") or {}).get("r-keep") and "aggiunto: Pixel Tablet (uid u4)" in out5d and "dispositivi accoppiati: 3" in out5d, f"rc={pr.returncode} {out5d} {STORE.get('allowed')}")
+T.check("R5d (1.30) the confirmation: check = HMAC(pairing key, id + «:pc») as before, and key = {v, enc} that the tablet opens with the pairing key → {key: the relay's key in hex}",
+        okd.get("check") == C.check_code(kt, pid_node + ":pc") and C.decrypt(okd.get("key"), kt) == {"key": k2.hex()} and code not in (STORE.get("pair") or {}), str(okd)[:200])
+pr, code, head = pair_run(8, "--add")
+T.wait_until(lambda: (STORE.get("pair") or {}).get(code, {}).get("pc_pub"), 3)
+f_priv, f_pub = C.pair_keys(); kf = C.shared_key(f_priv, STORE["pair"][code]["pc_pub"])
+http("PUT", f"/pair/{code}/watch.json", {"watch_pub": f_pub, "uid": "u5", "name": "Phone 2", "check": C.check_code(kf, code), "uids": ["u5", "u6"]})
+pr.wait(timeout=10); out5e = pr.stdout.read()
+T.check("R5d (1.30) over 4 devices (3 + 2) → exit 4, the device reads {error: full} on its node, /allowed, devices.json and key unchanged",
+        pr.returncode == 4 and (STORE.get("pair") or {}).get(code) == {"error": "full"} and STORE.get("allowed") == {"u2": True, "u3": True, "u4": True}
+        and set(json.loads((rdir2 / "devices.json").read_text())) == {"u2", "u3", "u4"} and C.load_key(rdir2) == k2 and "RIFIUTATO" in out5e, f"rc={pr.returncode} {out5e} {STORE.get('pair')}")
+# torna come prima di R5d: i test dopo contano su u2, u3 e su eventi che si aprono con la chiave
+(rdir2 / "devices.json").write_text(_dev_before)
+http("PUT", "/allowed.json", {"u2": True, "u3": True}); http("DELETE", "/events/e-keep.json"); http("DELETE", "/result/r-keep.json"); http("DELETE", f"/pair/{code}.json")
 # con i dati dell'app Firebase: --text stampa il JSON del QR su una riga (contratto 1.15, pair-qr.json), poi il codice
 APP = {"api_key": "AIzaSyD-test-key", "project_id": "fake-project", "app_id": "1:123456789012:android:0a1b2c3d4e5f6a7b"}
 write_cfg(firebase_app=APP)
@@ -640,6 +679,16 @@ T.check("R5b fixture pair-response.json: watch_pub is the public key of scalar 3
 got = RL.pair_accept(pc_priv, FQ["i"], FR["watch"], FQ["h"])
 T.check("R5b pair_accept(id of the fixture, watch of pair-response.json) → the same key, exactly pair-response.json's `ok`, the devices with uids and names", got is not None and got[0] == k_fx and got[1] == FR["ok"] and {u: d["name"] for u, d in got[2].items()} == FR["watch"]["names"] and list(got[2]) == FR["watch"]["uids"], str(got[1:] if got else got))
 T.check("R5b pair_accept with the check computed on the code instead of the id → refused (the check binds the node)", RL.pair_accept(pc_priv, "123456", FR["watch"], FQ["h"]) is None, "")
+FA = json.loads((FIX / "pair-add.json").read_text())
+tb_priv = _x.X25519PrivateKey.from_private_bytes(bytes(range(64, 96)))
+k_add = C.shared_key(tb_priv, FA["qr"]["c"])
+got_a = RL.pair_accept(pc_priv, FA["qr"]["i"], FA["watch"], FA["qr"]["h"])
+T.check("R5b (1.30) fixture pair-add.json: qr = pair-qr.json with m «add»; the tablet's watch_pub is scalar 64..95; pair_accept gives its check's `ok`; ok.key opens with the pairing key to {key: relay_key}",
+        FA["qr"] == dict(FQ, m="add") and FA["watch"]["watch_pub"] == base64.b64encode(tb_priv.public_key().public_bytes(_ser.Encoding.Raw, _ser.PublicFormat.Raw)).decode()
+        and got_a is not None and got_a[0] == k_add and {k_: v_ for k_, v_ in FA["ok"].items() if k_ != "key"} == got_a[1]
+        and C.decrypt(FA["ok"]["key"], k_add) == {"key": FA["relay_key"]} and C.decrypt(RL.add_ok(got_a[1], k_add, bytes.fromhex(FA["relay_key"]))["key"], k_add) == {"key": FA["relay_key"]}, json.dumps(FA)[:300])
+pla = RL.qr_payload(FQ["i"], FQ["c"], FQ["h"], FQ["e"], {"api_key": FQ["f"]["k"], "project_id": FQ["f"]["p"], "app_id": FQ["f"]["a"]}, add=True)
+T.check("R5b (1.30) qr_payload(add=True) = the QR with m «add»; without add no m (the 1.15 QR unchanged)", pla.get("m") == "add" and "m" not in RL.qr_payload(FQ["i"], FQ["c"], FQ["h"], FQ["e"], {"api_key": "k", "project_id": "p", "app_id": "a"}), str(pla))
 pl = RL.qr_payload(FQ["i"], FQ["c"], FQ["h"], FQ["e"], {"api_key": FQ["f"]["k"], "project_id": FQ["f"]["p"], "app_id": FQ["f"]["a"]})
 T.check("R5b qr_payload with the fixture's values = pair-qr.json (d and t from this config: firebase_url and fcm_topic)", pl == dict(FQ, f=dict(FQ["f"], d=URL, t="watch")), json.dumps(pl))
 fx_rows = RL.qr_lines(json.dumps(FQ, ensure_ascii=False, separators=(",", ":")))
