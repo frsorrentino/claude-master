@@ -93,5 +93,37 @@
     "exit",
     "context",
     "cost"
+  ],
+  "devices": [
+    {
+      "uid": "phoneUid00000000000000000000",
+      "name": "Pixel 9",
+      "kind": "phone",
+      "seen": 1789210790
+    },
+    {
+      "uid": "watchUid0000000000000000000",
+      "name": "Pixel Watch 5",
+      "kind": "watch",
+      "seen": 1789210500
+    },
+    {
+      "uid": "tabletUid0000000000000000000",
+      "name": "Pixel Tablet",
+      "kind": "tablet",
+      "seen": 1789209000
+    },
+    {
+      "uid": "crbookUid0000000000000000000",
+      "name": "Chromebook",
+      "kind": "chromebook",
+      "seen": 1789190000
+    },
+    {
+      "uid": "spareUid00000000000000000000",
+      "name": "Pixel 7",
+      "kind": null,
+      "seen": null
+    }
   ]
 }

@@ -240,6 +240,8 @@
     },
     "google_services": "",
     "app_package": "",
+    "adb": "",
+    "adb_serial": "emulator-5554",
     "setup_location": "europe-west1",
     "slash_commands": [
       "compact",

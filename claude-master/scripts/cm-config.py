@@ -164,6 +164,8 @@ DEFAULTS = {
               "firebase_app": {"api_key": "", "project_id": "", "app_id": ""}, "google_services": "",
               # il client Android da prendere in quel file quando ne ha piu' d'uno (vuoto: l'unico che c'e')
               "app_package": "",
+              # 1.32: pair --add apre l'invito nell'app dell'Android di questa macchina (ARC); "" = /usr/bin/adb o il PATH
+              "adb": "", "adb_serial": "emulator-5554",
               # dove `relay setup` crea l'istanza del Realtime Database
               "setup_location": "europe-west1",
               # 1.25 (02/10/2026): i comandi slash che il telefono puo' dare a una sessione (senza «/»), in state.slash

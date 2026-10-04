@@ -18,7 +18,8 @@
     "watch_pub": "eaYx7t4b+cmPEgMs3q3Q56B5OY/HhriMyEbsia+FpRo=",
     "uid": "tabletUid0000000000000000000",
     "name": "Pixel Tablet",
-    "check": "a13efde85a73cb21"
+    "check": "a13efde85a73cb21",
+    "kind": "tablet"
   },
   "ok": {
     "host": "penguin",

@@ -62,7 +62,7 @@ def app_contract(name):
     return None
 
 
-for f in ("state-1-question", "state-2-idle", "state-3-stale", "events-sample", "cmd-result-sample", "pair-qr", "pair-response", "pair-add"):
+for f in ("state-1-question", "state-2-idle", "state-3-stale", "events-sample", "cmd-result-sample", "pair-qr", "pair-response", "pair-add", "pair-link"):
     a = FIX / f"{f}.json"; b = app_contract(f"{f}.json")
     T.check(f"R0 fixture {f} identical to the app contract on its master (origin/master; skipped if the app repo is absent)", a.is_file() and (b is None or a.read_bytes() == b), f"{WATCH}@origin/master:contract/{f}.json")
 
@@ -207,6 +207,16 @@ SRC1 = {
 }
 KINDS = {"personal": "personal", "work": "work"}   # 1.8: come li calcola il relay dalla config del test
 SRC1["account_kinds"] = KINDS
+# 1.32: i dispositivi accoppiati — telefono e orologio (kind dal pairing e dal nome), tablet e Chromebook (dal pairing),
+# uno mai visto; seen in s (il relay converte i ms di /seen)
+DEV_SRC = {"devices": {"phoneUid00000000000000000000": {"name": "Pixel 9", "paired_at": 1789100000, "kind": "phone"},
+                       "watchUid0000000000000000000": {"name": "Pixel Watch 5", "paired_at": 1789100000},
+                       "tabletUid0000000000000000000": {"name": "Pixel Tablet", "paired_at": 1789150000, "kind": "tablet"},
+                       "crbookUid0000000000000000000": {"name": "Chromebook", "paired_at": 1789160000, "kind": "chromebook"},
+                       "spareUid00000000000000000000": {"name": "Pixel 7", "paired_at": 1789170000}},
+           "seen": {"phoneUid00000000000000000000": 1789210790.0, "watchUid0000000000000000000": 1789210500.4,
+                    "tabletUid0000000000000000000": 1789209000.0, "crbookUid0000000000000000000": 1789190000.0}}
+SRC1.update(DEV_SRC)
 st1 = S.build_state(SRC1, 1789210800)
 
 
@@ -273,25 +283,27 @@ SRC2 = {"host": "crostini-demo", "root": ROOT_WS, "prefixes": ["work-"],
         "follow": set(), "awaiting": set(), "next": {"atlas-shop": "Test deploy on staging"}, "tools": {}, "icons": {"atlas-shop": "🟢"}, "next_at": {"atlas-shop": 1789171200}, "choices": {"models": [{"id": "claude-opus-5[1m]", "label": "Opus 5"}, {"id": "claude-fable-5-1", "label": "Fable 5.1"}, {"id": "claude-sonnet-5", "label": "Sonnet 5"}, {"id": "claude-haiku-4-5", "label": "Haiku 4.5"}], "efforts": ["low", "medium", "high", "xhigh", "max"]},
         "runtime": {"atlas-shop": {"model": {"id": "claude-sonnet-5", "label": "Sonnet 5"}, "effort": "medium", "context": 18}}}
 SRC2["account_kinds"] = KINDS
+SRC2.update(DEV_SRC)
 st2 = S.build_state(SRC2, 1789214400)
 T.check("R2 build_state(src) == state-2-idle.json", st2 == F2, diff(st2, F2) or "equal")
 SRC3 = {"host": "crostini-demo", "root": ROOT_WS, "prefixes": [], "rows": [], "ledger": [], "questions": {},
         "quota": {"personal": {"cinque_ore_pct": 0, "settimana_pct": 36, "reset_settimanale": 1789610400, "reset_cinque_ore": 1789228800, "vecchia": True}, "work": {"cinque_ore_pct": None, "settimana_pct": 75, "reset_settimanale": 1789444800, "reset_cinque_ore": 1789225200, "vecchia": True}},
         "projects": [], "night": {"queued": 0, "running": None}, "ops": list(R_OPS), "slash": ["compact", "clear", "exit", "context", "cost"], "recap": {"date": "2026-09-12", "items": []}, "follow": set(), "awaiting": set(), "next": {}, "tools": {}, "choices": {"models": [{"id": "claude-opus-5[1m]", "label": "Opus 5"}, {"id": "claude-fable-5-1", "label": "Fable 5.1"}, {"id": "claude-sonnet-5", "label": "Sonnet 5"}, {"id": "claude-haiku-4-5", "label": "Haiku 4.5"}], "efforts": ["low", "medium", "high", "xhigh", "max"]}}
 SRC3["account_kinds"] = KINDS
+SRC3.update(DEV_SRC)
 st3 = S.build_state(SRC3, 1789200000)
 T.check("R2 build_state(src) == state-3-stale.json", st3 == F3, diff(st3, F3) or "equal")
 T.check("R2 (1.8) every session carries account_kind and every quota entry its kind (personal | work)",
         all(x["account_kind"] in ("personal", "work") for x in st1["sessions"]) and st1["quota"]["personal"]["kind"] == "personal" and st1["quota"]["work"]["kind"] == "work", str([(x["name"], x["account"], x["account_kind"]) for x in st1["sessions"]]))
 T.check("R2 (1.8) kinds_of: an explicit kind wins; else the default account is personal and the others work; a single account is personal",
         S.kinds_of({"a": {}, "b": {}}, "a") == {"a": "personal", "b": "work"} and S.kinds_of({"x": {}}, "") == {"x": "personal"} and S.kinds_of({"a": {"kind": "work"}, "b": {"kind": "personal"}}, "a") == {"a": "work", "b": "personal"}, "")
-big = dict(SRC1); big["projects"] = [{"path": f"{ROOT_WS}/personal/p{i:03d}", "name": f"p{i:03d}", "account": "personal"} for i in range(120)]
+big = dict(SRC1, devices={}, seen={}); big["projects"] = [{"path": f"{ROOT_WS}/personal/p{i:03d}", "name": f"p{i:03d}", "account": "personal"} for i in range(120)]
 stb = S.build_state(big, 1789210800)
 T.check("R2 over 8 KB → fit_state trims (old gone sessions, projects past 10, …), the question stays whole", S.size_of(stb) <= 8192 and stb["sessions"][0]["question"]["text"] == F1["sessions"][0]["question"]["text"] and len(stb["projects"]) <= 10, str(S.size_of(stb)))
 # (job-*: work- e' il prefisso tmux dell'account work; 60 progetti: lo stato resta oltre gli 8 KB finche' le sessioni
 # finite non scendono a tre anche con i nomi inglesi, piu' corti)
 # 14/09 dal vivo: tre sessioni al lavoro con un esito lungo + dieci finite → prima ogni full diventava short
-live = dict(SRC1)
+live = dict(SRC1, devices={}, seen={})   # 1.32: questi casi misurano i tagli delle sessioni, senza i dispositivi
 long_tail = "Ho messo in pausa a un punto pulito; i passi per riprendere sono nel piano. " * 9
 live["rows"] = [{"name": f"job-{i}", "tmux": f"job-{i}", "account": "personal", "cwd": ROOT_WS + f"/personal/job-{i}", "status": "idle", "waiting": False, "session_id": f"sid-job-{i}", "link": "https://claude.ai/code/session_" + "x" * 24, "attached": False, "started_at": 1789200000000} for i in range(3)] + \
     [{"name": f"old-{i:02d}", "tmux": f"old-{i:02d}", "account": "personal", "cwd": ROOT_WS + f"/personal/old-progetto-{i:02d}", "status": "dead", "session_id": f"0000000{i:02d}-aaaa-bbbb-cccc-dddddddddddd", "link": "https://claude.ai/code/session_" + "y" * 24, "visto_ts": 1789100000 + i, "started_at": 1789000000000} for i in range(10)]
@@ -427,7 +439,8 @@ def write_cfg(enabled=True, **extra):
          "bot": {"api_base": TG_API, "token_file": str(tgdir / ".env"), "access_file": str(tgdir / "access.json")},
          "accounts": {"personal": {"config_dir": str(home / ".claude")}, "work": {"config_dir": str(home / ".claude-pixel"), "tmux_prefix": "work-"}},
          "relay": {"enabled": enabled, "firebase_url": URL, "service_account": str(SA), "token_url": URL + "/token", "fcm_url": URL,
-                   "dir": str(rdir2), "host": "crostini-test", "debounce_s": 1, "fcm_topic": "watch", **extra},
+                   "dir": str(rdir2), "host": "crostini-test", "debounce_s": 1, "fcm_topic": "watch",
+                   "adb": str(Path(__file__).resolve().parent / "lib" / "fake-adb.py"), **extra},   # 1.32: mai l'adb vero
          # i modelli delle fixture del contratto (Opus 5, 1.12): dal 22/09 il default e' Opus 5.5 (2.1.280), e le fixture
          # restano identiche a quelle dell'app (R0), che si aggiornano dal suo lato
          "tune": {"models": [{"id": m["id"], "label": m["label"], "pick": m["label"]}
@@ -512,6 +525,9 @@ fake_crontab.chmod(0o755)
 ENV["CM_CRONTAB_CMD"] = str(fake_crontab)
 
 # R5: pair con un orologio finto (codice) e un telefono finto (QR, 1.15)
+CODE_LINE = [""]   # 1.32: l'ultima riga del codice stampata da pair
+
+
 def pair_run(timeout=8, *extra):
     """Lancia `pair`, legge stdout fino alla riga del codice; torna (processo, codice, righe prima del codice)."""
     pr = subprocess.Popen([sys.executable, str(T.SCRIPTS / "cm-relay.py"), "pair", "--timeout", str(timeout), *extra], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=ENV)
@@ -521,8 +537,9 @@ def pair_run(timeout=8, *extra):
         line = pr.stdout.readline()
         if not line:
             break
-        m = _re.search(r"Codice di pairing.*\b(\d{6})\b", line)
+        m = _re.search(r"Codice.*\b(\d{6})\b", line)
         if m:
+            CODE_LINE[0] = line.rstrip("\n")
             return pr, m.group(1), head
         head.append(line.rstrip("\n"))
     return pr, "", head
@@ -659,6 +676,47 @@ def qr_decode(rows, scale=6):
 decoded = qr_decode(rows) if rows else ""
 T.check("R5 (1.15) pair draws the QR in half blocks: «Inquadra» line, square rows of equal width, a light margin of 2 modules (1 row and 2 columns of full blocks) on every side, then the code", any("Inquadra il QR" in l for l in head) and len(rows) >= 20 and len({len(r) for r in rows}) == 1 and rows[0] == "█" * len(rows[0]) and rows[-1] == "█" * len(rows[0]) and rows[1] != rows[0] and all(r.startswith("██") and r.endswith("██") for r in rows) and abs(len(rows) * 2 - len(rows[0])) <= 1, f"rows={len(rows)} width={len(rows[0]) if rows else 0} head={head[:3]}")
 T.check("R5 (1.15) the drawn QR decodes (OpenCV) to the JSON of the QR, with i = the id node on the bus (skipped without cv2)", decoded is None or (decoded and json.loads(decoded)["i"] == pid_node and json.loads(decoded)["c"] == STORE["pair"][pid_node]["pc_pub"]), f"decoded={str(decoded)[:120]}")
+# R5e (contratto 1.32, 04/10): zero tocchi sul Chromebook — pair --add apre l'invito nell'app via adb (finto qui)
+_adblog = tmp / "adb.log"
+ENV.update({"FAKE_ADB_LOG": str(_adblog), "FAKE_ADB_MODE": "ok"})
+write_cfg(firebase_app=APP, app_package="com.example.cmaster")
+def _pair_lines(*extra, wait_s=6):
+    pr_, code_, head_ = pair_run(8, *extra)
+    after = []
+    t_end = time.time() + wait_s
+    import select as _sel
+    while time.time() < t_end:
+        r_, _, _ = _sel.select([pr_.stdout], [], [], 0.5)
+        if r_:
+            ln = pr_.stdout.readline()
+            if not ln:
+                break
+            after.append(ln.rstrip("\n"))
+            if "invito" in ln:
+                break
+    pair_stop(pr_)
+    return code_, head_, after
+_adblog.write_text(""); (rdir2 / "relay.log").write_text("")
+code5e, head5e, after5e = _pair_lines("--add", "--text")
+_cl5e = CODE_LINE[0]
+_line5e = head5e[-1] if head5e else ""
+_calls5e = _adblog.read_text().splitlines()
+_am = next((c for c in _calls5e if " shell am start " in c), "")
+_q = re.search(r"'cmwatch://pair\?q=([A-Za-z0-9_-]+)'", _am)
+_dec = base64.urlsafe_b64decode(_q.group(1) + "=" * (-len(_q.group(1)) % 4)).decode() if _q else ""
+T.check("R5e (1.32) pair --add with an adb that sees emulator-5554 → get-state, then am start -W VIEW of cmwatch://pair?q=<base64url of the --text line, no padding> for relay.app_package; «invito aperto» in the log",
+        _calls5e[:1] == ["-s emulator-5554 get-state"] and _am.startswith("-s emulator-5554 shell am start -W -a android.intent.action.VIEW -d '") and _am.endswith(" com.example.cmaster")
+        and _dec == _line5e and "=" not in _q.group(1) and "pair --add: invito aperto su emulator-5554" in (rdir2 / "relay.log").read_text(), str(_calls5e) + str(after5e))
+T.check("R5e (1.32) with --add the code line speaks of the app (QR or the line above) and of the minutes, not «scrivilo sull'orologio»",
+        "Sul telefono, tablet o Chromebook" in _cl5e and "orologio, 0 min" not in _cl5e and "scrivilo sull'orologio" not in _cl5e and code5e in _cl5e, _cl5e)
+ENV["FAKE_ADB_MODE"] = "offline"; _adblog.write_text("")
+code5f, head5f, after5f = _pair_lines("--add", "--text", wait_s=4)
+T.check("R5e (1.32) adb offline → no am start, nothing opened (not a terminal: no clipboard either), the pairing waits as usual",
+        _adblog.read_text().splitlines() == ["-s emulator-5554 get-state"] and not any("invito aperto" in a for a in after5f) and re.fullmatch(r"\d{6}", code5f or ""), _adblog.read_text() + str(after5f))
+ENV["FAKE_ADB_MODE"] = "ok"; _adblog.write_text("")
+code5g, head5g, _ = _pair_lines("--text", wait_s=2)
+T.check("R5e (1.32) a plain pair (not --add) never calls adb and keeps «scrivilo sull'orologio»", _adblog.read_text() == "" and "scrivilo sull'orologio" in CODE_LINE[0], _adblog.read_text() + CODE_LINE[0])
+write_cfg(firebase_app=APP)
 pair_stop(pr)
 T.wait_until(lambda: code not in (STORE.get("pair") or {}) and pid_node not in (STORE.get("pair") or {}), 3)
 write_cfg()
@@ -689,6 +747,13 @@ T.check("R5b (1.30) fixture pair-add.json: qr = pair-qr.json with m «add»; the
         and C.decrypt(FA["ok"]["key"], k_add) == {"key": FA["relay_key"]} and C.decrypt(RL.add_ok(got_a[1], k_add, bytes.fromhex(FA["relay_key"]))["key"], k_add) == {"key": FA["relay_key"]}, json.dumps(FA)[:300])
 pla = RL.qr_payload(FQ["i"], FQ["c"], FQ["h"], FQ["e"], {"api_key": FQ["f"]["k"], "project_id": FQ["f"]["p"], "app_id": FQ["f"]["a"]}, add=True)
 T.check("R5b (1.30) qr_payload(add=True) = the QR with m «add»; without add no m (the 1.15 QR unchanged)", pla.get("m") == "add" and "m" not in RL.qr_payload(FQ["i"], FQ["c"], FQ["h"], FQ["e"], {"api_key": "k", "project_id": "p", "app_id": "a"}), str(pla))
+FL = json.loads((FIX / "pair-link.json").read_text())
+T.check("R5b (1.32) fixture pair-link.json: line = pair-add.json's QR compact, uri = pair_link(line) (base64url, no padding)",
+        FL["line"] == json.dumps(FA["qr"], ensure_ascii=False, separators=(",", ":")) and RL.pair_link(FL["line"]) == FL["uri"] and "=" not in FL["uri"].split("q=", 1)[1], FL["uri"][:80])
+T.check("R5b (1.32) pair_accept keeps the kind the device declares (pair-add.json: tablet) in its devices; a kind outside the list is dropped",
+        got_a[2][FA["watch"]["uid"]].get("kind") == "tablet" and "kind" not in RL.pair_accept(pc_priv, FA["qr"]["i"], dict(FA["watch"], kind="toaster"), FA["qr"]["h"])[2][FA["watch"]["uid"]], str(got_a[2]))
+T.check("R5b (1.32) kind_of for pairings before 1.32: watch-pixel5 → watch, Pixel Tablet → tablet, Pixel 11 Pro XL → null",
+        S.kind_of("watch-pixel5") == "watch" and S.kind_of("Pixel Tablet") == "tablet" and S.kind_of("Pixel 11 Pro XL") is None, "")
 pl = RL.qr_payload(FQ["i"], FQ["c"], FQ["h"], FQ["e"], {"api_key": FQ["f"]["k"], "project_id": FQ["f"]["p"], "app_id": FQ["f"]["a"]})
 T.check("R5b qr_payload with the fixture's values = pair-qr.json (d and t from this config: firebase_url and fcm_topic)", pl == dict(FQ, f=dict(FQ["f"], d=URL, t="watch")), json.dumps(pl))
 fx_rows = RL.qr_lines(json.dumps(FQ, ensure_ascii=False, separators=(",", ":")))

@@ -33,6 +33,7 @@ import json
 import mimetypes
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -122,6 +123,23 @@ def seen_devices():
         if isinstance(v, (int, float)) and v > 0:
             out[u] = v / 1000 if v > 1e11 else float(v)
     return out
+
+
+SEEN_CACHE_S = 60
+
+
+def seen_cached(now):
+    """1.32: /seen per state.devices senza una lettura del bus a ogni push: la si rifa' al massimo una volta al minuto
+    (seen-cache.json); se il bus non risponde, l'ultima letta."""
+    p = rdir() / "seen-cache.json"
+    c = read_json(p, {})
+    if now - float(c.get("at") or 0) < SEEN_CACHE_S and isinstance(c.get("seen"), dict):
+        return c["seen"]
+    got = seen_devices()
+    if got is None:
+        return c.get("seen") if isinstance(c.get("seen"), dict) else {}
+    write_json(p, {"at": now, "seen": got})
+    return got
 
 
 def unseen_notice(events, now):
@@ -568,6 +586,7 @@ def collect_sources(now=None):
         "quota": _json_cmd("quota", "--json", expect="{") or {},
         "projects": inventory(), "night": night_queue(), "recap": recap_today(now), "ops": list(OPS), "slash": slash_allowed(),
         "follow": followed(), "awaiting": aw, "next": nexts, "next_at": nexts_at, "tools": tools,
+        "devices": read_json(devices_path(), {}), "seen": seen_cached(now),
         "icons": icons, "colors": R.get("colors") or None, "tool_notes": notes, "runtime": runtime,
         # 1.12: le scelte valide per il polso, dalla config (tune.models / tune.efforts)
         "choices": {"models": [{"id": m["id"], "label": m.get("label") or m["id"]} for m in ((CFG.get("tune") or {}).get("models") or []) if m.get("id")],
@@ -799,7 +818,13 @@ def pair_accept(priv, node, w, host):
         log(f"pair: {len(uids)} uid, tengo i primi 4"); uids = uids[:4]
     names = w.get("names") if isinstance(w.get("names"), dict) else {}
     now = int(time.time())
-    devices = {u: {"name": str(names.get(u) or (name if u == uid else "watch")), "paired_at": now} for u in uids}
+    # 1.32: il tipo lo dice il dispositivo (kind per se', kinds = uid → kind per quelli che porta con se')
+    kinds = w.get("kinds") if isinstance(w.get("kinds"), dict) else {}
+    devices = {}
+    for u in uids:
+        dk = w.get("kind") if u == uid else kinds.get(u)   # non `k`: e' la chiave concordata
+        devices[u] = dict({"name": str(names.get(u) or (name if u == uid else "watch")), "paired_at": now},
+                          **({"kind": dk} if dk in S.DEVICE_KINDS else {}))
     return k, {"host": host, "check": C.check_code(k, node + ":pc")}, devices
 
 
@@ -811,6 +836,59 @@ def add_ok(ok, k_pair, relay_key):
 
 
 PAIR_MAX_DEVICES = 4
+ADB_TIMEOUT_S = 8
+
+
+def pair_link(line):
+    """1.32: l'invito come link dell'app — cmwatch://pair?q=<base64url della riga di --text, senza padding>."""
+    import base64 as _b64
+    return "cmwatch://pair?q=" + _b64.urlsafe_b64encode(line.encode()).rstrip(b"=").decode()
+
+
+def open_on_android(line):
+    """1.32 (04/10, zero tocchi sul Chromebook, scelto dal maintainer): se un adb vede l'Android della stessa macchina
+    (ARC, relay.adb_serial = emulator-5554) apre l'invito nell'app con `am start`; l'app chiede comunque conferma.
+    Timeout brevi: l'adb shell dell'ARC a volte si blocca e si sblocca solo con `adb reconnect`, che si prova una
+    volta. relay.adb = il binario (default /usr/bin/adb, poi quello nel PATH: quello dell'SDK in ~/android-sdk e' di
+    un'altra architettura). Torna (aperto, motivo)."""
+    adb = str(R.get("adb") or "") or ("/usr/bin/adb" if os.path.exists("/usr/bin/adb") else (shutil.which("adb") or ""))
+    serial = str(R.get("adb_serial") or "emulator-5554")
+    pkg = str(R.get("app_package") or "")
+    if not adb or not pkg:
+        return False, "no adb" if not adb else "no relay.app_package"
+
+    def run(*a, t=ADB_TIMEOUT_S):
+        try:
+            p = subprocess.run([adb, "-s", serial, *a], capture_output=True, text=True, timeout=t, stdin=subprocess.DEVNULL)
+            return p.returncode, (p.stdout + p.stderr).strip()
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return -1, e.__class__.__name__
+    rc, out = run("get-state", t=4)
+    if rc != 0 or out != "device":
+        return False, f"{serial}: {out or rc}"
+    cmd = ("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", f"'{pair_link(line)}'", pkg)
+    for attempt in (1, 2):
+        rc, out = run(*cmd)
+        if rc == 0 and "Error" not in out:
+            return True, serial
+        if attempt == 1:
+            run("reconnect", t=5)
+    return False, (out.splitlines() or [str(rc)])[-1][:120]
+
+
+def osc52(text):
+    """1.32, ripiego: la riga negli appunti del sistema con la sequenza OSC 52, che il Terminale di ChromeOS (e quasi
+    tutti i terminali) passa agli appunti condivisi con Android; in Crostini non ci sono wl-copy ne' xclip. Solo se
+    l'uscita e' un terminale; dentro tmux la sequenza va incapsulata."""
+    import base64 as _b64
+    if not sys.stdout.isatty():
+        return False
+    seq = f"\033]52;c;{_b64.b64encode(text.encode()).decode()}\a"
+    if os.environ.get("TMUX"):
+        seq = "\033Ptmux;" + seq.replace("\033", "\033\033") + "\033\\"
+    sys.stdout.write(seq)
+    sys.stdout.flush()
+    return True
 PAIR_INVITE_TTL_S = 300
 
 
@@ -915,7 +993,19 @@ def pair(timeout=None, text=False, add=False):
             print("\n".join(rows))
     else:
         print(M("relay.pair_no_qr", why=M(why, path=cm.expand(R.get("google_services") or ""), package=R.get("app_package") or "")))
-    print(M("relay.pair_code", code=code)); sys.stdout.flush()
+    if add:
+        # 1.32: il codice a 6 cifre serve solo all'orologio; con --add si dice cosa fare nell'app
+        print(M("relay.pair_code_add", code=code, min=max(1, int(round(ttl / 60)))))
+        if app:
+            opened, why_not = open_on_android(line)
+            if opened:
+                print(M("relay.pair_opened_android", serial=why_not))
+            elif osc52(line):
+                print(M("relay.pair_clipboard", why=why_not))
+            log(f"pair --add: invito {'aperto su ' + why_not if opened else 'non aperto (' + why_not + ')'}")
+    else:
+        print(M("relay.pair_code", code=code))
+    sys.stdout.flush()
     log(f"pair: codice {code}, id {pair_id}, scade {exp}" + ("" if app else f", senza QR ({why})"))
     attempts = 0
     try:

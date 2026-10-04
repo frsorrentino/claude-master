@@ -325,6 +325,34 @@ def build_quota(quota, kinds=None):
     return out
 
 
+DEVICE_KINDS = ("phone", "watch", "tablet", "chromebook")
+
+
+def kind_of(name):
+    """1.32: il tipo di un dispositivo accoppiato prima della 1.32, dal nome se lo dice («watch-pixel5» → watch,
+    «Pixel Tablet» → tablet); altrimenti None e l'app mostra un'icona generica."""
+    n = str(name or "").lower()
+    for word, kind in (("watch", "watch"), ("tablet", "tablet"), ("chromebook", "chromebook"), ("phone", "phone")):
+        if word in n:
+            return kind
+    return None
+
+
+def build_devices(devices, seen):
+    """1.32 (04/10, chiesto dall'app, scelto dal maintainer): [{uid, name, kind, seen}], uno per dispositivo accoppiato
+    (devices.json, che e' /allowed), nell'ordine di accoppiamento. kind = quello scritto dal dispositivo nel pairing
+    (dalla 1.32) o dedotto dal nome, null se non si sa; seen = epoch s dell'ultima lettura (/seen), null se mai."""
+    seen = seen if isinstance(seen, dict) else {}
+    rows = [(u, d) for u, d in (devices.items() if isinstance(devices, dict) else []) if isinstance(d, dict)]
+    rows.sort(key=lambda x: x[1].get("paired_at") or 0)   # stabile: a parita' l'ordine del file
+    out = []
+    for u, d in rows:
+        k = d.get("kind") if d.get("kind") in DEVICE_KINDS else kind_of(d.get("name"))
+        t = seen.get(u)
+        out.append({"uid": u, "name": str(d.get("name") or ""), "kind": k, "seen": int(t) if isinstance(t, (int, float)) and t > 0 else None})
+    return out
+
+
 def build_state(src, now, fit=True):
     sessions = order_sessions([build_session(r, src) for r in (src.get("rows") or [])])
     # 1.13: last_used = l'ultima trascrizione di quella cartella (epoch s) o null; l'ordine resta per nome
@@ -351,7 +379,9 @@ def build_state(src, now, fit=True):
         # 1.21: le op di /cmd che questo relay esegue; l'app accende un pulsante solo se la sua op c'e' (Stop = interrupt)
         "ops": list(src.get("ops") or []),
         # 1.25: i comandi slash che il telefono puo' dare (senza «/»); l'app li propone scrivendo «/» nel campo
-        "slash": list(src.get("slash") or [])
+        "slash": list(src.get("slash") or []),
+        # 1.32: i dispositivi accoppiati, per lo schema dei collegamenti dell'app
+        "devices": build_devices(src.get("devices"), src.get("seen"))
     }
     # fit=False: lo stato intero, su cui il relay calcola gli eventi (23/09: gli eventi sullo stato tagliato davano
     # «Session closed» al polso per sessioni vive che fit_state aveva tolto per la dimensione)
