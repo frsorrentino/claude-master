@@ -315,6 +315,11 @@ def main(argv):
         if plan:
             q += " AND plan=?"; p.append(plan)
         rows = [dict(r) for r in con.execute(q + " ORDER BY created_at, id", p)]
+        if as_json:
+            # contratto 1.37 (05/10): la richiesta di ok (wait-ok: cosa esce e dove) per «Da approvare» nell'app
+            for r in rows:
+                a = con.execute("SELECT what, where_, at FROM approvals WHERE task=? AND by_ IS NULL ORDER BY n DESC LIMIT 1", (r["id"],)).fetchone()
+                r["request"] = {"what": a["what"], "where": a["where_"], "at": a["at"]} if a else None
         print(json.dumps(rows, ensure_ascii=False) if as_json else "\n".join(f"{r['id']}  {r['state']:<11} {r['lane']:<6} {r['title']}" for r in rows))
         return 0
     if verb == "show":

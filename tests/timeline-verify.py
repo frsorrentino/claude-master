@@ -28,6 +28,7 @@ ENV = dict(os.environ, CLAUDE_MASTER_CONFIG=str(cfg), CM_BIN=str(Path(__file__).
            FAKE_CM_DIR=str(fake), CM_TASKS_DB=str(tmp / "tasks.db"), GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
 NOW = int(time.time())
 PFX = json.loads((T.PLUGIN / "messages" / "it.json").read_text())["relay.prompt_prefix_phone"]
+PFX_WEB = json.loads((T.PLUGIN / "messages" / "it.json").read_text())["relay.prompt_prefix_web"]
 
 
 def iso(t):
@@ -70,6 +71,7 @@ L = [
     line("user", "p1", NOW - 2200, "x", proj, origin={"kind": "peer", "body": PFX + " controlla anche il carrello", "msg_id": "m1"}),
     line("user", "p2", NOW - 2190, "x", proj, origin={"kind": "peer", "body": PFX + " controlla anche il carrello", "msg_id": "m1"}),
     line("user", "p3", NOW - 2100, "x", proj, origin={"kind": "peer", "body": "another session talking", "msg_id": "m2"}),
+    line("user", "p4", NOW - 2050, "x", proj, origin={"kind": "peer", "body": PFX_WEB + " rifai il totale", "msg_id": "m3"}),
 ]
 d1 = conf / "projects" / slug(proj)
 d1.mkdir(parents=True)
@@ -110,8 +112,8 @@ kinds = [(e["kind"], e["text"]) for e in atlas["events"]]
 T.check("TL1 the live session by its short name (prefix w- dropped), live, its folder; the closed one of the window by its folder name; the 20-hour-old one left out",
         rc == 0 and set(by) == {"atlas", "orbit"} and atlas.get("live") is True and atlas.get("project") == str(proj) and by["orbit"]["live"] is False
         and [e["text"] for e in by["orbit"]["events"]] == ["docs aggiornate"], out[:400] + err)
-T.check("TL2 in time order: the prompt, three tests, the commit, the outcome, the phone's prompt, the task (closed just now); nothing older than the window",
-        [k for k, _ in kinds] == ["prompt", "test", "test", "test", "commit", "outcome", "prompt", "task"] and atlas["events"] == sorted(atlas["events"], key=lambda e: e["at"])
+T.check("TL2 in time order: the prompt, three tests, the commit, the outcome, the phone's and the web app's prompts, the task (closed just now); nothing older than the window",
+        [k for k, _ in kinds] == ["prompt", "test", "test", "test", "commit", "outcome", "prompt", "prompt", "task"] and atlas["events"] == sorted(atlas["events"], key=lambda e: e["at"])
         and not any("too old" in t or "old work" in t for _, t in kinds), str(kinds))
 tests = [e for e in atlas["events"] if e["kind"] == "test"]
 T.check("TL3 tests named by their suite, with the summary line: 12/12 OK green; «3/4 OK, FAIL» red although the command exited 0; pytest with is_error red",
@@ -124,8 +126,8 @@ T.check("TL5 commits from git log of the folder: the one in the window once (the
 outc = [e["text"] for e in atlas["events"] if e["kind"] == "outcome"]
 T.check("TL6 the «Esito:» line of the session, not the subagent's", outc == ["campo IVA aggiunto, checkout verde"], str(outc))
 prompts = [(e["text"], e["ref"]) for e in atlas["events"] if e["kind"] == "prompt"]
-T.check("TL7 prompts: the one typed (ref null) and the phone's through the relay once, prefix stripped (ref phone); another session's message left out",
-        prompts == [("aggiungi il campo IVA al checkout", None), ("controlla anche il carrello", "phone")], str(prompts))
+T.check("TL7 prompts: the one typed (ref null), the phone's through the relay once, prefix stripped (ref phone), the web app's (ref web, 1.36); another session's message left out",
+        prompts == [("aggiungi il campo IVA al checkout", None), ("controlla anche il carrello", "phone"), ("rifai il totale", "web")], str(prompts))
 tk = [e for e in atlas["events"] if e["kind"] == "task"]
 T.check("TL8 the registry's accepted outcome for the folder", len(tk) == 1 and tk[0]["ok"] is True and tk[0]["ref"] == "vat" and tk[0]["text"].startswith("IVA nel checkout: check green"), str(tk))
 rc, txt, _ = tl("atlas", "--since", "6h")

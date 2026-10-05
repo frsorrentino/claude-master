@@ -85,7 +85,9 @@
     "projects",
     "search",
     "timeline",
-    "pair_add"
+    "pair_add",
+    "approve",
+    "decision"
   ],
   "slash": [
     "compact",
@@ -126,6 +128,7 @@
       "seen": null
     }
   ],
+  "approvals": [],
   "recurring": [
     {
       "id": "x-posts",

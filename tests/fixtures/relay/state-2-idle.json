@@ -36,7 +36,8 @@
       "color": "#2ECC71",
       "low_priority": "off",
       "suggestion": null,
-      "goal": null
+      "goal": null,
+      "finished": true
     }
   ],
   "quota": {
@@ -128,7 +129,9 @@
     "projects",
     "search",
     "timeline",
-    "pair_add"
+    "pair_add",
+    "approve",
+    "decision"
   ],
   "slash": [
     "compact",
@@ -169,6 +172,7 @@
       "seen": null
     }
   ],
+  "approvals": [],
   "recurring": [
     {
       "id": "x-posts",

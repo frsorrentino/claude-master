@@ -207,6 +207,17 @@ def _outcome(events):
     return {"short": short_of(short, SHORT_MAX), "full": full, "at": epoch(r.get("ts"))}
 
 
+def _finished(events):
+    """1.37 (05/10): il compito della sessione e' chiuso — l'ultimo messaggio ha la riga «Esito:» e non la riga
+    «Prossimi:» (regola 10 del kernel: senza un seguito naturale niente «Prossimi:»)."""
+    stops = [r for r in events if r.get("event") == "stop"]
+    if not stops:
+        return False
+    txt = str(stops[-1].get("tail") or stops[-1].get("last") or "")
+    has_outcome = bool(stops[-1].get("esito")) or bool(esito_line(txt))
+    return has_outcome and not re.search(r"(?mi)^\s*\W*\s*prossimi\s*:", txt)
+
+
 def _turn_started(events, before=None):
     ts = [epoch(r.get("ts")) for r in events if r.get("event") in ("prompt", "start", "queue-pop")]
     if before is not None:
@@ -239,7 +250,7 @@ def build_session(row, src):
                     "tier": tier_of(kind, q.get("tool"), (q.get("text") or "") + " " + str(q.get("detail") or ""), src.get("high_words")),
                     "asked_at": asked}
     rt = (src.get("runtime") or {}).get(tmux) or {}
-    return {
+    out = {
         "id": row.get("session_id") or tmux,
         "name": name,
         "account": row.get("account") or "",
@@ -281,6 +292,17 @@ def build_session(row, src):
         "suggestion": (str(row.get("suggestion"))[:300] or None) if st == "idle" and row.get("suggestion") else None,
         "goal": _goal(row.get("goal_status")),
     }
+    # 1.37 (05/10/2026), solo quando ci sono (lo stato sta in 8 KB: un campo vuoto per sessione pesa): `advice`, il
+    # consiglio di modello ed effort di fable-director {model, effort, reason, switch_cost_tokens, at, source, when,
+    # differs}; `finished` true, ferma col compito chiuso; `duplicate_of`, la sessione di cui questa e' un doppione
+    # (stessa cartella, stessa conversazione: il «-2» del 05/10). Assenti = null / false
+    if (src.get("advice") or {}).get(tmux):
+        out["advice"] = dict(src["advice"][tmux])
+    if st == "idle" and _finished(events):
+        out["finished"] = True
+    if (src.get("duplicates") or {}).get(tmux):
+        out["duplicate_of"] = src["duplicates"][tmux]
+    return out
 
 
 def _goal(g):
@@ -381,7 +403,10 @@ def build_state(src, now, fit=True):
         # 1.25: i comandi slash che il telefono puo' dare (senza «/»); l'app li propone scrivendo «/» nel campo
         "slash": list(src.get("slash") or []),
         # 1.32: i dispositivi accoppiati, per lo schema dei collegamenti dell'app
-        "devices": build_devices(src.get("devices"), src.get("seen"))
+        "devices": build_devices(src.get("devices"), src.get("seen")),
+        # 1.37: i compiti del registro che aspettano un ok ({task, title, what, where, deploy, requested_at}), dal
+        # piu' vecchio; l'app li approva con l'op approve
+        "approvals": [dict(a) for a in (src.get("approvals") or [])],
     }
     # 1.33: le azioni ricorrenti della master (box «Ricorrenti»); senza lista il campo manca e l'app non mostra il box
     if src.get("recurring"):

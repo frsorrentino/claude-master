@@ -40,6 +40,7 @@ import sys
 import threading
 import time
 import unicodedata
+import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -64,7 +65,7 @@ M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
 R = CFG["relay"]
 CM_BIN = os.environ.get("CM_RELAY_CM") or str(HERE / "claude-master")
 BACKOFF = [1, 2, 5, 15, 30]
-OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report", "interrupt", "transcript", "file", "slash", "projects", "search", "timeline", "pair_add")
+OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report", "interrupt", "transcript", "file", "slash", "projects", "search", "timeline", "pair_add", "approve", "decision")
 LAST_MAX = 4000   # 1.4: l'ultimo messaggio per la lettura vocale — oltre, l'ascolto non regge
 
 
@@ -81,6 +82,46 @@ def rdir():
     except OSError:
         pass
     return p
+
+
+def local_dir(sub=""):
+    """1.35: la copia locale per l'API su 127.0.0.1 (cm-relay-web) — state.json, events.json, file/, share/."""
+    p = rdir() / "local" / sub if sub else rdir() / "local"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def local_state_write(state):
+    """Lo stato pubblicato, in chiaro, per /api/state e lo stream: scritto prima del bus, cosi' la web app locale
+    resta aggiornata anche quando Firebase non risponde."""
+    p = local_dir() / "state.json"
+    tmp = p.with_suffix(".tmp")
+    write_json(tmp, state)
+    os.replace(tmp, p)
+
+
+def local_events_add(events, now):
+    """Gli eventi andati sul bus, anche in chiaro per /api/events; via quelli oltre relay.events_days."""
+    p = local_dir() / "events.json"
+    cur = read_json(p, {})
+    cur.update({e["key"]: e for e in events})
+    limit = now - float(R.get("events_days") or 7) * 86400
+    cur = {k: e for k, e in cur.items() if float(e.get("ts") or 0) >= limit}
+    tmp = p.with_suffix(".tmp")
+    write_json(tmp, cur)
+    os.replace(tmp, p)
+
+
+def prune_local(now):
+    """I file chiesti e gli allegati locali che nessuno ha usato entro SHARE_TTL_S, come /share e /file sul bus."""
+    for sub in ("file", "share"):
+        d = rdir() / "local" / sub
+        for f in (d.iterdir() if d.is_dir() else []):
+            try:
+                if now - f.stat().st_mtime > SHARE_TTL_S:
+                    f.unlink()
+            except OSError:
+                pass
 
 
 def fallback_path():
@@ -588,10 +629,76 @@ def collect_sources(now=None):
         "follow": followed(), "awaiting": aw, "next": nexts, "next_at": nexts_at, "tools": tools,
         "devices": read_json(devices_path(), {}), "seen": seen_cached(now), "recurring": _load("cm-recurring").for_state(),
         "icons": icons, "colors": R.get("colors") or None, "tool_notes": notes, "runtime": runtime,
+        "advice": advice_of(rows, now), "duplicates": duplicates_of(rows), "approvals": approvals_list(),
         # 1.12: le scelte valide per il polso, dalla config (tune.models / tune.efforts)
         "choices": {"models": [{"id": m["id"], "label": m.get("label") or m["id"]} for m in ((CFG.get("tune") or {}).get("models") or []) if m.get("id")],
                     "efforts": list((CFG.get("tune") or {}).get("efforts") or [])},
     }
+
+
+# ------------------------------------------------------------------ 1.37: consiglio, doppioni, approvazioni
+ADVICE_REASON_MAX = 200
+DEPLOY_RE = re.compile(r"\b(prod|production|produzione|deploy|live)\b", re.I)
+
+
+def advice_of(rows, now):
+    """{tmux: advice} dalla statusline di fable-director (formato concordato il 05/10): il suo file per sessione
+    <relay.advice_dir>/<session_id>.json, chiave "advice" = {model, effort, reason, switch_cost_tokens, at, source,
+    when («now» | «next_task»), differs}. Vale se e' piu' recente di relay.advice_max_age_s e se modello ed effort
+    sono fra le scelte del polso (tune.models, tune.efforts): un consiglio che l'op model non saprebbe applicare non
+    si mostra. Senza file o senza chiave: null, mai un consiglio inventato."""
+    d = Path(cm.expand(R.get("advice_dir") or "~/.claude/fable-director/sessions"))
+    max_age = float(R.get("advice_max_age_s") or 21600)
+    tune = CFG.get("tune") or {}
+    models = {m.get("id") for m in (tune.get("models") or [])}
+    efforts = set(tune.get("efforts") or [])
+    out = {}
+    for r in rows:
+        sid = str(r.get("session_id") or "")
+        if r.get("status") == "dead" or not re.fullmatch(r"[A-Za-z0-9-]{1,80}", sid):
+            continue
+        snap = read_json(d / f"{sid}.json", None)
+        a = snap.get("advice") if isinstance(snap, dict) else None
+        if not isinstance(a, dict):
+            continue
+        try:
+            at, cost = int(a.get("at") or 0), int(a.get("switch_cost_tokens") or 0)
+        except (TypeError, ValueError):
+            continue
+        if now - at > max_age or a.get("model") not in models or a.get("effort") not in efforts:
+            continue
+        out[r.get("tmux") or r.get("name") or ""] = {"model": a["model"], "effort": a["effort"],
+                                                     "reason": S.one_line(str(a.get("reason") or ""))[:ADVICE_REASON_MAX],
+                                                     "switch_cost_tokens": max(cost, 0), "at": at, "source": "fable-director",
+                                                     "when": a.get("when") if a.get("when") in ("now", "next_task") else "next_task",
+                                                     "differs": bool(a.get("differs"))}
+    return out
+
+
+def duplicates_of(rows):
+    """{tmux: nome corto dell'originale} per le sessioni vive con la stessa cartella e la stessa conversazione di
+    un'altra aperta prima (il «-2» del 05/10)."""
+    first, out = {}, {}
+    live = [r for r in rows if r.get("status") != "dead" and r.get("session_id") and r.get("cwd")]
+    for r in sorted(live, key=lambda r: (r.get("started_at") or 0, r.get("tmux") or "")):
+        k = (os.path.realpath(r["cwd"]), r["session_id"])
+        if k in first:
+            out[r.get("tmux") or r.get("name") or ""] = S.short_name(first[k], prefixes())
+        else:
+            first[k] = r.get("tmux") or r.get("name") or ""
+    return out
+
+
+def approvals_list():
+    """I compiti del registro in attesa di ok, con la richiesta di wait-ok: cosa esce e dove. deploy = la
+    destinazione o la cosa nomina la produzione."""
+    out = []
+    for t in _json_cmd("task", "list", "--state", "awaiting_ok", "--json") or []:
+        req = t.get("request") or {}
+        what, where = str(req.get("what") or ""), str(req.get("where") or "")
+        out.append({"task": t.get("id"), "title": S.one_line(str(t.get("title") or ""))[:200], "what": what[:300], "where": where[:300],
+                    "deploy": bool(DEPLOY_RE.search(what + " " + where)), "requested_at": int(req.get("at") or 0) or None})
+    return sorted(out, key=lambda a: (a["requested_at"] or 0, a["task"] or ""))
 
 
 # ------------------------------------------------------------------ push
@@ -628,11 +735,16 @@ def _push(dry_run=False, now=None):
     last = read_json(last_p, {})
     events, seq = S.events_between(last.get("full") or last.get("state") or {}, full, now, int(last.get("seq") or 0) + 1,
                                    warn_pct=float((CFG.get("guard") or {}).get("warn_pct") or 95))
+    try:
+        local_state_write(state)
+    except OSError as ex:
+        log(f"stato locale non scritto: {ex}")
     k = key()
     try:
         rtdb("PUT", "state", C.encrypt(state, k), {"print": "silent"})
         if events:
             rtdb("PATCH", "events", {e["key"]: C.encrypt(e, k) for e in events}, {"print": "silent"})
+        local_events_add(events, now)   # anche senza eventi nuovi: toglie i vecchi
     except (urllib.error.URLError, OSError, ValueError) as ex:
         # il bus non prende: il polso non sta ricevendo. Si segna da quando, e se dura si passa da Telegram
         down = fallback_mark(now)
@@ -642,6 +754,7 @@ def _push(dry_run=False, now=None):
     prune_events(now)
     prune_share(now)
     prune_share(now, "file")
+    prune_local(now)
     woken = True
     for e in events:
         try:
@@ -676,6 +789,7 @@ def emit(kind, title, body, ref=None, account=None, now=None):
         ev = {"key": f"{now}_{seq:03d}", "kind": kind, "session": None, "account": account, "ts": now,
               "title": S.one_line(title), "body": S.cut_lines(body, S.EVENT_BODY_MAX), "ref": ref}
         rtdb("PATCH", "events", {ev["key"]: C.encrypt(ev, k)}, {"print": "silent"})
+        local_events_add([ev], now)
         last["seq"] = seq
         write_json(last_p, last)
     finally:
@@ -1171,7 +1285,11 @@ def share_report(cmd, tm, session):
     try:
         return _share_report(cmd, tm, session, sid)
     finally:
-        if sid:
+        if sid and cmd.get("_local"):
+            if re.fullmatch(r"[A-Za-z0-9_-]{1,80}", sid):
+                for ext in (".bin", ".json"):
+                    (local_dir("share") / f"{sid}{ext}").unlink(missing_ok=True)
+        elif sid:
             try:
                 rtdb("DELETE", f"share/{sid}")
             except (urllib.error.URLError, OSError, ValueError):
@@ -1194,16 +1312,26 @@ def _share_report(cmd, tm, session, sid):
     if sid:
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", sid):
             return False, M("relay.cmd_report_no_image")
-        doc = rtdb("GET", f"share/{sid}")
-        if isinstance(doc, dict) and len(str(doc.get("enc") or "")) > S.SHARE_MAX_BYTES:
-            return False, M("relay.cmd_report_too_big", max=S.SHARE_MAX_BYTES)
-        try:
-            blob = C.decrypt(doc, key()) if isinstance(doc, dict) else None
+        if cmd.get("_local"):
+            # 1.35: l'allegato della web app locale, posato in chiaro da POST /api/share/<id>
+            blob = read_json(local_dir("share") / f"{sid}.json", None)
             mime = str((blob or {}).get("mime") or "").strip().lower()
             ext = IMAGE_EXT.get(mime)
-            data = base64.b64decode(str(blob["data"]), validate=True) if ext or MIME_RE.fullmatch(mime) else b""
-        except (ValueError, KeyError, TypeError, binascii.Error):
-            ext, data, mime = None, b"", ""
+            try:
+                data = (local_dir("share") / f"{sid}.bin").read_bytes() if blob and (ext or MIME_RE.fullmatch(mime)) else b""
+            except OSError:
+                data = b""
+        else:
+            doc = rtdb("GET", f"share/{sid}")
+            if isinstance(doc, dict) and len(str(doc.get("enc") or "")) > S.SHARE_MAX_BYTES:
+                return False, M("relay.cmd_report_too_big", max=S.SHARE_MAX_BYTES)
+            try:
+                blob = C.decrypt(doc, key()) if isinstance(doc, dict) else None
+                mime = str((blob or {}).get("mime") or "").strip().lower()
+                ext = IMAGE_EXT.get(mime)
+                data = base64.b64decode(str(blob["data"]), validate=True) if ext or MIME_RE.fullmatch(mime) else b""
+            except (ValueError, KeyError, TypeError, binascii.Error):
+                ext, data, mime = None, b"", ""
         if not data:
             return False, M("relay.cmd_report_no_image" if ext or not mime or mime.startswith("image/") else "relay.cmd_report_no_file")
         if not ext:
@@ -1359,6 +1487,12 @@ def file_open(cmd, session, tm, arg):
     import mimetypes
     mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
     cid = str(cmd.get("id") or "")
+    if cmd.get("_local"):
+        # 1.35: la web app locale lo prende intero da GET /api/file/<id>, senza tetto ne' pezzi: qui solo il rimando
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", cid):
+            return False, M("relay.cmd_file_unreadable")
+        write_json(local_dir("file") / f"{cid}.json", {"path": path, "mime": mime, "name": os.path.basename(path)})
+        return True, M("relay.cmd_file_ready", mime=mime, size=len(data))
     if cmd.get("parts") is True:
         # 1.34: a pezzi, fino a FILE_PARTS_MAX; senza `parts` (un'app vecchia) tutto come prima
         if len(data) > FILE_PARTS_MAX:
@@ -1703,11 +1837,52 @@ def transcript_page(session, tm, arg):
     return True, json.dumps({"entries": page, "more": bool(more)}, ensure_ascii=False)
 
 
-def prefix_for(cmd):
-    """1.22 (30/09): il prefisso del prompt dice da dove arriva — `device` del comando («phone» | «watch»); senza, il
-    prefisso di prima. `transcript` lo riconosce, lo toglie e ne fa `origin`."""
+DECISION_TEXT_MAX = 2000
+
+
+def from_device(cmd):
+    """1.37: da dove arriva, a parole, per il registro e per la master («dal telefono», «dalla web app»…)."""
     dev = str(cmd.get("device") or "")
-    return M(f"relay.prompt_prefix_{dev}") if dev in ("phone", "watch") else M("relay.prompt_prefix")
+    return M(f"relay.from_{dev}") if dev in ("phone", "watch", "web") else M("relay.from_app")
+
+
+def approve_task(cmd, arg):
+    """1.37 (05/10, «Da approvare» nell'app): l'ok a un compito del registro in awaiting_ok, registrato come quello
+    scritto a mano — `task approve <task> --by <chi> --text "<testo> (dal telefono)"`. Solo un compito che aspetta
+    davvero un ok; arrivano solo dai dispositivi accoppiati (il bus) e dalla web app locale (il token)."""
+    tid = str(arg or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,80}", tid) or tid not in {a["task"] for a in approvals_list()}:
+        return False, M("relay.cmd_approve_not_waiting", task=tid or "?")
+    text = S.one_line(str(cmd.get("text") or "").strip())[:500] or "ok"
+    rc, out = run_cm("task", "approve", tid, "--by", str(cmd.get("by") or "app"), "--text", f"{text} ({from_device(cmd)})")
+    if rc != 0:
+        return False, (out.splitlines() or ["task approve failed"])[0]
+    return True, M("relay.cmd_approved", task=tid)
+
+
+def decision_send(cmd, arg):
+    """1.37: «Salva come decisione» — il testo va alla master con `talk master`, che lo scrive nella sua memoria
+    (un file e una riga nell'indice) e conferma. arg = il progetto, facoltativo. Master chiusa: resta nella casella."""
+    text = str(cmd.get("text") or "").strip()
+    if not text:
+        return False, M("relay.cmd_decision_empty")
+    if len(text) > DECISION_TEXT_MAX:
+        return False, M("relay.cmd_decision_long", max=DECISION_TEXT_MAX)
+    project = S.one_line(str(arg or "").strip())[:200]
+    msg = M("relay.decision_to_master", device=from_device(cmd), text=text,
+            project=M("relay.decision_project", project=project) if project else "")
+    rc, out = run_cm("talk", "master", msg, "--no-wait")
+    if rc != 0:
+        return False, (out.splitlines() or ["talk failed"])[0]
+    return True, M("relay.cmd_decision_inbox" if saved_in_inbox(out) else "relay.cmd_decision_sent")
+
+
+def prefix_for(cmd):
+    """1.22 (30/09): il prefisso del prompt dice da dove arriva — `device` del comando («phone» | «watch» | «web», 1.36);
+    senza, uno neutro («via app»: prima della 1.36 diceva «polso» anche per la web app). `transcript` lo riconosce,
+    lo toglie e ne fa `origin`."""
+    dev = str(cmd.get("device") or "")
+    return M(f"relay.prompt_prefix_{dev}") if dev in ("phone", "watch", "web") else M("relay.prompt_prefix")
 
 
 def is_live(tm):
@@ -1868,6 +2043,10 @@ def execute(cmd):
             return file_open(cmd, session, tm, arg)
         if op == "slash":
             return slash_send(cmd, session, tm, arg)
+        if op == "approve":
+            return approve_task(cmd, arg)
+        if op == "decision":
+            return decision_send(cmd, arg)
         if op == "projects":
             return projects_list()
         if op == "search":
@@ -2067,12 +2246,33 @@ def handle_cmd(cid, doc, done):
         except (urllib.error.URLError, OSError, ValueError):
             pass
         done.append(cid); return True
+    cmd.pop("_local", None)   # solo l'API locale lo mette
     cmd.setdefault("id", cid)
-    res = execute(cmd)
+    result = run_cmd(cmd)
+    try:
+        rtdb("PUT", f"result/{cid}", C.encrypt(result, k), {"print": "silent"})
+        rtdb("DELETE", f"cmd/{cid}")
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        log(f"cmd {cid}: result non scritto ({e})")
+    done.append(cid)
+    del done[:-500]
+    write_json(rdir() / "done-cmds.json", done)
+    return True
+
+
+EXEC_LOCK = threading.Lock()   # 1.35: i comandi dal bus e quelli dell'API locale, uno alla volta come prima
+
+
+def run_cmd(cmd):
+    """Esegue un Cmd (gia' in chiaro, con `id`) e ne ritorna il CmdResult: log, registro, osservazioni e push dopo
+    i comandi che cambiano lo stato. Lo usano il daemon sul bus e l'API locale."""
+    cid = str(cmd.get("id") or "")
+    with EXEC_LOCK:
+        res = execute(cmd)
     ok, text = res[0], res[1]
     extra = res[2] if len(res) > 2 and isinstance(res[2], dict) else {}   # 1.13: {"session": nome} dopo un launch
     by = str(cmd.get("by") or "?")
-    log(f"cmd {cid}: {cmd.get('op')} {cmd.get('session') or ''} da {by} → {'ok' if ok else 'ERR'} {str(text)[:80]}")
+    log(f"cmd {cid}: {cmd.get('op')} {cmd.get('session') or ''} da {by}{' (locale)' if cmd.get('_local') else ''} → {'ok' if ok else 'ERR'} {str(text)[:80]}")
     row = last_sessions().get(str(cmd.get("session") or "")) or {}
     ledger_write("watch-cmd", op=str(cmd.get("op") or ""), name=str(cmd.get("session") or ""), by=by, ok=bool(ok),
                  text=str(text)[:200], session_id=row.get("id") or "", account=row.get("account") or "")
@@ -2084,14 +2284,6 @@ def handle_cmd(cid, doc, done):
             obs.record_external("relay", f"relay {cmd.get('op') or ''}", str(text), str(cmd.get("session") or ""))
         except Exception:   # noqa: BLE001 — un'informazione in piu': mai far cadere il comando
             pass
-    try:
-        rtdb("PUT", f"result/{cid}", C.encrypt({"id": cid, "ok": bool(ok), "text": str(text), **extra, "at": int(time.time())}, k), {"print": "silent"})
-        rtdb("DELETE", f"cmd/{cid}")
-    except (urllib.error.URLError, OSError, ValueError) as e:
-        log(f"cmd {cid}: result non scritto ({e})")
-    done.append(cid)
-    del done[:-500]
-    write_json(rdir() / "done-cmds.json", done)
     # 30/09 (dal vivo): la push sincrona dopo OGNI comando costava ~6 s, anche dopo una lettura della chat, e i prompt
     # restavano in fila dietro le letture fino a scadere sul telefono. Le letture non cambiano lo stato: niente push;
     # gli altri comandi la chiedono in background (debounce) e il daemon passa subito al comando dopo
@@ -2100,7 +2292,97 @@ def handle_cmd(cid, doc, done):
             push_async()
         except OSError as e:
             log(f"push dopo il comando FAILED: {e}")
-    return True
+    return {"id": cid, "ok": bool(ok), "text": str(text), **extra, "at": int(time.time())}
+
+
+# ------------------------------------------------------------------ web app e API locale (1.35)
+W = None   # cm-relay-web, caricato solo quando serve
+
+
+def web_cfg():
+    return R.get("web") or {}
+
+
+class LocalApi:
+    """Quello che cm-relay-web chiede al relay: la copia locale di stato ed eventi, i comandi, file e allegati."""
+
+    def state_stamp(self):
+        try:
+            st = (rdir() / "local" / "state.json").stat()
+            return (st.st_mtime_ns, st.st_size)
+        except OSError:
+            return None
+
+    def state(self):
+        st = read_json(rdir() / "local" / "state.json", None)
+        if st is None:   # appena acceso: il primo battito arriva entro un minuto, si anticipa
+            try:
+                push_async()
+            except OSError:
+                pass
+        return st
+
+    def events(self, since):
+        evs = [e for e in read_json(rdir() / "local" / "events.json", {}).values() if float(e.get("ts") or 0) > since]
+        return sorted(evs, key=lambda e: str(e.get("key") or ""), reverse=True)
+
+    def cmd(self, cmd):
+        cmd = dict(cmd)
+        cmd["id"] = str(cmd.get("id") or "") or str(uuid.uuid4())
+        cmd["_local"] = True
+        cmd.setdefault("by", "web")
+        cmd.setdefault("device", "web")   # 1.36: dall'API locale arriva solo la web app
+        return run_cmd(cmd)
+
+    def file(self, fid):
+        p = rdir() / "local" / "file" / f"{fid}.json"
+        if not p.is_file() or time.time() - p.stat().st_mtime > SHARE_TTL_S:
+            return None
+        return read_json(p, None)
+
+    def share(self, sid, blob):
+        d = local_dir("share")
+        (d / f"{sid}.bin").write_bytes(blob["data"])
+        os.chmod(d / f"{sid}.bin", 0o600)
+        write_json(d / f"{sid}.json", {"mime": blob["mime"], "name": blob.get("name"), "size": len(blob["data"])})
+
+
+def web_start():
+    """Dentro `relay serve`, se relay.web.enabled: la porta occupata non ferma il daemon del bus."""
+    global W
+    w = web_cfg()
+    if not w.get("enabled"):
+        return None
+    W = W or _load("cm-relay-web")
+    try:
+        srv = W.start(int(w.get("port") or 8765), W.load_token(rdir()), cm.expand(w["dir"]) if w.get("dir") else "", LocalApi())
+    except OSError as e:
+        log(f"web: porta {w.get('port')} non disponibile ({e})")
+        return None
+    log(f"web: http://127.0.0.1:{srv.server_address[1]}/")
+    return srv
+
+
+def web(rest):
+    """`relay web [--no-open]`: l'indirizzo della web app locale col token; lo apre nel browser (xdg-open, su
+    ChromeOS il Chrome vero) se il daemon la sta servendo."""
+    global W
+    w = web_cfg()
+    if not w.get("enabled"):
+        print(M("relay.web_disabled")); return 2
+    W = W or _load("cm-relay-web")
+    port = int(w.get("port") or 8765)
+    link = W.url(port, W.load_token(rdir()))
+    if not serve_alive():
+        ensure()
+    print(link)
+    if "--no-open" not in rest:
+        opener = os.environ.get("CM_RELAY_OPEN") or shutil.which("xdg-open") or shutil.which("garcon-url-handler")
+        if opener:
+            subprocess.Popen([opener, link], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        else:
+            print(M("relay.web_no_opener"), file=sys.stderr)
+    return 0
 
 
 def serve():
@@ -2120,6 +2402,7 @@ def serve():
     signal.signal(signal.SIGTERM, _stop); signal.signal(signal.SIGINT, _stop)
     log(f"serve: avvio pid {os.getpid()}")
     search_warm_async()   # 04/10: la prima ricerca dal telefono trova la cache gia' piena
+    web_srv = web_start()   # 1.35: la web app e l'API locale, se relay.web.enabled
     done = list(read_json(rdir() / "done-cmds.json", []))
     st_ = {"pid": os.getpid(), "started": started, "last_cmd_ts": None, "last_cmd": "", "served": 0, "reconnects": 0}
     # subito su file: finche' lo stream regge il ciclo non torna qui, e `relay status` mostrerebbe i numeri del
@@ -2162,6 +2445,8 @@ def serve():
                 pass
     finally:
         log("serve: stop")
+        if web_srv:
+            web_srv.stop()
         try:
             serve_pid_path().unlink()
         except OSError:
@@ -2299,6 +2584,8 @@ def main(argv):
             print(f"relay pair: {e}", file=sys.stderr); return 1
     if cmd == "serve":
         return serve()
+    if cmd == "web":
+        return web(rest)
     if cmd == "ensure":
         return ensure()
     if cmd == "status":

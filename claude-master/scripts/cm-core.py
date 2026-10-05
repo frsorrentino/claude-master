@@ -570,7 +570,9 @@ def _prompt_prefixes():
                 m = json.loads(f.read_text())
             except (OSError, ValueError):
                 continue
-            for key, origin in (("relay.prompt_prefix_phone", "phone"), ("relay.prompt_prefix_watch", "watch"), ("relay.prompt_prefix", "remote")):
+            # 1.36: «web» per la web app; il prefisso senza dispositivo di prima della 1.36 (diceva «polso») resta «remote»
+            for key, origin in (("relay.prompt_prefix_phone", "phone"), ("relay.prompt_prefix_watch", "watch"), ("relay.prompt_prefix_web", "web"),
+                                ("relay.prompt_prefix", "remote"), ("relay.prompt_prefix_legacy", "remote")):
                 if m.get(key):
                     _PREFIXES.append((m[key], origin))
         _PREFIXES.sort(key=lambda x: -len(x[0]))
@@ -578,7 +580,7 @@ def _prompt_prefixes():
 
 
 def _origin_of(text):
-    """(testo senza il prefisso del relay, origin): «phone», «watch», «remote» (relay, dispositivo ignoto) o «pc»."""
+    """(testo senza il prefisso del relay, origin): «phone», «watch», «web», «remote» (relay, dispositivo ignoto) o «pc»."""
     for p, origin in _prompt_prefixes():
         if text.startswith(p):
             return text[len(p):].strip(), origin

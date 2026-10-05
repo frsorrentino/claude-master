@@ -249,7 +249,14 @@
       "exit",
       "context",
       "cost"
-    ]
+    ],
+    "web": {
+      "enabled": false,
+      "port": 8765,
+      "dir": ""
+    },
+    "advice_dir": "~/.claude/fable-director/sessions",
+    "advice_max_age_s": 21600
   },
   "tune": {
     "timeout_s": 8,

@@ -169,7 +169,13 @@ DEFAULTS = {
               # dove `relay setup` crea l'istanza del Realtime Database
               "setup_location": "europe-west1",
               # 1.25 (02/10/2026): i comandi slash che il telefono puo' dare a una sessione (senza «/»), in state.slash
-              "slash_commands": ["compact", "clear", "exit", "context", "cost"]},
+              "slash_commands": ["compact", "clear", "exit", "context", "cost"],
+              # 1.35 (05/10/2026): la web app e l'API locale su 127.0.0.1 dentro `relay serve`; dir = la cartella
+              # compilata della web app (web/dist del repo dell'app), servita su /
+              "web": {"enabled": False, "port": 8765, "dir": ""},
+              # 1.37 (05/10/2026): dove la statusline di fable-director scrive lo snapshot di ogni sessione
+              # (<session_id>.json, chiave "advice": il consiglio di modello ed effort), e fin quando vale
+              "advice_dir": "~/.claude/fable-director/sessions", "advice_max_age_s": 21600},
     # cambio di modello ed effort di una sessione dal suo selettore, SOLO per quella sessione (16/09/2026, contratto
     # 1.12): `pick` e' l'etichetta della voce nel selettore di /model, `id` quello che la sessione riporta in model.id.
     # Dalla 2.1.280 (catturato il 22/09/2026) «Opus (1M context)» e' Opus 5.5 e Opus 5 non ha piu' una voce: tenere

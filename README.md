@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.6.7-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.6.8-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 [![claude-master in 40 seconds: a question from a Claude Code session on a Wear OS watch — «Staging is green. Deploy 2.8.0?» — answered with one tap.](assets/readme/promo-poster.jpg)](https://www.francescosorrentino.com/plugins/claude-master-watch)
 
@@ -303,6 +303,17 @@ On a Chromebook the invite opens by itself in the app on the same machine
 paired device with its kind and when it last read.
 Contract 1.34 sends a file of the chat in parts of 1 MB, up to 25 MB, so a
 long HTML report or a PDF opens on the phone as it is.
+Contract 1.35 serves the web app on the same machine: with `relay.web.enabled`
+the relay daemon listens on `127.0.0.1:<relay.web.port>` (8765 by default),
+serves the built web app from `relay.web.dir` on `/` and a local API with the
+contract's JSON in clear (state, events, a state stream, commands, files,
+attachments) behind a local token. `claude-master relay web` prints the address
+with the token and opens it in the browser.
+Contract 1.36 labels what comes from the web app («via the web app»), and
+contract 1.37 brings the master's help to the app: fable-director's advice of
+model and effort for each session, the registry's tasks waiting for an ok with
+an «Approve» button (op `approve`), «Save as decision» for the master's memory
+(op `decision`), and the sessions that are finished or duplicated.
 
 Contract 1.20 counts the phone as well as the watch before falling back to
 Telegram. Each paired device writes `/seen/<uid>` (the Firebase server time)

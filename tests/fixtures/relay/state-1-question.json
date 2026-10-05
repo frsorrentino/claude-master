@@ -87,6 +87,16 @@
         "text": "All checkout tests green and the release tagged",
         "since": 1789210700,
         "met": false
+      },
+      "advice": {
+        "model": "claude-fable-5-1",
+        "effort": "high",
+        "reason": "Checkout refactor across many files: Fable 5.1 high; switch after the current task",
+        "switch_cost_tokens": 36000,
+        "at": 1789210700,
+        "source": "fable-director",
+        "when": "next_task",
+        "differs": true
       }
     },
     {
@@ -127,7 +137,8 @@
       "color": "#F4D03F",
       "low_priority": "off",
       "suggestion": "commit the README changes and open a PR",
-      "goal": null
+      "goal": null,
+      "finished": true
     },
     {
       "id": "3d1b2c4e-0000-4000-8000-000000000004",
@@ -287,7 +298,9 @@
     "projects",
     "search",
     "timeline",
-    "pair_add"
+    "pair_add",
+    "approve",
+    "decision"
   ],
   "slash": [
     "compact",
@@ -326,6 +339,16 @@
       "name": "Pixel 7",
       "kind": null,
       "seen": null
+    }
+  ],
+  "approvals": [
+    {
+      "task": "atlas-release-2-4",
+      "title": "Release 2.4 of atlas-shop",
+      "what": "tag v2.4 and push to origin main",
+      "where": "production (shop.example.com)",
+      "deploy": true,
+      "requested_at": 1789210600
     }
   ],
   "recurring": [

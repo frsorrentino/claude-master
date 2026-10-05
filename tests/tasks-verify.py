@@ -108,6 +108,9 @@ T.check("T5 a result outside the contract is refused", rc == 2 and "$.outcome: o
 add(contract("p1", lane="closed"))
 cm("wait-ok", "p1", "--what", "release 0.5.12", "--where", "github frsorrentino/claude-master")
 st1 = show("p1")["state"]
+_l6 = json.loads(cm("list", "--state", "awaiting_ok", "--json")[1])
+T.check("T6 (contract 1.37) list --json carries the ok request of a task waiting for it: {what, where, at}",
+        [(x["id"], x["request"]["what"], x["request"]["where"], isinstance(x["request"]["at"], int)) for x in _l6] == [("p1", "release 0.5.12", "github frsorrentino/claude-master", True)], json.dumps(_l6))
 cm("approve", "p1", "--by", "maintainer (phone)", "--text", "ok", "--what", "release 0.5.12", "--where", "github frsorrentino/claude-master")
 s = show("p1")
 T.check("T6 wait-ok → awaiting_ok; approve → approved, with who, text, what and where recorded",
