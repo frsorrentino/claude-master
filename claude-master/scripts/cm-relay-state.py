@@ -194,6 +194,32 @@ def _events_of(ledger, sid):
     return [r for r in ledger if r.get("session_id") == sid] if sid else []
 
 
+NEXT_RE = re.compile(r"^\s*\W*\s*prossimi\s*:\s*(.*)$", re.I)
+NEXT_MAX = 3
+
+
+def next_steps(text):
+    """1.38 (05/10/2026): le voci dell'ultima riga «Prossimi: a · !b · c» → [{text, blocking}], al massimo tre; un «!»
+    davanti segna la voce che sblocca un lavoro fermo (un ok, una scelta) e non resta nel testo da mandare."""
+    for line in reversed(str(text or "").splitlines()):
+        m = NEXT_RE.match(strip_markdown(line))
+        if m:
+            out = []
+            for it in m.group(1).split("·"):
+                it = it.strip().strip("`").strip()
+                blocking = it.startswith("!")
+                it = it.lstrip("!").strip()
+                if it:
+                    out.append({"text": it, "blocking": blocking})
+            return out[:NEXT_MAX]
+    return []
+
+
+def _unbang(text):
+    """La riga «Prossimi:» senza i «!» davanti alle voci: un'app che legge ancora `outcome.full` manda il prompt pulito."""
+    return "\n".join(re.sub(r"((?:^|·|:)\s*\**\s*`?)!+", r"\1", l) if NEXT_RE.match(strip_markdown(l)) else l for l in str(text).split("\n"))
+
+
 def _outcome(events):
     stops = [r for r in events if r.get("event") == "stop"]
     if not stops:
@@ -202,7 +228,7 @@ def _outcome(events):
     tail = str(r.get("tail") or r.get("last") or "")
     esito = str(r.get("esito") or "")
     full_src = tail if esito and esito.splitlines()[0] in tail else (esito + ("\n" if esito and tail else "") + tail)
-    full = strip_markdown(without_watch(full_src))[:600]
+    full = _unbang(strip_markdown(without_watch(full_src)))[:600]
     short = watch_line(str(r.get("watch") or "")) or watch_line(tail) or esito_line(esito) or esito_line(tail) or (full.splitlines() or [""])[-1]
     return {"short": short_of(short, SHORT_MAX), "full": full, "at": epoch(r.get("ts"))}
 
@@ -302,6 +328,12 @@ def build_session(row, src):
         out["finished"] = True
     if (src.get("duplicates") or {}).get(tmux):
         out["duplicate_of"] = src["duplicates"][tmux]
+    # 1.38 (05/10/2026): le voci della riga «Prossimi:» dell'ultimo messaggio, [{text, blocking}], solo quando ci sono
+    # e quando c'e' l'esito (non mentre la sessione e' ferma su una domanda)
+    stops = [r for r in events if r.get("event") == "stop"]
+    steps = next_steps(stops[-1].get("tail") or stops[-1].get("last") or "") if stops and out["outcome"] else []
+    if steps:
+        out["next_steps"] = steps
     return out
 
 
@@ -347,7 +379,7 @@ def build_quota(quota, kinds=None):
     return out
 
 
-DEVICE_KINDS = ("phone", "watch", "tablet", "chromebook")
+DEVICE_KINDS = ("phone", "watch", "tablet", "chromebook", "web")   # 1.39: web = la web app remota in un browser
 
 
 def kind_of(name):

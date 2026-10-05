@@ -1,6 +1,6 @@
 # claude-master
 
-![Version](https://img.shields.io/badge/version-0.6.8-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.6.9-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 [![claude-master in 40 seconds: a question from a Claude Code session on a Wear OS watch — «Staging is green. Deploy 2.8.0?» — answered with one tap.](assets/readme/promo-poster.jpg)](https://www.francescosorrentino.com/plugins/claude-master-watch)
 
@@ -293,7 +293,7 @@ a text, an archive lands in `.claude-master-inbox/` inside the session's folder
 
 Contract 1.30 adds a device without unpairing the others: `relay pair --add`
 keeps the relay's key and hands it to the new device encrypted inside the
-pairing confirmation; the devices already paired stay (four at most). A plain
+pairing confirmation; the devices already paired stay (eight at most, contract 1.39: a browser with the web app counts as one). A plain
 `relay pair` still replaces the key and every device.
 From the phone the same happens without the PC's terminal (contract 1.31, op
 `pair_add`): the relay opens the round by itself and the phone shows its QR to

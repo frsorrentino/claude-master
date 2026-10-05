@@ -65,7 +65,7 @@ M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
 R = CFG["relay"]
 CM_BIN = os.environ.get("CM_RELAY_CM") or str(HERE / "claude-master")
 BACKOFF = [1, 2, 5, 15, 30]
-OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report", "interrupt", "transcript", "file", "slash", "projects", "search", "timeline", "pair_add", "approve", "decision")
+OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report", "interrupt", "transcript", "file", "slash", "projects", "search", "timeline", "pair_add", "approve", "decision", "unpair")
 LAST_MAX = 4000   # 1.4: l'ultimo messaggio per la lettura vocale — oltre, l'ascolto non regge
 
 
@@ -949,7 +949,7 @@ def add_ok(ok, k_pair, relay_key):
     return dict(ok, key=C.encrypt({"key": relay_key.hex()}, k_pair))
 
 
-PAIR_MAX_DEVICES = 4
+PAIR_MAX_DEVICES = 8   # 1.39 (05/10): erano 4; telefono, orologio, tablet e Chromebook li riempivano, e i browser restavano fuori
 ADB_TIMEOUT_S = 8
 
 
@@ -1006,13 +1006,37 @@ def osc52(text):
 PAIR_INVITE_TTL_S = 300
 
 
+def unpair(arg):
+    """1.39 (05/10, chiesto dall'app: «Scollega questo browser»): un dispositivo fuori da /allowed, da devices.json e
+    da /seen. Il database lo legge solo chi e' in /allowed, quindi da quel momento non legge piu' niente; la chiave
+    resta agli altri. Mai l'ultimo: senza dispositivi il relay non lo comanda piu' nessuno."""
+    uid = str(arg or "").strip()
+    devs = read_json(devices_path(), {})
+    try:
+        allowed = rtdb("GET", "allowed") or {}
+    except (urllib.error.URLError, OSError, ValueError):
+        allowed = {}
+    known = set(devs) | set(allowed)
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", uid) or uid not in known:
+        return False, M("relay.cmd_unpair_unknown", uid=uid or "?")
+    if len(known) <= 1:
+        return False, M("relay.cmd_unpair_last")
+    rtdb("DELETE", f"allowed/{uid}")
+    rtdb("DELETE", f"seen/{uid}")
+    name = str((devs.get(uid) or {}).get("name") or uid)
+    devs.pop(uid, None)
+    write_json(devices_path(), devs)
+    log(f"unpair: {name} (uid {uid}) tolto, ne restano {len(known) - 1}")
+    return True, M("relay.cmd_unpaired", name=name)
+
+
 def pair_add_invite():
     """1.31 (04/10, dal telefono, chiesto dal maintainer): un dispositivo in piu' senza stare al PC. Il telefono (gia'
     accoppiato: il comando arriva cifrato con la chiave) chiede l'invito; il relay lancia da solo `relay pair --add
     --text` in un processo a parte e risponde con il QR e il codice, che il telefono mostra al tablet. Il resto e' la
     1.30: stessa stretta di mano, chiave consegnata cifrata nella conferma, /allowed come unione. Solo il relay scrive
     /allowed e consegna la chiave. text = JSON {qr, code, exp}; qr = il documento del QR (con m «add») o null senza i
-    dati dell'app Firebase. Rifiuti: un pairing gia' aperto, nessuna chiave salvata, gia' 4 dispositivi."""
+    dati dell'app Firebase. Rifiuti: un pairing gia' aperto, nessuna chiave salvata, gia' PAIR_MAX_DEVICES dispositivi."""
     if not C.load_key(rdir()):
         return False, M("relay.pair_add_no_key")
     try:
@@ -2055,6 +2079,8 @@ def execute(cmd):
             return timeline_page(cmd.get("session"), arg)
         if op == "pair_add":
             return pair_add_invite()
+        if op == "unpair":
+            return unpair(arg)
         if op == "interrupt":
             # 1.21 (30/09): il tasto Stop — `claude-master interrupt` manda un solo Esc, e solo a turno in corso
             if info.get("state") == "gone" or not is_live(tm):

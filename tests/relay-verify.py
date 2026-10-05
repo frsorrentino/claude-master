@@ -178,7 +178,7 @@ SRC1 = {
         {"event": "prompt", "session_id": "9e9c87fb-edcd-4c51-8c62-328c0146019b", "ts": iso(1789210380)},
         {"event": "waiting", "session_id": "9e9c87fb-edcd-4c51-8c62-328c0146019b", "ts": iso(1789210500), "tool": "AskUserQuestion"},
         {"event": "start", "session_id": "f61903c0-ea6a-409c-a961-d01126a0f3ad", "ts": iso(1789209000)},
-        {"event": "stop", "session_id": "f61903c0-ea6a-409c-a961-d01126a0f3ad", "ts": iso(1789210300), "last": "x", "esito": "Esito: migrations 008-011 applied, tests green.", "tail": "Esito: migrations 008-011 applied, tests green.\nThe test seeds and the admin page are still to review.\nWatch: Migrations 008-011 applied, tests green", "watch": "Watch: Migrations 008-011 applied, tests green"},
+        {"event": "stop", "session_id": "f61903c0-ea6a-409c-a961-d01126a0f3ad", "ts": iso(1789210300), "last": "x", "esito": "Esito: migrations 008-011 applied, tests green.", "tail": "Esito: migrations 008-011 applied, tests green.\nThe test seeds and the admin page are still to review.\nProssimi: !ok to deploy on staging · review the test seeds\nWatch: Migrations 008-011 applied, tests green", "watch": "Watch: Migrations 008-011 applied, tests green"},
         {"event": "prompt", "session_id": "f61903c0-ea6a-409c-a961-d01126a0f3ad", "ts": iso(1789210700)},
         {"event": "start", "session_id": "3d1b2c4e-0000-4000-8000-000000000003", "ts": iso(1789120000)},
         {"event": "stop", "session_id": "3d1b2c4e-0000-4000-8000-000000000003", "ts": iso(1789121000), "last": "x", "esito": "Esito: README rewritten with the three sections asked for.", "tail": "Esito: README rewritten with the three sections asked for.\nWatch: README rewritten", "watch": "Watch: README rewritten"},
@@ -218,7 +218,8 @@ DEV_SRC = {"devices": {"phoneUid00000000000000000000": {"name": "Pixel 9", "pair
                        "watchUid0000000000000000000": {"name": "Pixel Watch 5", "paired_at": 1789100000},
                        "tabletUid0000000000000000000": {"name": "Pixel Tablet", "paired_at": 1789150000, "kind": "tablet"},
                        "crbookUid0000000000000000000": {"name": "Chromebook", "paired_at": 1789160000, "kind": "chromebook"},
-                       "spareUid00000000000000000000": {"name": "Pixel 7", "paired_at": 1789170000}},
+                       "spareUid00000000000000000000": {"name": "Pixel 7", "paired_at": 1789170000},
+                       "webUid000000000000000000000": {"name": "Safari on Mac", "paired_at": 1789180000, "kind": "web"}},
            "seen": {"phoneUid00000000000000000000": 1789210790.0, "watchUid0000000000000000000": 1789210500.4,
                     "tabletUid0000000000000000000": 1789209000.0, "crbookUid0000000000000000000": 1789190000.0}}
 # 1.33: le azioni ricorrenti della master, gia' in ordine (l'ultima usata in cima), una con param
@@ -635,14 +636,17 @@ T.check("R5d (1.30) the tablet answers → exit 0; the relay's key UNCHANGED; /a
         and (STORE.get("events") or {}).get("e-keep") and (STORE.get("result") or {}).get("r-keep") and "aggiunto: Pixel Tablet (uid u4)" in out5d and "dispositivi accoppiati: 3" in out5d, f"rc={pr.returncode} {out5d} {STORE.get('allowed')}")
 T.check("R5d (1.30) the confirmation: check = HMAC(pairing key, id + «:pc») as before, and key = {v, enc} that the tablet opens with the pairing key → {key: the relay's key in hex}",
         okd.get("check") == C.check_code(kt, pid_node + ":pc") and C.decrypt(okd.get("key"), kt) == {"key": k2.hex()} and code not in (STORE.get("pair") or {}), str(okd)[:200])
+# 1.39: otto posti — altri due gia' accoppiati (5), e una risposta con 4 uid (il massimo di una risposta) fa 9
+http("PUT", "/allowed.json", dict(STORE.get("allowed") or {}, u13=True, u14=True))
+(rdir2 / "devices.json").write_text(json.dumps(dict(json.loads((rdir2 / "devices.json").read_text()), u13={"name": "u13", "paired_at": 1}, u14={"name": "u14", "paired_at": 1})))
 pr, code, head = pair_run(8, "--add")
 T.wait_until(lambda: (STORE.get("pair") or {}).get(code, {}).get("pc_pub"), 3)
 f_priv, f_pub = C.pair_keys(); kf = C.shared_key(f_priv, STORE["pair"][code]["pc_pub"])
-http("PUT", f"/pair/{code}/watch.json", {"watch_pub": f_pub, "uid": "u5", "name": "Phone 2", "check": C.check_code(kf, code), "uids": ["u5", "u6"]})
+http("PUT", f"/pair/{code}/watch.json", {"watch_pub": f_pub, "uid": "u5", "name": "Phone 2", "check": C.check_code(kf, code), "uids": ["u5", "u6", "u9", "u10"]})
 pr.wait(timeout=10); out5e = pr.stdout.read()
-T.check("R5d (1.30) over 4 devices (3 + 2) → exit 4, the device reads {error: full} on its node, /allowed, devices.json and key unchanged",
-        pr.returncode == 4 and (STORE.get("pair") or {}).get(code) == {"error": "full"} and STORE.get("allowed") == {"u2": True, "u3": True, "u4": True}
-        and set(json.loads((rdir2 / "devices.json").read_text())) == {"u2", "u3", "u4"} and C.load_key(rdir2) == k2 and "RIFIUTATO" in out5e, f"rc={pr.returncode} {out5e} {STORE.get('pair')}")
+T.check("R5d (1.30, 1.39: eight places) over 8 devices (5 + 4) → exit 4, the device reads {error: full} on its node, /allowed, devices.json and key unchanged",
+        pr.returncode == 4 and (STORE.get("pair") or {}).get(code) == {"error": "full"} and STORE.get("allowed") == {"u2": True, "u3": True, "u4": True, "u13": True, "u14": True}
+        and set(json.loads((rdir2 / "devices.json").read_text())) == {"u2", "u3", "u4", "u13", "u14"} and C.load_key(rdir2) == k2 and "RIFIUTATO" in out5e, f"rc={pr.returncode} {out5e} {STORE.get('pair')}")
 # torna come prima di R5d: i test dopo contano su u2, u3 e su eventi che si aprono con la chiave
 (rdir2 / "devices.json").write_text(_dev_before)
 http("PUT", "/allowed.json", {"u2": True, "u3": True}); http("DELETE", "/events/e-keep.json"); http("DELETE", "/result/r-keep.json"); http("DELETE", f"/pair/{code}.json")
@@ -1255,6 +1259,31 @@ T.check("R31 (1.37) duplicate_of: the session opened later on the same folder an
         s31b["field-notes-2"].get("duplicate_of") == "field-notes" and "duplicate_of" not in s31b["field-notes"] and "duplicate_of" not in s31b["atlas-shop"], json.dumps({k: v.get("duplicate_of") for k, v in s31b.items()}))
 write_cfg()
 rows_alive("ledger-api", "atlas-shop", "field-notes")
+T.check("R32 (1.38) next_steps from the «Prossimi:» line: [{text, blocking}], «!» marks the item that unblocks stalled work and leaves the text; outcome.full carries the line without «!»; no line → no field",
+        [x for x in F1["sessions"] if x["name"] == "atlas-shop"][0].get("next_steps") == [{"text": "ok to deploy on staging", "blocking": True}, {"text": "review the test seeds", "blocking": False}]
+        and "Prossimi: ok to deploy on staging · review the test seeds" in [x for x in F1["sessions"] if x["name"] == "atlas-shop"][0]["outcome"]["full"]
+        and all("next_steps" not in x for x in F1["sessions"] if x["name"] != "atlas-shop")
+        and S.next_steps("**Prossimi:** `!a` · b · c · d") == [{"text": "a", "blocking": True}, {"text": "b", "blocking": False}, {"text": "c", "blocking": False}], "")
+# R33 (contratto 1.39, 05/10): i browser come dispositivi — kind web, otto posti, op unpair
+_dev33 = (rdir2 / "devices.json").read_text() if (rdir2 / "devices.json").exists() else "{}"
+_all33 = STORE.get("allowed") or {}
+(rdir2 / "devices.json").write_text(json.dumps({"phoneUid00000000000000000000": {"name": "Pixel 9", "paired_at": 1, "kind": "phone"},
+                                                "webUid000000000000000000000": {"name": "Safari on Mac", "paired_at": 2, "kind": "web"}}))
+http("PUT", "/allowed.json", {"phoneUid00000000000000000000": True, "webUid000000000000000000000": True})
+http("PUT", "/seen/webUid000000000000000000000.json", 1789210000000)
+r33a = send_cmd(CMDS[36])
+r33b = send_cmd(CMDS[35])
+_left33 = json.loads((rdir2 / "devices.json").read_text())
+r33c = send_cmd(dict(CMDS[35], id="6f1c2d3e-0390-4000-8000-000000000392", arg="phoneUid00000000000000000000"))
+T.check("R33 (1.39) unpair: an unknown uid refused as in the fixture; the browser's uid out of /allowed, /seen and devices.json, «removed <name>» as in the fixture; the last device refused",
+        r33a and r33a["ok"] is False and r33a["text"] == RES[36]["text"] and r33b and r33b["ok"] is True and r33b["text"] == RES[35]["text"]
+        and list(STORE.get("allowed") or {}) == ["phoneUid00000000000000000000"] and "webUid000000000000000000000" not in (STORE.get("seen") or {})
+        and list(_left33) == ["phoneUid00000000000000000000"] and r33c and r33c["ok"] is False and r33c["text"] == "cannot remove the last device"
+        and list(STORE.get("allowed") or {}) == ["phoneUid00000000000000000000"], str([r33a, r33b, r33c, STORE.get("allowed")]))
+(rdir2 / "devices.json").write_text(_dev33)
+http("PUT", "/allowed.json", _all33 or None) if _all33 else http("DELETE", "/allowed.json")
+T.check("R33 (1.39) eight places (PAIR_MAX_DEVICES) and kind web: a browser's pairing answer keeps its kind; state.devices shows it",
+        RL.PAIR_MAX_DEVICES == 8 and "web" in S.DEVICE_KINDS and any(d["kind"] == "web" and d["name"] == "Safari on Mac" for d in F1["devices"]) and "unpair" in F1["ops"], "")
 _ev31 = lambda tail: [{"event": "stop", "session_id": "s", "ts": iso(1), "last": "x", "esito": "", "tail": tail}]  # noqa: E731
 T.check("R31 (1.37) finished: the last message has «Esito:» and no «Prossimi:» (kernel rule 10); with «Prossimi:», without «Esito:» or with no stop → not finished",
         S._finished(_ev31("Done.\nEsito: README rewritten")) and not S._finished(_ev31("Esito: half done\nProssimi: tests · docs"))
@@ -1564,10 +1593,11 @@ if _node28:
             _ok28.get("key") and C.decrypt(_ok28["key"], _kt) == {"key": _k28.hex()} and C.load_key(rdir2) == _k28
             and STORE.get("allowed") == {"u2": True, "u3": True, "u7": True}, str(_ok28)[:200] + str(STORE.get("allowed")))
     T.wait_until(lambda: subprocess.run(["pgrep", "-f", "cm-relay.py pair --add"], capture_output=True).returncode != 0, 10)
-http("PUT", "/allowed.json", {"u2": True, "u3": True, "u7": True, "u8": True})
-(rdir2 / "devices.json").write_text(json.dumps({u: {"name": u, "paired_at": 1} for u in ("u2", "u3", "u7", "u8")}))
+_u28 = ("u2", "u3", "u7", "u8", "u9", "u10", "u11", "u12")   # 1.39: otto posti
+http("PUT", "/allowed.json", {u: True for u in _u28})
+(rdir2 / "devices.json").write_text(json.dumps({u: {"name": u, "paired_at": 1} for u in _u28}))
 r28c = send_cmd(dict(CMD28, id="6f1c2d3e-0200-4000-8000-000000000202"), wait=40)
-T.check("R28 (1.31) already 4 devices → ok false «already 4 devices», no pairing started", r28c and r28c["ok"] is False and "already 4 devices" in r28c["text"], str(r28c))
+T.check("R28 (1.31) already 8 devices (1.39) → ok false «already 8 devices», no pairing started", r28c and r28c["ok"] is False and "already 8 devices" in r28c["text"], str(r28c))
 (rdir2 / "devices.json").write_text(_dev28); http("PUT", "/allowed.json", _all28 or {})
 T.check("R28 (1.31) /state ops carries pair_add", "pair_add" in json.loads(relay("push", "--dry-run").stdout).get("ops", []), "")
 T.check("R14 (1.18) events-sample: a recap, a night_report and the quota resume, with the shape of the other events",

@@ -296,6 +296,24 @@
       "device": "phone",
       "issued": 1789210980,
       "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0390-4000-8000-000000000390",
+      "op": "unpair",
+      "session": null,
+      "arg": "webUid000000000000000000000",
+      "device": "web",
+      "issued": 1789210990,
+      "by": "web-safari"
+    },
+    {
+      "id": "6f1c2d3e-0391-4000-8000-000000000391",
+      "op": "unpair",
+      "session": null,
+      "arg": "nope0000",
+      "device": "web",
+      "issued": 1789210995,
+      "by": "web-safari"
     }
   ],
   "result": [
@@ -510,6 +528,18 @@
       "ok": true,
       "text": "decision sent to the master",
       "at": 1789210981
+    },
+    {
+      "id": "6f1c2d3e-0390-4000-8000-000000000390",
+      "ok": true,
+      "text": "removed Safari on Mac",
+      "at": 1789210991
+    },
+    {
+      "id": "6f1c2d3e-0391-4000-8000-000000000391",
+      "ok": false,
+      "text": "unknown device nope0000",
+      "at": 1789210996
     }
   ]
 }

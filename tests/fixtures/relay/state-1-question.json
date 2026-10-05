@@ -67,7 +67,7 @@
       "question": null,
       "outcome": {
         "short": "Migrations 008-011 applied, tests green",
-        "full": "Esito: migrations 008-011 applied, tests green.\nThe test seeds and the admin page are still to review.",
+        "full": "Esito: migrations 008-011 applied, tests green.\nThe test seeds and the admin page are still to review.\nProssimi: ok to deploy on staging · review the test seeds",
         "at": 1789210300
       },
       "next": "Review the seeds and the admin page",
@@ -97,7 +97,17 @@
         "source": "fable-director",
         "when": "next_task",
         "differs": true
-      }
+      },
+      "next_steps": [
+        {
+          "text": "ok to deploy on staging",
+          "blocking": true
+        },
+        {
+          "text": "review the test seeds",
+          "blocking": false
+        }
+      ]
     },
     {
       "id": "3d1b2c4e-0000-4000-8000-000000000003",
@@ -300,7 +310,8 @@
     "timeline",
     "pair_add",
     "approve",
-    "decision"
+    "decision",
+    "unpair"
   ],
   "slash": [
     "compact",
@@ -338,6 +349,12 @@
       "uid": "spareUid00000000000000000000",
       "name": "Pixel 7",
       "kind": null,
+      "seen": null
+    },
+    {
+      "uid": "webUid000000000000000000000",
+      "name": "Safari on Mac",
+      "kind": "web",
       "seen": null
     }
   ],

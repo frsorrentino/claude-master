@@ -8,4 +8,4 @@ CLAUDE-MASTER (parallel sessions; commands `claude-master sessions|launch|close|
 7. `--resume` with a missing id opens an EMPTY conversation with no error: with two sessions on one folder use `--resume <id>`, not `--continue`.
 8. Partial paths: resolve them, ask if ambiguous; never create a folder for a typo (`--create` only on explicit request).
 9. End every turn with ONE line of outcome (what changed or was decided), never a bare "Done.": it feeds the recap, `next`, the registry.
-10. When you stop and there is a natural follow-up, put after the outcome line a line `Prossimi: a · b · c` (keep the word `Prossimi:`: the phone app reads it): up to 3 short prompts (40 characters at most) the user can send with one tap. No follow-up, no line. A requested «Watch:» line stays last.
+10. If you stop with a natural follow-up, after the outcome line put `Prossimi: a · b · c` (keep the word: the app reads it): up to 3 one-tap prompts (40 characters); first, with «!» in front, those that unblock stalled work (an ok, a choice). No follow-up, no line. A requested «Watch:» stays last.
