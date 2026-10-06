@@ -143,7 +143,37 @@ PY
 # Vivo = esiste E non e' uno zombie: dopo SIGKILL il processo puo' restare <defunct> finche' il
 # padre (tmux) non lo raccoglie, e kill -0 risponde ancora si' (visto il 10/09/2026 nella suite,
 # «pid 1198 non muore»). Uno zombie e' morto per noi.
-vivo() { kill -0 "$1" 2>/dev/null && ! grep -q '^State:.*Z' "/proc/$1/status" 2>/dev/null; }
+vivo() {
+  # prove: CM_RESTART_TEST_ALIVE_UNTIL = epoch fino a cui il pid «non muore» (un processo che SIGKILL non chiude subito)
+  [ -n "${CM_RESTART_TEST_ALIVE_UNTIL:-}" ] && [ "$(date +%s)" -lt "$CM_RESTART_TEST_ALIVE_UNTIL" ] && return 0
+  kill -0 "$1" 2>/dev/null && ! grep -q '^State:.*Z' "/proc/$1/status" 2>/dev/null
+}
+
+# 05/10/2026 (claude-master-phone alle 22:46: «pid 20537 non muore», poi il processo e' morto da solo e la sessione
+# e' rimasta spenta fino al rilancio a mano): un riavvio che non va a buon fine lo si dice all'utente, sull'app
+# (evento `restart_failed` del relay, contratto 1.40) e su Telegram se c'e' il bot. Mai un errore che fermi il riavvio.
+avvisa() {
+  local nome="$1" motivo="$2"
+  python3 - "$CM_SCRIPTS" "$nome" "$motivo" <<'PY' 2>&1 || true
+import importlib.util, sys
+from pathlib import Path
+here, nome, motivo = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+def load(n):
+    s = importlib.util.spec_from_file_location(n.replace("-", "_"), here / f"{n}.py"); m = importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
+cm = load("cm-config"); cfg = cm.load(warn=False)
+title = cm.msg(cfg, "restart.failed_title", name=nome)
+body = cm.msg(cfg, "restart.failed_body", name=nome, why=motivo)
+app = load("cm-core").relay_event("restart_failed", title, body, ref=nome)
+tg = False
+try:
+    bot = load("cm-bot")
+    if bot.token():
+        bot.send(title + "\n" + body); tg = True
+except Exception:   # noqa: BLE001 — un avviso in piu', mai bloccante
+    pass
+print(f"avviso: {title} (app: {'si' if app else 'no'}, telegram: {'si' if tg else 'no'})")
+PY
+}
 
 esegui() {
   local flag="$1" nome pid cartella conf_da conf_a sid acc_a pulita gen
@@ -164,8 +194,15 @@ esegui() {
   # 2. Scaletta: /exit -> TERM -> KILL. Il transcript e' gia' su disco (Stop e' passato).
   if vivo "$pid"; then echo "/exit non ha chiuso: SIGTERM"; kill -TERM "$pid" 2>/dev/null
     for _ in $(seq 1 "$CM_RESTART_TERM_WAIT_S"); do vivo "$pid" || break; sleep 1; done; fi
-  if vivo "$pid"; then echo "ancora vivo: SIGKILL"; kill -KILL "$pid" 2>/dev/null; sleep 2; fi
-  if vivo "$pid"; then echo "pid $pid non muore, riavvio annullato"; exit 1; fi
+  if vivo "$pid"; then echo "ancora vivo: SIGKILL"; kill -KILL "$pid" 2>/dev/null
+    for _ in $(seq 1 "${CM_RESTART_KILL_WAIT_S:-15}"); do vivo "$pid" || break; sleep 1; done; fi
+  # 05/10: dopo SIGKILL un processo puo' metterci ancora (I/O, tmux che non lo raccoglie): si aspetta che muoia e si
+  # rilancia lo stesso, invece di lasciare la sessione spenta. Solo se non muore mai si annulla, e lo si dice.
+  if vivo "$pid"; then echo "pid $pid non muore dopo SIGKILL: aspetto fino a ${CM_RESTART_DEAD_WAIT_S:-120} s"
+    for _ in $(seq 1 "${CM_RESTART_DEAD_WAIT_S:-120}"); do vivo "$pid" || break; sleep 1; done
+    if vivo "$pid"; then echo "pid $pid non muore, riavvio annullato"; avvisa "$nome" "il processo $pid non si chiude"; exit 1; fi
+    echo "pid $pid chiuso in ritardo: rilancio"
+  fi
   # 3. Il nome tmux va liberato prima di rilanciare, o launch battezza la nuova '<nome>-2'.
   cm_tmux kill-session -t "=$nome" 2>/dev/null
   for _ in $(seq 1 10); do cm_tmux has-session -t "=$nome" 2>/dev/null || break; sleep 1; done
@@ -180,8 +217,8 @@ esegui() {
     local slug src dst
     slug=$(printf '%s' "$cartella" | sed 's|[^A-Za-z0-9]|-|g')
     src="$conf_da/projects/$slug/$sid.jsonl"; dst="$(eval echo "$conf_a")/projects/$slug"
-    [ -f "$src" ] || { echo "!!! transcript non trovato: $src — riavvio annullato"; exit 1; }
-    mkdir -p "$dst" && cp -f "$src" "$dst/" || { echo "!!! copia del transcript fallita"; exit 1; }
+    [ -f "$src" ] || { echo "!!! transcript non trovato: $src — riavvio annullato"; avvisa "$nome" "transcript non trovato"; exit 1; }
+    mkdir -p "$dst" && cp -f "$src" "$dst/" || { echo "!!! copia del transcript fallita"; avvisa "$nome" "copia del transcript fallita"; exit 1; }
     [ -d "$conf_da/projects/$slug/$sid" ] && cp -rf "$conf_da/projects/$slug/$sid" "$dst/" 2>/dev/null
     echo "transcript copiato in $dst/$sid.jsonl ($(du -h "$src" | cut -f1))"
     OPZ=(--resume "$sid" --account "$acc_a")
@@ -195,7 +232,8 @@ esegui() {
   if [ $rc -ne 0 ]; then echo "primo rilancio fallito (rc=$rc):"; echo "$out"; sleep 5
     out=$("$CM_SCRIPTS/cm-launch.sh" "$cartella" "${OPZ[@]}" 2>&1); rc=$?; fi
   echo "$out"
-  if [ $rc -ne 0 ]; then echo "!!! RIAVVIO FALLITO — nessuna sessione attiva su $cartella"; echo "!!! a mano: cd $cartella && claude -c"; exit 1; fi
+  if [ $rc -ne 0 ]; then echo "!!! RIAVVIO FALLITO — nessuna sessione attiva su $cartella"; echo "!!! a mano: cd $cartella && claude -c"
+    avvisa "$nome" "il rilancio e' fallito due volte (rc=$rc)"; exit 1; fi
   echo "=== riavvio completato $(date -Is) ==="
 }
 

@@ -736,7 +736,7 @@ def _push(dry_run=False, now=None):
     events, seq = S.events_between(last.get("full") or last.get("state") or {}, full, now, int(last.get("seq") or 0) + 1,
                                    warn_pct=float((CFG.get("guard") or {}).get("warn_pct") or 95))
     try:
-        local_state_write(state)
+        local_state_write(full)   # 06/10: in locale lo stato intero, senza i tagli degli 8 KB (non esce dalla macchina)
     except OSError as ex:
         log(f"stato locale non scritto: {ex}")
     k = key()

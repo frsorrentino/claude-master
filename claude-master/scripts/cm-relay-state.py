@@ -474,8 +474,9 @@ def most_recent(projects, n):
 def fit_state(state, max_kb=8):
     """Sotto il tetto, togliendo in ordine: le sessioni finite piu' vecchie (restano le KEEP_GONE piu' recenti);
     i progetti oltre i primi dieci; `done` e `next` del recap a RECAP_CUT caratteri, a fine parola; `full` degli
-    esiti a 300 caratteri, poi uguale a `short`; le voci del recap dal fondo, ma mai l'ultima; infine le sessioni
-    dal fondo. Mai la domanda. 1.7 (14/09, dall'app): le voci del recap cadevano per prime, e con 9 sessioni e
+    esiti a 300 caratteri, poi uguale a `short`; le voci del recap dal fondo, ma mai l'ultima; poi tutte le finite,
+    i campi facoltativi delle sessioni e i progetti. MAI una sessione viva (06/10), mai la
+    domanda: se non basta, lo stato resta sopra il tetto. 1.7 (14/09, dall'app): le voci del recap cadevano per prime, e con 9 sessioni e
     10 progetti il polso non aveva mai il recap («Ascolta il recap» assente). Prima ancora `full` cadeva per
     primo: con dieci sessioni finite ogni esito era la sola riga corta. Una sessione finita che esce dallo stato
     non genera eventi (events_between ignora le gone sparite e le gone ricomparse)."""
@@ -517,8 +518,26 @@ def fit_state(state, max_kb=8):
         return state
     while not fits() and len(items) > 1:
         items.pop()
-    while not fits() and state["sessions"]:
-        state["sessions"].pop()
+    if fits():
+        return state
+    # 06/10/2026 (regola del maintainer delle 10:57: nessuna sessione tolta senza consenso; rino e un'altra sessione
+    # viva sparivano dall'elenco dell'app dopo i campi 1.37-1.39): una sessione VIVA non esce mai dallo stato. Prima
+    # tutte le finite, poi i campi facoltativi delle sessioni e i progetti (l'elenco intero c'e' con l'op projects; l'ultima voce del
+    # recap resta, regola 1.7); se non basta lo stato resta sopra il tetto, intero.
+    for s in [x for x in state["sessions"] if x.get("state") == "gone"]:
+        state["sessions"].remove(s)
+        if fits():
+            return state
+    for s in state["sessions"]:
+        s["suggestion"], s["goal"], s["tool_note"] = None, None, None
+        if s.get("advice"):
+            s["advice"]["reason"] = ""
+        o = s.get("outcome")
+        if o:
+            o["full"] = o["short"]
+    if fits():
+        return state
+    state["projects"] = []
     return state
 
 

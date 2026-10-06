@@ -348,13 +348,23 @@ tight = S.fit_state(copy.deepcopy(crowd), max_kb=3)
 ev_full, _ = S.events_between(crowd, crowd, 1789210900, 1)
 dropped = live_names - {x["name"] for x in tight["sessions"]}
 ev_cut, _ = S.events_between(crowd, tight, 1789210900, 1)
-T.check("R2 (23/09) events come from the full state: a live session trimmed from the published state is not «gone» (the relay diffs the full states)",
-        dropped and not [e for e in ev_full if e["kind"] == "gone"] and [e for e in ev_cut if e["kind"] == "gone"],
+T.check("R2 (23/09, 06/10) even under a tight cap no live session is trimmed, so none is ever «gone» by the cut; events come from the full state",
+        not dropped and not [e for e in ev_full if e["kind"] == "gone"] and not [e for e in ev_cut if e["kind"] == "gone"],
         f"dropped={sorted(dropped)} gone_full={[e['session'] for e in ev_full if e['kind'] == 'gone']}")
 relay_src = (T.SCRIPTS / "cm-relay.py").read_text()
 T.check("R2 (23/09) _push diffs full states and keeps the full one in last-state.json",
         "full = S.build_state(src, now, fit=False)" in relay_src and 'last.get("full") or last.get("state")' in relay_src
         and '"full": full' in relay_src, "")
+# 06/10 (regola del maintainer delle 10:57; rino sparita dall'app): oltre il tetto, con molte sessioni vive, nessuna
+# viva esce mai — via le finite, i campi facoltativi e i progetti, e se non basta lo stato resta sopra il tetto
+many = copy.deepcopy(crowd)
+for i in range(3, 14):
+    many["sessions"].append(dict(copy.deepcopy(crowd["sessions"][0]), name=f"viva-{i}", state="idle", question=None, tool_note="nota " * 20))
+_live_many = {x["name"] for x in many["sessions"] if x["state"] != "gone"}
+fat = S.fit_state(copy.deepcopy(many), max_kb=8)
+T.check("R2 (06/10) a state that cannot fit: every LIVE session stays (never removed without consent), the gone ones, the optional fields and the projects go first",
+        {x["name"] for x in fat["sessions"]} == _live_many and not any(x["state"] == "gone" for x in fat["sessions"]) and fat["projects"] == []
+        and all(x["outcome"] is None or x["outcome"]["full"] == x["outcome"]["short"] for x in fat["sessions"]), f"{len(_live_many)} live, {len(fat['sessions'])} kept, {S.size_of(fat)} bytes")
 T.check("R2 (1.7) even under a tiny cap one recap item stays, cut to RECAP_CUT at a word (items go from the end, never the last)",
         len(tiny["recap"]["items"]) == 1 and tiny["recap"]["items"][0]["project"] == "progetto-00" and len(tiny["recap"]["items"][0]["done"]) <= S.RECAP_CUT, str(tiny["recap"]))
 T.check("R2 (1.6) short = the whole Watch line up to 200, cut at a word, no «…»", works[0]["outcome"]["short"] == "paused at a clean point; resume steps are in the plan and the tests are green on both suites" and S.short_of("parola " * 40, S.SHORT_MAX) == ("parola " * 40)[:200].rsplit(" ", 1)[0].rstrip() and "…" not in S.short_of("parola " * 40, S.SHORT_MAX), works[0]["outcome"]["short"])
@@ -1380,7 +1390,8 @@ relay("push")
 nxt30 = [rs30.fp.readline().decode() for _ in range(2)]
 c30.close()
 T.check("R30 (1.35) a push rewrites the local state and the stream sends it (event: state, the state just pushed)",
-        nxt30[0].startswith("event: state") and json.loads(nxt30[1][6:]) == json.loads((rdir2 / "local" / "state.json").read_text()) and json.loads(nxt30[1][6:])["host"] == "crostini-test", str(nxt30)[:200])
+        nxt30[0].startswith("event: state") and json.loads(nxt30[1][6:])["host"] == "crostini-test"
+        and {"ledger-api", "atlas-shop", "field-notes"} <= {x["name"] for x in json.loads(nxt30[1][6:])["sessions"]}, str(nxt30)[:200])
 _ev30 = json.loads((rdir2 / "local" / "events.json").read_text())
 T.check("R30 (1.35) the events of a push go to the local copy too, the old ones (beyond events_days) pruned", all(e["ts"] > time.time() - 8 * 86400 for e in _ev30.values()), str(list(_ev30)[:5]))
 fid30 = "6f1c2d3e-0350-4000-8000-000000000350"
@@ -1601,7 +1612,9 @@ T.check("R28 (1.31) already 8 devices (1.39) → ok false «already 8 devices»,
 (rdir2 / "devices.json").write_text(_dev28); http("PUT", "/allowed.json", _all28 or {})
 T.check("R28 (1.31) /state ops carries pair_add", "pair_add" in json.loads(relay("push", "--dry-run").stdout).get("ops", []), "")
 T.check("R14 (1.18) events-sample: a recap, a night_report and the quota resume, with the shape of the other events",
-        [e["kind"] for e in EV[-3:]] == ["recap", "night_report", "quota"] and all(set(e) == set(EV[0]) for e in EV) and EV[-3]["ref"] == "2026-09-12", str(EV[-3:])[:300])
+        [e["kind"] for e in EV[-4:-1]] == ["recap", "night_report", "quota"] and all(set(e) == set(EV[0]) for e in EV) and EV[-4]["ref"] == "2026-09-12", str(EV[-4:-1])[:300])
+T.check("R34 (1.40) events-sample: restart_failed, a restart that did not succeed (no session, ref = the session's name), with the shape of the other events",
+        EV[-1]["kind"] == "restart_failed" and EV[-1]["session"] is None and EV[-1]["ref"] == "field-notes" and set(EV[-1]) == set(EV[0]), str(EV[-1]))
 rows_alive("ledger-api", "atlas-shop", "field-notes")
 r = relay("push", "--dry-run"); dry11 = json.loads(r.stdout)
 p_atlas = next(p_ for p_ in dry11["projects"] if p_["name"] == "atlas-shop")

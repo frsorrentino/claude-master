@@ -112,7 +112,7 @@ DEFAULTS = {
     "profiles": {},
     "registry": {"file": "", "good_file": "", "cron_minutes": 5},
     "restore": {"uptime_max_min": 15, "confirm_timeout_s": 15, "snapshot_window_min": 60, "last": ""},
-    "restart": {"flag_file": "", "log": "", "exit_wait_s": 20, "term_wait_s": 10},
+    "restart": {"flag_file": "", "log": "", "exit_wait_s": 20, "term_wait_s": 10, "kill_wait_s": 15, "dead_wait_s": 120},
     "talk": {"quiet_s": 6, "max_wait_s": 240, "warn_native_channel": True,
              "from_name": "claude-master", "from_mode": "bypass"},
     "report": {"subdir": "docs/reports", "image_exts": ["png", "jpg", "jpeg", "webp", "gif"]},

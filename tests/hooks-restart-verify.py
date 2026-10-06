@@ -276,5 +276,24 @@ with T.PrivateTmux() as tm:
     srv.close()
     T.check("R8 no display in the env, wayland-0 alive → display recovered, cm-terminal opens the tab", "WAYLAND_DISPLAY=wayland-0" in out and "gnome-terminal --title beta" in out and "skip: headless" not in out and "riavvio completato" in out, out[-800:])
 
+    # R9 (05/10, claude-master-phone alle 22:46): un processo che SIGKILL non chiude subito. Muore in ritardo → si
+    # rilancia lo stesso; non muore mai → annullato, e l'avviso (app/Telegram) e' tentato e scritto nel log
+    c9 = json.loads(cfg8.read_text()); c9["restart"] = dict(c9.get("restart") or {}, exit_wait_s=1, term_wait_s=1, kill_wait_s=1, dead_wait_s=40)
+    cfg9 = tmp / "config-r9.json"; cfg9.write_text(json.dumps(c9))
+    e9 = dict(e8, CLAUDE_MASTER_CONFIG=str(cfg9), CM_RESTART_TEST_ALIVE_UNTIL=str(int(time.time()) + 30))
+    f9 = state / "restart-r9-tardi.json"
+    f9.write_text(json.dumps({"tmux": "beta", "pid": morto.pid, "cartella": str(home / "ws" / "personali" / "beta"), "gen": "tardi"}))
+    r9 = subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "exec", str(f9)], capture_output=True, text=True, env=e9, timeout=120)
+    o9 = r9.stdout + r9.stderr
+    T.check("R9 the process dies after SIGKILL but late → the executor waits (dead_wait_s) and relaunches anyway, no «annullato»",
+            "non muore dopo SIGKILL" in o9 and "chiuso in ritardo: rilancio" in o9 and "riavvio completato" in o9 and "annullato" not in o9, o9[:1200])
+    c9["restart"]["dead_wait_s"] = 3; cfg9.write_text(json.dumps(c9))
+    e9b = dict(e9, CM_RESTART_TEST_ALIVE_UNTIL=str(int(time.time()) + 300))
+    f9.write_text(json.dumps({"tmux": "beta", "pid": morto.pid, "cartella": str(home / "ws" / "personali" / "beta"), "gen": "mai"}))
+    r9 = subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "exec", str(f9)], capture_output=True, text=True, env=e9b, timeout=120)
+    o9 = r9.stdout + r9.stderr
+    T.check("R9 the process never dies → «riavvio annullato», exit 1, and the user is told: «avviso: ⚠ riavvio di beta non riuscito» (app and Telegram tried)",
+            r9.returncode == 1 and "pid " in o9 and "riavvio annullato" in o9 and "avviso: ⚠ riavvio di beta non riuscito" in o9 and "riavvio completato" not in o9, o9[-800:])
+
 T.rm(str(tmp))
 T.finish()

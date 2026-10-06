@@ -347,6 +347,8 @@
   "relay.cmd_unpair_unknown": "unknown device {uid}",
   "relay.cmd_unpair_last": "cannot remove the last device",
   "relay.cmd_unpaired": "removed {name}",
+  "restart.failed_title": "⚠ riavvio di {name} non riuscito",
+  "restart.failed_body": "{why}: la sessione {name} potrebbe essere spenta. Rilanciala (claude-master launch) o guarda ~/.claude/ultimo-riavvio.log.",
   "relay.serve_alive": "relay serve vivo (pid {pid})",
   "relay.serve_locked": "un altro `relay serve` ha il lock: niente doppio ascolto",
   "relay.serve_stopped": "relay serve fermato",

@@ -347,6 +347,8 @@
   "relay.cmd_unpair_unknown": "unknown device {uid}",
   "relay.cmd_unpair_last": "cannot remove the last device",
   "relay.cmd_unpaired": "removed {name}",
+  "restart.failed_title": "⚠ restart of {name} failed",
+  "restart.failed_body": "{why}: the session {name} may be down. Launch it again (claude-master launch) or see ~/.claude/ultimo-riavvio.log.",
   "relay.serve_alive": "relay serve alive (pid {pid})",
   "relay.serve_locked": "another `relay serve` holds the lock: never two listeners",
   "relay.serve_stopped": "relay serve stopped",

@@ -114,7 +114,9 @@
     "flag_file": "~/.local/state/claude-master/restart.json",
     "log": "~/.local/state/claude-master/restart.log",
     "exit_wait_s": 20,
-    "term_wait_s": 10
+    "term_wait_s": 10,
+    "kill_wait_s": 15,
+    "dead_wait_s": 120
   },
   "talk": {
     "quiet_s": 6,
