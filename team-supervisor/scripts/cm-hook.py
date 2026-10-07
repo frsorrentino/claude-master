@@ -208,7 +208,7 @@ def relay_push():
     if not (CFG.get("relay") or {}).get("enabled"):
         return
     try:
-        subprocess.Popen([sys.executable, str(HERE / "cm-relay.py"), "push", "--async"], stdin=subprocess.DEVNULL,
+        subprocess.Popen([sys.executable, str(HERE / "cm-relay.py"), "push", "--async", "--origin", "hook"], stdin=subprocess.DEVNULL,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     except OSError:
         pass

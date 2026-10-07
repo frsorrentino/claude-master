@@ -57,7 +57,9 @@ def epoch(ts):
         return 0
 
 
-SHARE_MAX_BYTES = 1500000   # 1.19: la busta cifrata di /share/<id> (lunghezza di `enc`), un'immagine per comando
+SHARE_MAX_BYTES = 10000000   # 1.19: la busta cifrata di /share/<id> (lunghezza di `enc`), un file per comando; 07/10: da 1,5
+# a 10 MB (sotto i 10.485.760 di una stringa RTDB), cioe' un file di circa 5,6 MB (due base64: enc ~ 16/9 del file)
+FILE_ENC_MAX = 1500000   # 1.24: la busta di /file/<id> in un solo {v, enc}, verso telefono e orologio: resta 1,5 MB
 EVENT_BODY_MAX = 4000   # 1.18: il testo di recap, night_report e quota (ripresa) negli eventi
 
 

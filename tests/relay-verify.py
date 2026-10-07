@@ -1051,10 +1051,10 @@ http("PUT", f"/share/{bad}.json", C.encrypt({"mime": "nonsense", "data": "aGk="}
 res2 = send_cmd(dict(CMDS[14], id="6f1c2d3e-0125-4000-8000-000000000201", arg=bad))
 res3 = send_cmd(dict(CMDS[14], id="6f1c2d3e-0125-4000-8000-000000000202", arg="0000-missing"))
 big = "6f1c2d3e-0125-4000-8000-00000000b002"
-http("PUT", f"/share/{big}.json", {"v": 1, "enc": "A" * 1500001})
+http("PUT", f"/share/{big}.json", {"v": 1, "enc": "A" * 10000001})
 res4 = send_cmd(dict(CMDS[14], id="6f1c2d3e-0125-4000-8000-000000000203", arg=big))
 res5 = send_cmd(dict(CMDS[15], id="6f1c2d3e-0126-4000-8000-000000000201", text="  "))
-T.check("R15 (1.19) refusals in plain words, no report run: a gone session (as in the fixture), a mime that is not type/subtype, a missing node, a blob over 1.5 MB, nothing to send; the bad nodes deleted",
+T.check("R15 (1.19) refusals in plain words, no report run: a gone session (as in the fixture), a mime that is not type/subtype, a missing node, a blob over 10 MB, nothing to send; the bad nodes deleted",
         res and res["ok"] is False and res["text"] == RES[16]["text"] and res2 and res2["text"] == "file missing or unreadable" and res3 and res3["text"] == "image missing or unreadable"
         and res4 and res4["text"] == "too large" and res5 and res5["text"] == "empty report: nothing to send"
         and not any(c.startswith("report ") for c in cm_calls()[n_calls:]) and bad not in (STORE.get("share") or {}) and big not in (STORE.get("share") or {}), str([res, res2, res3, res4, res5]))
@@ -1064,8 +1064,8 @@ http("PUT", f"/share/{old}.json", {"v": 1, "enc": "x"}); http("PUT", f"/share/{f
 relay("push")
 T.check("R15 (1.19) push prunes a /share node first seen more than 10 minutes ago, keeps a fresh one (remembered in share-seen.json)",
         old not in (STORE.get("share") or {}) and fresh in (STORE.get("share") or {}) and fresh in json.loads((rdir2 / "share-seen.json").read_text()), str(list(STORE.get("share") or {})))
-T.check("R15 (1.19) /state carries share {max_bytes: 1500000, any: true}, also when there is nothing else (its presence turns «Share» on in the app)",
-        json.loads(relay("push", "--dry-run").stdout).get("share") == {"max_bytes": 1500000, "any": True} and S.build_state({}, 1)["share"] == {"max_bytes": 1500000, "any": True} and F1["share"] == {"max_bytes": 1500000, "any": True}, "")
+T.check("R15 (1.19) /state carries share {max_bytes: 10000000, any: true}, also when there is nothing else (its presence turns «Share» on in the app)",
+        json.loads(relay("push", "--dry-run").stdout).get("share") == {"max_bytes": 10000000, "any": True} and S.build_state({}, 1)["share"] == {"max_bytes": 10000000, "any": True} and F1["share"] == {"max_bytes": 10000000, "any": True}, "")
 # R17 (30/09, dal telefono): «x» chiusa e «work-x» viva nella stessa cartella hanno lo stesso nome corto — vince la
 # viva, la chiusa non entra; e un prompt a una sessione non viva non e' «delivered»
 good_bak = good_json.read_text()
@@ -1880,5 +1880,43 @@ os.environ.clear(); os.environ.update(_env21)
 sup = (STORE.get("result") or {}).get("t-old")
 T.check("R21 several reads of the same session waiting together → only the newest runs; the older one gets «superseded» at once; the prompt goes first",
         got21 == ["p-1", "t-other", "t-new"] and sup and C.decrypt(sup, k)["ok"] is False and "superseded" in C.decrypt(sup, k)["text"], str(got21) + str(sup)[:80])
+
+
+# R31 (07/10, piano prestazioni, fase 0): le righe di misura nel log dei test vivi e `relay stats` su un log di esempio
+_log31 = (rdir2 / "relay.log").read_text()
+_push31 = [l for l in _log31.splitlines() if " push: " in l and " · origine " in l]
+T.check("R31 every push writes one measure line: origin, wait, lock, collect, publish, overhead, ts→put, cpu (own + children)",
+        _push31 and all(RL.STATS_PUSH.match(l) for l in _push31), (_push31 or ["-"])[-1])
+T.check("R31 the debounced push (--async) says where it came from (cron by default, hook from the hooks)",
+        any(" · origine cron · " in l or " · origine hook · " in l or " · origine cmd · " in l for l in _push31), str(_push31[-3:]))
+_cmd31 = [l for l in _log31.splitlines() if " cmd " in l and " · fila " in l]
+T.check("R31 every command line separates the queue from the run (fila, esecuzione); issued, when there, marked as the device clock",
+        _cmd31 and all(RL.STATS_CMD.match(l) for l in _cmd31) and any("(orologio del dispositivo)" in l for l in _cmd31), (_cmd31 or ["-"])[-1])
+_log31b = tmp / "stats31" / "relay.log"; _log31b.parent.mkdir(parents=True, exist_ok=True)
+_log31b.write_text(
+    "2026-10-07T16:20:00 push: 6 sessioni, 0 eventi · origine cron · attesa 2,0 s · lock 0,0 s · raccolta 8,0 s · pubblicazione 1,0 s · contorno 1,0 s · ts→put 8,0 s · cpu 3,0+4,0 s\n"
+    "2026-10-07T16:20:30 push: 6 sessioni, 1 eventi · origine hook · attesa 16,5 s · lock 14,5 s · raccolta 10,0 s · pubblicazione 1,5 s · contorno 0,5 s · ts→put 10,0 s · cpu 5,0+6,0 s\n"
+    "2026-10-07T16:21:00 cmd a1: prompt master da Pixel → ok delivered · fila 12,0 s · esecuzione 1,0 s · issued 13,0 s (orologio del dispositivo)\n"
+    "2026-10-07T16:21:01 cmd a1: esito scritto · prompt · dall'arrivo 13,4 s · put 0,4 s\n"
+    "2026-10-07T16:21:05 arrivo: abc123 2,5 s dopo la push\n"
+    "2026-10-07T17:00:00 push: 6 sessioni, 0 eventi · origine cron · attesa 2,0 s · lock 0,0 s · raccolta 5,0 s · pubblicazione 1,0 s · contorno 0,0 s · ts→put 5,0 s · cpu 2,0+2,0 s\n")
+_cfg31 = json.loads(cfg.read_text()); _cfg31.setdefault("relay", {})["log"] = str(_log31b)
+_cfg31p = tmp / "config31.json"; _cfg31p.write_text(json.dumps(_cfg31))
+_r31 = relay("stats", "--since", "2026-10-07T16:00", "--until", "2026-10-07T16:30", env={**os.environ, "TEAM_SUPERVISOR_CONFIG": str(_cfg31p)})
+_o31 = _r31.stdout
+T.check("R31 relay stats: the window keeps two pushes (16:20-16:30), duration = lock + collect + publish + overhead (10,0 and 26,5), lock max 14,5, cpu 7,0/11,0",
+        _r31.returncode == 0 and "n     2" in _o31 and "max    26.5" in _o31 and "max    14.5" in _o31 and "max    11.0" in _o31 and "origine: cron 1, hook 1" in _o31, _o31 + _r31.stderr)
+T.check("R31 relay stats: a prompt's queue, run and arrival-to-result; the state's age at arrival from /seen",
+        "prompt: fila s" in _o31 and "max    12.0" in _o31 and "prompt: dall'arrivo all'esito s" in _o31 and "max    13.4" in _o31 and "max     2.5" in _o31, _o31)
+_old31 = RL.LOG_MAX_BYTES
+try:
+    RL.LOG_MAX_BYTES = 10
+    _rl31 = tmp / "rot31" / "relay.log"; _rl31.parent.mkdir(parents=True, exist_ok=True); _rl31.write_text("x" * 50 + "\n")
+    _R31 = dict(RL.R); RL.R["log"] = str(_rl31)
+    RL.log("riga nuova")
+finally:
+    RL.LOG_MAX_BYTES = _old31; RL.R.clear(); RL.R.update(_R31)
+T.check("R31 the log rotates past LOG_MAX_BYTES: the old lines go to relay.log.1, the new line starts relay.log",
+        _rl31.with_name("relay.log.1").read_text().startswith("x" * 50) and _rl31.read_text().endswith("riga nuova\n"), "")
 
 T.finish()

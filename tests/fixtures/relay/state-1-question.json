@@ -282,7 +282,7 @@
     ]
   },
   "share": {
-    "max_bytes": 1500000,
+    "max_bytes": 10000000,
     "any": true
   },
   "ops": [

@@ -105,6 +105,17 @@ def parse(text):
                     continue
                 qlines.append(xs)
             question = " ".join(qlines)
+    if options and not header and not question:
+        # il dialogo di permesso non ha «☐»: la domanda sono le righe subito sopra la prima opzione, fino alla riga
+        # vuota (07/10, dal polso: la domanda della master arrivava come «-: -»)
+        first = next(i for i, l in enumerate(lines) if OPTION.match(l))
+        qlines = []
+        for x in reversed(lines[:first]):
+            xs = x.strip().lstrip("│").strip()
+            if not xs or xs.startswith("─"):
+                break
+            qlines.insert(0, xs)
+        question = " ".join(qlines)
     return header, question, options, True
 
 

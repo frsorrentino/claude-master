@@ -13,6 +13,8 @@
   team-supervisor relay serve                       il daemon: stream SSE su /cmd, esegue (allow-list), /result, ripubblica
   team-supervisor relay ensure|status|install|uninstall|off
   team-supervisor relay setup [--project ID] [--dry-run] [--yes]   il progetto Firebase, guidato e idempotente (cm-relay-setup)
+  team-supervisor relay stats [--since T] [--until T]   p50/p95/max delle misure del log: durata, CPU e lock delle push,
+                                                  eta' dello stato, fila ed esito dei comandi (T = HH:MM di oggi o ISO)
 
 Ogni documento sul bus e' {"v":1,"enc":…} (cm-relay-crypto); la forma di /state e' il contratto v1 dell'app
 (tests/fixtures/relay/state-*.json, costruito da cm-relay-state). Niente SDK Firebase: REST + SSE con urllib, token
@@ -33,6 +35,7 @@ import json
 import mimetypes
 import os
 import re
+import resource
 import shutil
 import socket
 import subprocess
@@ -180,7 +183,20 @@ def seen_cached(now):
     if got is None:
         return c.get("seen") if isinstance(c.get("seen"), dict) else {}
     write_json(p, {"at": now, "seen": got})
+    arrival_log(c.get("seen") if isinstance(c.get("seen"), dict) else {}, got)
     return got
+
+
+def arrival_log(old, new):
+    """Fase 0 (07/10): per ogni dispositivo con una ricevuta nuova, quanto dopo l'ultima PUT di /state precedente.
+    E' una stima: /seen porta l'ora del server Firebase, le PUT quella del PC."""
+    pubs = sorted(x for x in read_json(rdir() / "pub-history.json", []) if isinstance(x, (int, float)))
+    for uid, at in sorted(new.items()):
+        if old.get(uid) == at:
+            continue
+        before = [x for x in pubs if x <= at + 2]
+        if before and at - before[-1] < SEEN_SKEW_S * 10:
+            log(f"arrivo: {uid[:6]} {_s(max(0.0, at - before[-1]))} s dopo la push")
 
 
 def unseen_notice(events, now):
@@ -230,10 +246,22 @@ def fallback_notice(events, down_s):
         return 0
 
 
+LOG_MAX_BYTES = 5 * 1024 * 1024   # 07/10: il log arrivava a 7,7 MB; a 5 MB diventa relay.log.1 (uno solo)
+
+
+def log_path():
+    return Path(cm.expand(R.get("log") or "")) if R.get("log") else rdir() / "relay.log"
+
+
 def log(line):
-    p = Path(cm.expand(R.get("log") or "")) if R.get("log") else rdir() / "relay.log"
+    p = log_path()
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            if p.stat().st_size > LOG_MAX_BYTES:
+                os.replace(p, p.with_name(p.name + ".1"))
+        except OSError:
+            pass
         with open(p, "a") as f:
             f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {line}\n")
     except OSError:
@@ -415,9 +443,11 @@ def question_of(name, tool):
             opts.append(m.group(2).strip())
         elif " — " in l and not q:
             q = l.split(" — ", 1)[1].strip()
-            if ": " in q and tool == "AskUserQuestion":
-                q = q.split(": ", 1)[1].strip()
-    return q, opts
+            head, sep, rest = q.partition(": ")
+            if sep and (tool == "AskUserQuestion" or head == "-"):
+                q = rest.strip()
+    # «-» e' il segnaposto di --show per un pezzo che manca: mai come testo (07/10, «-: -» sul polso)
+    return ("" if q == "-" else q), opts
 
 
 def followed():
@@ -705,24 +735,47 @@ def approvals_list():
 
 
 # ------------------------------------------------------------------ push
-def push(dry_run=False, now=None):
+def _cpu():
+    """(CPU propria, CPU dei figli attesi) in secondi, per la riga di misura della push."""
+    a, b = resource.getrusage(resource.RUSAGE_SELF), resource.getrusage(resource.RUSAGE_CHILDREN)
+    return a.ru_utime + a.ru_stime, b.ru_utime + b.ru_stime
+
+
+def _s(x):
+    return f"{x:.1f}".replace(".", ",")
+
+
+def push(dry_run=False, now=None, origin="diretta", requested=None):
     if dry_run:
         return _push(True, now)
     # una push alla volta: due in parallelo leggono lo stesso «stato precedente» e scrivono due volte gli stessi
     # eventi (dal vivo 16:22 del 12/09: la domanda e' arrivata due volte sul bus)
+    t0, cpu0 = time.time(), _cpu()
+    m = {}
     lock = open(str(rdir() / "push.lock"), "w")
     try:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        return _push(False, now)
+        m["locked"] = time.time()
+        st = _push(False, now, m)
     finally:
         try:
             fcntl.flock(lock, fcntl.LOCK_UN)
         finally:
             lock.close()
+    # 07/10 (piano prestazioni, fase 0): una riga di misura per push, letta da `relay stats`
+    end, cpu1 = time.time(), _cpu()
+    wait = t0 - requested if requested else 0.0
+    log(f"push: {len(st['sessions'])} sessioni, {m.get('events', 0)} eventi · origine {origin} · attesa {_s(wait)} s"
+        f" · lock {_s(m['locked'] - t0)} s · raccolta {_s(m['collected'] - m['locked'])} s"
+        f" · pubblicazione {_s(m['published'] - m['collected'])} s · contorno {_s(end - m['published'])} s"
+        f" · ts→put {_s(m['put_at'] - m['ts'])} s · cpu {_s(cpu1[0] - cpu0[0])}+{_s(cpu1[1] - cpu0[1])} s")
+    return st
 
 
-def _push(dry_run=False, now=None):
+def _push(dry_run=False, now=None, m=None):
+    m = {} if m is None else m
     now = now or time.time()
+    m["ts"] = now
     src = collect_sources(now)
     # gli eventi si calcolano sullo stato INTERO; il taglio per la dimensione tocca solo cio' che si pubblica (23/09:
     # una sessione viva tolta da fit_state diventava «gone» e il polso diceva «Session closed»)
@@ -743,7 +796,9 @@ def _push(dry_run=False, now=None):
     except OSError as ex:
         log(f"stato locale non scritto: {ex}")
     k = key()
+    m["collected"] = time.time()
     try:
+        m["put_at"] = time.time()
         rtdb("PUT", "state", C.encrypt(state, k), {"print": "silent"})
         if events:
             rtdb("PATCH", "events", {e["key"]: C.encrypt(e, k) for e in events}, {"print": "silent"})
@@ -754,6 +809,9 @@ def _push(dry_run=False, now=None):
         log(f"push FAILED ({int(down)} s): {ex}")
         fallback_notice(events, down)
         raise
+    m["published"] = time.time()
+    m["events"] = len(events)
+    pub_history_add(m["put_at"])
     prune_events(now)
     prune_share(now)
     prune_share(now, "file")
@@ -772,8 +830,17 @@ def _push(dry_run=False, now=None):
         fallback_clear()
         unseen_notice(events, now)
     write_json(last_p, {"state": state, "full": full, "seq": seq - 1, "pushed_at": now, "names": names})
-    log(f"push: {len(state['sessions'])} sessioni, {len(events)} eventi")
     return state
+
+
+PUB_HISTORY_N = 300
+
+
+def pub_history_add(at):
+    """Gli istanti delle ultime PUT di /state: con /seen danno l'eta' dello stato all'arrivo (fase 0, 07/10)."""
+    p = rdir() / "pub-history.json"
+    h = [x for x in read_json(p, []) if isinstance(x, (int, float))]
+    write_json(p, (h + [round(at, 2)])[-PUB_HISTORY_N:])
 
 
 def emit(kind, title, body, ref=None, account=None, now=None):
@@ -820,16 +887,17 @@ def prune_events(now):
             pass
 
 
-def push_async():
+def push_async(origin="cmd"):
     """Torna subito: scrive la richiesta con il suo istante e stacca un figlio che dorme relay.debounce_s e
-    pusha solo se nel frattempo nessun'altra richiesta l'ha superato (piu' hook ravvicinati = una push)."""
+    pusha solo se nel frattempo nessun'altra richiesta l'ha superato (piu' hook ravvicinati = una push).
+    `origin` (hook, cron, web, cmd) finisce nella riga di misura della push."""
     stamp = f"{time.time():.6f}"
     (rdir() / "push-request").write_text(stamp)
-    subprocess.Popen([sys.executable, str(HERE / "cm-relay.py"), "push", "--delayed", stamp], stdin=subprocess.DEVNULL,
+    subprocess.Popen([sys.executable, str(HERE / "cm-relay.py"), "push", "--delayed", stamp, "--origin", origin], stdin=subprocess.DEVNULL,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 
-def push_delayed(stamp):
+def push_delayed(stamp, origin="?"):
     time.sleep(float(R.get("debounce_s") or 2))
     try:
         if (rdir() / "push-request").read_text().strip() != stamp:
@@ -841,7 +909,7 @@ def push_delayed(stamp):
         log("push (delayed): relay spento durante l'attesa, niente scrittura")
         return 0
     try:
-        push()
+        push(origin=origin, requested=float(stamp))
     except (RelayError, urllib.error.URLError, OSError, ValueError) as e:
         log(f"push (delayed) FAILED: {e}")
         return 1
@@ -1475,7 +1543,7 @@ def _fit_image(data, cap_enc):
 
 FILE_PART_BYTES = 1024 * 1024        # 1.34: un pezzo, prima della cifratura (in /file circa 1,4 MB di base64)
 FILE_PARTS_MAX = 25 * 1024 * 1024    # 1.34: il tetto di un file a pezzi
-FILE_ONE_MAX = S.SHARE_MAX_BYTES * 9 // 16 - 100   # il file piu' grande che sta in un solo {v, enc} (due base64)
+FILE_ONE_MAX = S.FILE_ENC_MAX * 9 // 16 - 100   # il file piu' grande che sta in un solo {v, enc} (due base64)
 
 
 def file_parts(data, mime, name, k_, part=FILE_PART_BYTES):
@@ -1491,7 +1559,7 @@ def file_open(cmd, session, tm, arg):
     """1.24 (02/10, chiesto dalla sessione dell'app, approvato dal maintainer alle 09:10): aprire dal telefono un file
     che compare nella conversazione. arg = il `path` esatto di transcript.entries[].files[]; si serve SOLO un percorso
     che compare nei `files` del transcript di quella sessione. Il file va in /file/<id del comando>, busta {v, enc}
-    come /share, in chiaro {mime, data base64}; oltre S.SHARE_MAX_BYTES di `enc` un'immagine si riduce (JPEG), il
+    come /share, in chiaro {mime, data base64}; oltre S.FILE_ENC_MAX di `enc` un'immagine si riduce (JPEG), il
     resto si rifiuta. Il dispositivo lo cancella dopo averlo letto; il relay quelli non letti dopo SHARE_TTL_S (10 minuti)."""
     path = str(arg or "").strip()
     row = next((r for r in (_json_cmd("sessions", "--json", "--no-screen") or []) if (r.get("tmux") or r.get("name")) == tm), None)
@@ -1533,8 +1601,8 @@ def file_open(cmd, session, tm, arg):
         rtdb("PUT", f"file/{cid}/meta", meta, {"print": "silent"})   # per ultimo: con meta i pezzi ci sono gia' tutti
         return True, M("relay.cmd_file_ready", mime=mime, size=len(data))
     doc = C.encrypt({"mime": mime, "data": base64.b64encode(data).decode()}, key())
-    if len(str(doc.get("enc") or "")) > S.SHARE_MAX_BYTES:
-        small = _fit_image(data, S.SHARE_MAX_BYTES) if mime.startswith("image/") else None
+    if len(str(doc.get("enc") or "")) > S.FILE_ENC_MAX:
+        small = _fit_image(data, S.FILE_ENC_MAX) if mime.startswith("image/") else None
         if small is None:
             return False, M("relay.cmd_file_too_large", size=len(data), max=FILE_ONE_MAX)
         mime, data = "image/jpeg", small
@@ -2262,7 +2330,7 @@ def ledger_write(event, **fields):
         pass
 
 
-def handle_cmd(cid, doc, done):
+def handle_cmd(cid, doc, done, arrived=None):
     if doc is None:
         return False
     if cid in done:
@@ -2285,12 +2353,17 @@ def handle_cmd(cid, doc, done):
         done.append(cid); return True
     cmd.pop("_local", None)   # solo l'API locale lo mette
     cmd.setdefault("id", cid)
-    result = run_cmd(cmd)
+    result = run_cmd(cmd, arrived)
+    t_put = time.time()
     try:
         rtdb("PUT", f"result/{cid}", C.encrypt(result, k), {"print": "silent"})
         rtdb("DELETE", f"cmd/{cid}")
     except (urllib.error.URLError, OSError, ValueError) as e:
         log(f"cmd {cid}: result non scritto ({e})")
+    else:
+        if arrived and str(cmd.get("op") or "") not in PASSIVE_OPS:
+            # fase 0 (07/10): l'attesa vera di un prompt o di una risposta, dall'arrivo sullo stream all'esito sul bus
+            log(f"cmd {cid}: esito scritto · {cmd.get('op')} · dall'arrivo {_s(time.time() - arrived)} s · put {_s(time.time() - t_put)} s")
     done.append(cid)
     del done[:-500]
     write_json(rdir() / "done-cmds.json", done)
@@ -2300,16 +2373,26 @@ def handle_cmd(cid, doc, done):
 EXEC_LOCK = threading.Lock()   # 1.35: i comandi dal bus e quelli dell'API locale, uno alla volta come prima
 
 
-def run_cmd(cmd):
+def run_cmd(cmd, arrived=None):
     """Esegue un Cmd (gia' in chiaro, con `id`) e ne ritorna il CmdResult: log, registro, osservazioni e push dopo
-    i comandi che cambiano lo stato. Lo usano il daemon sul bus e l'API locale."""
+    i comandi che cambiano lo stato. Lo usano il daemon sul bus e l'API locale. `arrived` = quando e' arrivato dallo
+    stream (fase 0, 07/10: la fila prima dell'esecuzione)."""
     cid = str(cmd.get("id") or "")
+    t_in = time.time()
     with EXEC_LOCK:
+        t_run = time.time()
         res = execute(cmd)
+    t_done = time.time()
+    try:
+        issued = float(cmd.get("issued") or 0)
+    except (TypeError, ValueError):
+        issued = 0.0
+    timing = (f" · fila {_s(t_run - (arrived or t_in))} s · esecuzione {_s(t_done - t_run)} s"
+              + (f" · issued {_s(t_run - issued)} s (orologio del dispositivo)" if issued > 1e9 else ""))
     ok, text = res[0], res[1]
     extra = res[2] if len(res) > 2 and isinstance(res[2], dict) else {}   # 1.13: {"session": nome} dopo un launch
     by = str(cmd.get("by") or "?")
-    log(f"cmd {cid}: {cmd.get('op')} {cmd.get('session') or ''} da {by}{' (locale)' if cmd.get('_local') else ''} → {'ok' if ok else 'ERR'} {str(text)[:80]}")
+    log(f"cmd {cid}: {cmd.get('op')} {cmd.get('session') or ''} da {by}{' (locale)' if cmd.get('_local') else ''} → {'ok' if ok else 'ERR'} {str(text)[:80]}{timing}")
     row = last_sessions().get(str(cmd.get("session") or "")) or {}
     ledger_write("watch-cmd", op=str(cmd.get("op") or ""), name=str(cmd.get("session") or ""), by=by, ok=bool(ok),
                  text=str(text)[:200], session_id=row.get("id") or "", account=row.get("account") or "")
@@ -2354,7 +2437,7 @@ class LocalApi:
         st = read_json(rdir() / "local" / "state.json", None)
         if st is None:   # appena acceso: il primo battito arriva entro un minuto, si anticipa
             try:
-                push_async()
+                push_async("web")
             except OSError:
                 pass
         return st
@@ -2459,10 +2542,11 @@ def serve():
                         log("serve: riconnesso")
                     tries = 0
                     for ev, payload in sse_lines(resp):
+                        arrived = time.time()
                         if ev == "auth_revoked":
                             log("serve: auth_revoked, nuovo token"); (rdir() / "token.json").unlink(missing_ok=True); break
                         for cid, doc in in_order(commands_from(ev, payload)):
-                            if handle_cmd(cid, doc, done):
+                            if handle_cmd(cid, doc, done, arrived):
                                 st_["last_cmd_ts"] = time.time(); st_["last_cmd"] = cid; st_["served"] += 1
                                 try:
                                     serve_status_path().write_text(json.dumps(st_))
@@ -2568,6 +2652,80 @@ def status():
     return 0
 
 
+# ------------------------------------------------------------------ misure (fase 0, 07/10)
+_NUM = r"(-?[0-9]+,[0-9])"
+STATS_PUSH = re.compile(r"^(\S+) push: \d+ sessioni, (\d+) eventi · origine (\S+) · attesa " + _NUM + r" s · lock " + _NUM
+                        + r" s · raccolta " + _NUM + r" s · pubblicazione " + _NUM + r" s · contorno " + _NUM
+                        + r" s · ts→put " + _NUM + r" s · cpu " + _NUM + r"\+" + _NUM + r" s")
+STATS_CMD = re.compile(r"^(\S+) cmd \S+: (\S+) .*· fila " + _NUM + r" s · esecuzione " + _NUM + r" s")
+STATS_DONE = re.compile(r"^(\S+) cmd \S+: esito scritto · (\S+) · dall'arrivo " + _NUM + r" s")
+STATS_ARRIVAL = re.compile(r"^(\S+) arrivo: \S+ " + _NUM + r" s dopo la push")
+
+
+def _num(x):
+    return float(x.replace(",", "."))
+
+
+def _pct(xs, q):
+    xs = sorted(xs)
+    return xs[min(len(xs) - 1, int(round(q * (len(xs) - 1))))] if xs else 0.0
+
+
+def stats(rest):
+    """`relay stats [--since T] [--until T]`: p50, p95 e massimo delle misure del log (push, eta' dello stato, comandi).
+    T = HH:MM di oggi o un istante ISO (2026-10-07T16:20). Solo le righe con le misure (dalla fase 0 in poi)."""
+    def bound(flag):
+        if flag not in rest or rest.index(flag) + 1 >= len(rest):
+            return None
+        v = rest[rest.index(flag) + 1]
+        return time.strftime("%Y-%m-%dT") + v if re.fullmatch(r"\d{1,2}:\d{2}", v) and len(v) == 5 else (
+            time.strftime("%Y-%m-%dT") + "0" + v if re.fullmatch(r"\d:\d{2}", v) else v)
+    since, until = bound("--since"), bound("--until")
+    lines = []
+    for p in (log_path().with_name(log_path().name + ".1"), log_path()):
+        try:
+            lines += p.read_text(errors="replace").splitlines()
+        except OSError:
+            pass
+    keep = lambda ts: (since is None or ts >= since) and (until is None or ts < until)  # noqa: E731
+    push, cmds, done, arr = [], {}, {}, []
+    for l in lines:
+        if (mm := STATS_PUSH.match(l)) and keep(mm.group(1)):
+            g = [_num(x) for x in mm.groups()[3:]]
+            push.append({"ts": mm.group(1), "origin": mm.group(3), "wait": g[0], "lock": g[1], "dur": g[1] + g[2] + g[3] + g[4],
+                         "collect": g[2], "age": g[5], "cpu": g[6] + g[7]})
+        elif (mm := STATS_DONE.match(l)) and keep(mm.group(1)):
+            done.setdefault(mm.group(2), []).append(_num(mm.group(3)))
+        elif (mm := STATS_CMD.match(l)) and keep(mm.group(1)):
+            cmds.setdefault(mm.group(2), []).append((_num(mm.group(3)), _num(mm.group(4))))
+        elif (mm := STATS_ARRIVAL.match(l)) and keep(mm.group(1)):
+            arr.append(_num(mm.group(2)))
+    row = lambda name, xs: f"  {name:<34} n {len(xs):>5}   p50 {_pct(xs, .5):7.1f}   p95 {_pct(xs, .95):7.1f}   max {max(xs) if xs else 0:7.1f}"  # noqa: E731
+    out = [f"relay stats {since or 'inizio'} → {until or 'ora'}", "push"]
+    if push:
+        mins = {p["ts"][:16] for p in push}
+        out.append(f"  {'push':<34} n {len(push):>5}   al minuto {len(push) / max(1, len(mins)):.2f} (minuti con push {len(mins)})")
+        out += [row("durata (lock compreso) s", [p["dur"] for p in push]), row("attesa sul lock s", [p["lock"] for p in push]),
+                row("attesa dalla richiesta s", [p["wait"] for p in push]), row("raccolta s", [p["collect"] for p in push]),
+                row("cpu (propria + figli) s", [p["cpu"] for p in push]), row("ts → put (età alla partenza) s", [p["age"] for p in push])]
+        orig = {}
+        for p in push:
+            orig[p["origin"]] = orig.get(p["origin"], 0) + 1
+        out.append("  origine: " + ", ".join(f"{k} {v}" for k, v in sorted(orig.items())))
+    else:
+        out.append("  nessuna riga di misura")
+    out += ["stato all'arrivo (stima da /seen)", row("dopo la push s", arr)]
+    out.append("comandi")
+    for op in sorted(set(cmds) | set(done)):
+        xs = cmds.get(op, [])
+        out.append(row(f"{op}: fila s", [x[0] for x in xs]))
+        out.append(row(f"{op}: esecuzione s", [x[1] for x in xs]))
+        if op in done:
+            out.append(row(f"{op}: dall'arrivo all'esito s", done[op]))
+    print("\n".join(out))
+    return 0
+
+
 # ------------------------------------------------------------------ CLI
 def main(argv):
     cmd = argv[0] if argv else ""
@@ -2581,16 +2739,19 @@ def main(argv):
             return 0
         if not R.get("enabled"):
             print(M("relay.disabled")); return 2
+        origin = rest[rest.index("--origin") + 1] if "--origin" in rest and rest.index("--origin") + 1 < len(rest) else ""
         if "--delayed" in rest:
-            return push_delayed(rest[rest.index("--delayed") + 1])
+            return push_delayed(rest[rest.index("--delayed") + 1], origin or "?")
         if "--async" in rest:
-            push_async(); return 0
+            push_async(origin or "cron"); return 0
         try:
             st = push()
         except (RelayError, urllib.error.URLError, OSError, ValueError) as e:
             print(f"relay push: {e}", file=sys.stderr); log(f"push FAILED: {e}"); return 1
         print(M("relay.pushed", n=len(st["sessions"])))
         return 0
+    if cmd == "stats":
+        return stats(rest)
     if cmd == "setup":   # il progetto Firebase, guidato (R2, 24/09): la sua CLI, non cryptography ne' crontab
         return _load("cm-relay-setup").main(rest)
     if cmd == "pair":

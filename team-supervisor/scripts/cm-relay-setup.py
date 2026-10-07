@@ -63,14 +63,14 @@ SERVICEUSAGE_URL = (os.environ.get("CM_SETUP_SERVICEUSAGE_URL") or "https://serv
 APP_NAME = "team-supervisor watch"
 ALLOWED = "auth != null && root.child('allowed').child(auth.uid).val() === true"
 # Le regole del README: /state, /events e /result leggibili solo da un uid presente in /allowed; /cmd scrivibile solo
-# da quelli, come /share/<id> (fino a 1,5 MB cifrati); /pair/<code> e /pair/<id> leggibili dall'accesso anonimo (pc_pub e la conferma ok), il loro `watch`
+# da quelli, come /share/<id> (fino a 10 MB cifrati); /pair/<code> e /pair/<id> leggibili dall'accesso anonimo (pc_pub e la conferma ok), il loro `watch`
 # scrivibile da lui; /allowed lo scrive solo il PC con il service account, che le regole non limitano.
 RULES = {"rules": {
     ".read": False, ".write": False,
     "state": {".read": ALLOWED}, "events": {".read": ALLOWED}, "result": {".read": ALLOWED},
     "cmd": {".read": ALLOWED, ".write": ALLOWED},
     # 1.19: l'immagine di «Condividi», scritta dal telefono e letta (poi cancellata) dal PC con il service account
-    "share": {"$id": {".write": ALLOWED, ".validate": "newData.child('enc').isString() && newData.child('enc').val().length <= 1500000"}},
+    "share": {"$id": {".write": ALLOWED, ".validate": "newData.child('enc').isString() && newData.child('enc').val().length <= 10000000"}},
     # 1.24: il file aperto dal telefono, scritto dal PC con il service account; il dispositivo lo legge e lo cancella
     "file": {"$id": {".read": ALLOWED, ".write": ALLOWED + " && !newData.exists()"}},
     # 1.20: ogni dispositivo scrive solo il proprio /seen/<uid>, l'ora (del server) dell'ultima lettura di /state

@@ -309,7 +309,7 @@
   "tile.layout_usage": "uso: team-supervisor layout save|restore|list [NOME]",
   "tile.layout_saved": "layout «{name}» salvato con {n} sessioni presenti",
   "tile.layout_missing": "attenzione: al salvataggio c'erano sessioni che ora mancano: {names} — il restore riposiziona solo le finestre che riconosce",
-  "relay.usage": "uso: team-supervisor relay push [--dry-run|--async] | pair [--timeout S] [--text] | serve | web [--no-open] | ensure | status | install | uninstall | off | setup [--project ID] [--dry-run] [--yes]",
+  "relay.usage": "uso: team-supervisor relay push [--dry-run|--async] | pair [--timeout S] [--text] | serve | web [--no-open] | ensure | status | install | uninstall | off | setup [--project ID] [--dry-run] [--yes] | stats [--since HH:MM] [--until HH:MM]",
   "relay.disabled": "team-supervisor relay: spento (relay.enabled = false). Mettilo a true nella config con relay.firebase_url e il service account.",
   "relay.dep_crypto_missing": "relay: manca il modulo Python `cryptography`. Installalo: pip install --user cryptography (oppure apt install python3-cryptography)",
   "relay.dep_crontab_missing": "relay: `crontab` non trovato nel PATH. Installalo: apt install cron",

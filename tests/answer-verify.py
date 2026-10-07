@@ -137,6 +137,10 @@ scr11 = (" Tool use\n\n   Agent(Review Task 5)\n   │ Launch a new agent\n\n �
 d11 = ans.parse(scr11)
 T.check("A11 permission dialog ending in «Esc to cancel · Tab to amend» → three options, cursor on 1, the footer is no description",
         d11 and [(o[0], o[2]) for o in d11[2]] == [(1, True), (2, False), (3, False)] and d11[2][1][1].startswith("Yes, and don't ask again") and all(o[3] == "" for o in d11[2]), str(d11))
+T.check("A11 permission dialog without «☐»: the question is the line right above the options, no header",
+        d11 and d11[0] == "" and d11[1] == "Do you want to proceed?", str(d11))
+T.check("A11 the question of a permission dialog stops at a separator line",
+        (d := ans.parse("────\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel · Tab to amend\n")) and d[1] == "Do you want to proceed?", str(d))
 T.check("A11 «Esc to cancel» with numbered lines but no «❯» cursor (plain text on the screen) is not a question",
         ans.parse(scr11.replace("❯", " ")) is None, str(ans.parse(scr11.replace("❯", " "))))
 long_q = "Il PC (Crostini) non accetta connessioni in entrata. Da dove possono passare stato e comandi fra PC e orologio?"
