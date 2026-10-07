@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifica shell/claude-master.sh in bash (e zsh se installata) con claude finto e tmux privato.
+"""Verifica shell/team-supervisor.sh in bash (e zsh se installata) con claude finto e tmux privato.
 
 W1  i wrapper di shell.wrappers esistono; gli alias di shell.aliases esistono
 W2  passthrough (T23): `claude --version` non crea sessioni tmux
@@ -42,14 +42,14 @@ cfg.write_text(json.dumps({
     "tile": {"placeholder_file": str(tmp / "next-session"), "placeholder_ttl_s": 120},
     "tabs": {"color_registry": str(tmp / "colors")},
 }))
-SH = T.PLUGIN / "shell" / "claude-master.sh"
+SH = T.PLUGIN / "shell" / "team-supervisor.sh"
 argslog = tmp / "args.log"
 uptime_low = tmp / "uptime-low"; uptime_low.write_text("300.0 100.0\n")
 uptime_high = tmp / "uptime-high"; uptime_high.write_text("99999.0 100.0\n")
 
 
 def base_env(**extra):
-    e = {"PATH": f"{home}/bin:{os.environ['PATH']}", "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg),
+    e = {"PATH": f"{home}/bin:{os.environ['PATH']}", "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg),
          "CM_TMUX_ARGS": tm.env["CM_TMUX_ARGS"], "FAKE_CLAUDE_ARGS_LOG": str(argslog), "FAKE_CLAUDE_SCENARIO": "plain",
          "CM_UPTIME_FILE": str(uptime_high), "TERM": "xterm-256color"}
     e.update(extra)
@@ -64,13 +64,13 @@ def bash(script, **extra):
 with T.PrivateTmux() as tm:
     subprocess.run(["tmux", "-L", tm.socket, "new-session", "-d", "-s", "seed", "bash", "--norc"], env=base_env(), check=True)   # server con l'ambiente del test (T66)
     r = bash("type claude; type claude-pro; alias lancia; alias sessioni")
-    T.check("W1 wrappers and aliases defined", "claude is a function" in r.stdout and "claude-pro is a function" in r.stdout and "claude-master launch" in r.stdout and "claude-master sessions" in r.stdout, r.stdout + r.stderr)
+    T.check("W1 wrappers and aliases defined", "claude is a function" in r.stdout and "claude-pro is a function" in r.stdout and "team-supervisor launch" in r.stdout and "team-supervisor sessions" in r.stdout, r.stdout + r.stderr)
     r = bash("claude --version")
     T.check("W2 passthrough: --version answered by claude, no tmux session", "fake" in r.stdout and tm("list-sessions", "-F", "#{session_name}").stdout.strip() == "seed", r.stdout + r.stderr)
     r = bash("cd '%s'; claude -n dentro </dev/null" % (home / "ws" / "personali" / "alfa"), TMUX="/tmp/fake-tmux,1,0")
     T.check("W3 inside tmux: plain claude, no --remote-control", "--remote-control" not in argslog.read_text().splitlines()[-1] and tm("has-session", "-t", "=alfa").returncode != 0, argslog.read_text())
     # W4: wrapper fuori tmux in un runner (serve un tty per attach)
-    runner = (f"env -u TMUX PATH='{home}/bin:{os.environ['PATH']}' HOME='{home}' CM_HOME='{home}' CLAUDE_MASTER_CONFIG='{cfg}' CM_TMUX_ARGS='{tm.env['CM_TMUX_ARGS']}' "
+    runner = (f"env -u TMUX PATH='{home}/bin:{os.environ['PATH']}' HOME='{home}' CM_HOME='{home}' TEAM_SUPERVISOR_CONFIG='{cfg}' CM_TMUX_ARGS='{tm.env['CM_TMUX_ARGS']}' "
               f"FAKE_CLAUDE_ARGS_LOG='{argslog}' bash -c 'source \"{SH}\"; cd \"{home}/ws/personali/alfa\"; claude'; sleep 5")
     tm("new-session", "-d", "-s", "runner", "-x", "100", "-y", "24", runner)
     for _ in range(20):
@@ -107,7 +107,7 @@ with T.PrivateTmux() as tm:
     ph = tmp / "next-session"
     subprocess.run(["tmux", "-L", tm.socket, "new-session", "-d", "-s", "ph-target", "bash", "--norc"], env=base_env(), check=True)
     ph.write_text("ph-target\n")
-    runner4 = f"env -u TMUX PATH='{home}/bin:{os.environ['PATH']}' HOME='{home}' CM_HOME='{home}' CLAUDE_MASTER_CONFIG='{cfg}' CM_TMUX_ARGS='{tm.env['CM_TMUX_ARGS']}' CM_FORCE_INTERACTIVE=1 bash -c 'source \"{SH}\"; echo NOT-ATTACHED; sleep 3'"
+    runner4 = f"env -u TMUX PATH='{home}/bin:{os.environ['PATH']}' HOME='{home}' CM_HOME='{home}' TEAM_SUPERVISOR_CONFIG='{cfg}' CM_TMUX_ARGS='{tm.env['CM_TMUX_ARGS']}' CM_FORCE_INTERACTIVE=1 bash -c 'source \"{SH}\"; echo NOT-ATTACHED; sleep 3'"
     tm("new-session", "-d", "-s", "runner4", "-x", "100", "-y", "24", runner4)
     time.sleep(3)
     T.check("W7 placeholder consumed and shell attached to the session", not ph.exists() and "ph-target 1" in tm("list-sessions", "-F", "#{session_name} #{session_attached}").stdout

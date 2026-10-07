@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Cronologia delle sessioni (fase 2, 03/10/2026): prompt, test, commit, esiti e compiti in ordine di tempo, dal
-codice. Trascrizioni sintetiche in una HOME finta, un repo git vero, `sessions` dalla claude-master finta."""
+codice. Trascrizioni sintetiche in una HOME finta, un repo git vero, `sessions` dalla team-supervisor finta."""
 import json
 import os
 import re
@@ -24,7 +24,7 @@ cfg = tmp / "config.json"
 cfg.write_text(json.dumps({"language": "it", "default_account": "personal", "accounts": {"personal": {"config_dir": str(conf), "tmux_prefix": "w-"}}}))
 fake = tmp / "fake"
 fake.mkdir()
-ENV = dict(os.environ, CLAUDE_MASTER_CONFIG=str(cfg), CM_BIN=str(Path(__file__).resolve().parent / "lib" / "fake-cm-plan.py"),
+ENV = dict(os.environ, TEAM_SUPERVISOR_CONFIG=str(cfg), CM_BIN=str(Path(__file__).resolve().parent / "lib" / "fake-cm-plan.py"),
            FAKE_CM_DIR=str(fake), CM_TASKS_DB=str(tmp / "tasks.db"), GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
 NOW = int(time.time())
 PFX = json.loads((T.PLUGIN / "messages" / "it.json").read_text())["relay.prompt_prefix_phone"]
@@ -95,12 +95,12 @@ g("checkout", "-q", "main")
 task = {"schema_version": 1, "task": {"id": "vat", "title": "IVA nel checkout", "plan": None, "where": {"project": str(proj), "session": None, "host": "local", "account": None},
         "check": {"cmd": "true", "cwd": None, "timeout_s": 10}, "perimeter": [], "lane": "open", "depends_on": [], "route": "session", "hold": False,
         "attempts_max": 3, "data_class": "internal", "requested_by": "test"}}
-subprocess.run([str(T.SCRIPTS / "claude-master"), "task", "add", "-"], input=json.dumps(task), capture_output=True, text=True, env=ENV)
-subprocess.run([str(T.SCRIPTS / "claude-master"), "task", "done", "vat"], capture_output=True, text=True, env=ENV)
+subprocess.run([str(T.SCRIPTS / "team-supervisor"), "task", "add", "-"], input=json.dumps(task), capture_output=True, text=True, env=ENV)
+subprocess.run([str(T.SCRIPTS / "team-supervisor"), "task", "done", "vat"], capture_output=True, text=True, env=ENV)
 
 
 def tl(*a):
-    p = subprocess.run([str(T.SCRIPTS / "claude-master"), "timeline", *a], capture_output=True, text=True, env=ENV, timeout=120)
+    p = subprocess.run([str(T.SCRIPTS / "team-supervisor"), "timeline", *a], capture_output=True, text=True, env=ENV, timeout=120)
     return p.returncode, p.stdout, p.stderr
 
 
@@ -134,7 +134,7 @@ rc, txt, _ = tl("atlas", "--since", "6h")
 T.check("TL9 as text, one session by name: a header, then «HH:MM kind ✓/✗ text», the summary after the test, the hash after the commit",
         txt.startswith("atlas — ") and "orbit" not in txt and re.search(r"\d\d:\d\d test    ✗ cart-verify\.py — 3/4 OK, FAIL: C2 rounding", txt)
         and re.search(r"commit    feat: VAT field \[[0-9a-f]+\]", txt), txt)
-p = subprocess.run([str(T.SCRIPTS / "claude-master"), "task", "board", "--timeline", "--since", "6h", "--json"], capture_output=True, text=True, env=ENV)
+p = subprocess.run([str(T.SCRIPTS / "team-supervisor"), "task", "board", "--timeline", "--since", "6h", "--json"], capture_output=True, text=True, env=ENV)
 b = json.loads(p.stdout) if p.returncode == 0 else {}
 T.check("TL10 task board --timeline carries the same timeline under the counts", b.get("counts", {}).get("done") == 1 and {s["session"] for s in b.get("timeline", {}).get("sessions", [])} == {"atlas", "orbit"}, p.stdout[:300] + p.stderr)
 T.check("TL11 a bad --since → a plain error", tl("--since", "yesterday")[0] != 0, "")

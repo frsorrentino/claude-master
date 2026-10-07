@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Motore della mappa (fase 1, 03/10/2026): plan check / approve / run con una claude-master finta.
+"""Motore della mappa (fase 1, 03/10/2026): plan check / approve / run con una team-supervisor finta.
 
 Nodi: a e b in parallelo; c dipende da a e diventa verde al secondo tentativo; s e' uno script; d dipende da b,
 che resta rosso tre volte (fallito, d annullato, la master avvisata). Prima senza fable-director, poi con
@@ -28,7 +28,7 @@ def setup(fd):
                                "accounts": {"personal": {"config_dir": str(conf)}}}))
     fake = tmp / "fake"
     fake.mkdir()
-    env = dict(os.environ, CM_TASKS_DB=str(tmp / "tasks.db"), CLAUDE_MASTER_CONFIG=str(cfg), CM_BIN=FAKE,
+    env = dict(os.environ, CM_TASKS_DB=str(tmp / "tasks.db"), TEAM_SUPERVISOR_CONFIG=str(cfg), CM_BIN=FAKE,
                FAKE_CM_DIR=str(fake), CM_PLAN_POLL="0.2")
     projs = {k: tmp / k for k in "abcds"}
     for p in projs.values():
@@ -54,7 +54,7 @@ def node(nid, proj, check, deps=(), route="session", **over):
 
 
 def cm(env, *args):
-    p = subprocess.run([str(T.SCRIPTS / "claude-master"), *args], capture_output=True, text=True, env=env, timeout=300)
+    p = subprocess.run([str(T.SCRIPTS / "team-supervisor"), *args], capture_output=True, text=True, env=env, timeout=300)
     return p.returncode, p.stdout + p.stderr
 
 

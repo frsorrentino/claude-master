@@ -94,6 +94,11 @@ def main():
         if params["action"] == "close":
             tab = next((t for t in w["tabs"] if t["id"] == params["tab_id"]), None)
             if tab:
+                if tab.get("client_pid"):   # come il Terminale vero: chiudere la scheda chiude il client tmux che mostra
+                    try:
+                        os.kill(int(tab["client_pid"]), 15)
+                    except OSError:
+                        pass
                 w["tabs"] = [t for t in w["tabs"] if t["id"] != tab["id"]]
                 if not any(t["windowId"] == tab["windowId"] for t in w["tabs"]):
                     w["windows"] = [x for x in w["windows"] if x["id"] != tab["windowId"]]
@@ -114,7 +119,7 @@ def main():
                 os.remove(ph)
                 # il titolo della nuova scheda diventa quello della sessione (come farebbe attach)
                 tab["title"] = "🔴 " + name
-                tab["url"] += f"?command=claude-master&args[]=attach&args[]={name}&args[]=ephemeral"
+                tab["url"] += f"?command=team-supervisor&args[]=attach&args[]={name}&args[]=ephemeral"
                 # un aiutante STACCATO tiene aperto il master dello pty finche' il client vive:
                 # se il master si chiude, il client tmux riceve hangup ed esce subito
                 helper = (

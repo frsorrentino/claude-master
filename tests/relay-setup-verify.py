@@ -11,7 +11,7 @@ S4  senza il token della CLI: istanza, accesso anonimo e chiave diventano passi 
     S4b Authentication mai aperto (404) → passo manuale «Inizia»
 S5  progetto scelto dall'elenco (stdin), relay.fcm_topic esistente rispettato; S5b la chiave di un altro progetto non si tocca
 S6  relay.app_package vuoto → FAIL con il messaggio, nessuna app creata
-S7  la configurazione principale (quella di HOME) non esiste e non nasce: si scrive solo CLAUDE_MASTER_CONFIG
+S7  la configurazione principale (quella di HOME) non esiste e non nasce: si scrive solo TEAM_SUPERVISOR_CONFIG
 """
 import base64
 import json
@@ -119,7 +119,7 @@ API_URL = f"http://127.0.0.1:{srv.server_port}"
 rdir = tmp / "relay-trial"
 cfg = tmp / "config-trial.json"
 cfg.write_text(json.dumps({"language": "it", "relay": {"enabled": False, "dir": str(rdir), "service_account": str(rdir / "service-account.json"), "app_package": "it.example.cmwatch"}}))
-ENV = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg), "CM_FIREBASE_CMD": str(fake_fb),
+ENV = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg), "CM_FIREBASE_CMD": str(fake_fb),
        "FAKE_FB_STATE": str(state), "FAKE_FB_LOG": str(fblog), "CM_FIREBASE_CONFIGSTORE": str(configstore), "CM_SETUP_IDENTITY_URL": API_URL, "CM_SETUP_IAM_URL": API_URL, "CM_SETUP_RTDB_API_URL": API_URL, "CM_SETUP_SERVICEUSAGE_URL": API_URL}
 
 
@@ -135,7 +135,7 @@ def calls():
 cfg0 = cfg.read_text()
 outs = [setup(h) for h in ("--help", "-h")] + [setup("--yes", "--help")]
 T.check("S0 --help, -h (also after --yes) → exit 0 with the usage, no call to the CLI or the APIs, nothing written",
-        all(o.returncode == 0 and "uso: claude-master relay setup" in o.stdout for o in outs) and calls() == [] and API["calls"] == [] and cfg.read_text() == cfg0 and not rdir.exists(),
+        all(o.returncode == 0 and "uso: team-supervisor relay setup" in o.stdout for o in outs) and calls() == [] and API["calls"] == [] and cfg.read_text() == cfg0 and not rdir.exists(),
         str([(o.returncode, o.stdout[:80], o.stderr[:80]) for o in outs]) + str(calls()))
 outs = [setup("--hepl"), setup("--yes", "--force"), setup("--project"), setup("--project", "--yes")]
 T.check("S0 an unknown option or --project without a value → exit 2 naming it, the usage on stderr, nothing done",
@@ -165,7 +165,7 @@ T.check("S2 anonymous sign-in enabled through Identity Toolkit (GET then PATCH w
         API["anon"].get(pid) is True and any(m == "PATCH" and "signIn.anonymous.enabled" in p for m, p, _ in API["calls"]) and st["apps"].get(pid) == {"it.example.cmwatch": "1:123:android:01"} and json.loads((rdir / "google-services.json").read_text())["project_info"]["project_id"] == pid, str(API["calls"]) + str(st["apps"]))
 T.check("S2 the firebase-adminsdk key created through IAM (not the other account) and written 0600 with the project's id",
         sa.is_file() and oct(sa.stat().st_mode & 0o777) == "0o600" and json.loads(sa.read_text())["project_id"] == pid and any(m == "POST" and "firebase-adminsdk-ab12c@" in p and p.endswith("/keys") for m, p, _ in API["calls"]), str(API["calls"]))
-T.check("S2 the config in use (CLAUDE_MASTER_CONFIG) gets relay.enabled, firebase_url, fcm_topic «watch», service_account, firebase_app {api_key, project_id, app_id}; the rest of the file is kept; a .bak copy exists; the summary ends with 0 FAIL and the next steps",
+T.check("S2 the config in use (TEAM_SUPERVISOR_CONFIG) gets relay.enabled, firebase_url, fcm_topic «watch», service_account, firebase_app {api_key, project_id, app_id}; the rest of the file is kept; a .bak copy exists; the summary ends with 0 FAIL and the next steps",
         cfg_after["enabled"] is True and cfg_after["firebase_url"] == f"https://{pid}-default-rtdb.europe-west1.firebasedatabase.app" and cfg_after["fcm_topic"] == "watch" and cfg_after["service_account"] == str(sa) and cfg_after["firebase_app"] == {"api_key": f"AIza-fake-{pid}", "project_id": pid, "app_id": "1:123:android:01"} and cfg_after["app_package"] == "it.example.cmwatch" and cfg_after["dir"] == str(rdir) and Path(str(cfg) + ".bak").is_file() and "0 FAIL, 0 WARN" in r.stdout and "relay pair" in r.stdout, r.stdout + r.stderr + json.dumps(cfg_after))
 fblog.unlink(); API["calls"].clear()
 
@@ -180,7 +180,7 @@ fblog.unlink(); API["calls"].clear()
 state.write_text(json.dumps({"projects": {"old-proj": "Old project"}, "instances": {}, "apps": {}}))
 rdir4 = tmp / "relay-4"; cfg4 = tmp / "config-4.json"
 cfg4.write_text(json.dumps({"language": "it", "relay": {"dir": str(rdir4), "service_account": str(rdir4 / "sa.json"), "app_package": "it.example.cmwatch"}}))
-ENV4 = dict(ENV, CLAUDE_MASTER_CONFIG=str(cfg4), CM_FIREBASE_CONFIGSTORE=str(tmp / "no-configstore.json"))
+ENV4 = dict(ENV, TEAM_SUPERVISOR_CONFIG=str(cfg4), CM_FIREBASE_CONFIGSTORE=str(tmp / "no-configstore.json"))
 r = setup("--yes", "--project", "manual-proj", env=ENV4)
 T.check("S4 without the CLI's token: the database instance, anonymous sign-in and the key become manual steps with the console links (database, authentication/providers, settings/serviceaccounts/adminsdk); the instance missing after the wait → stopped, exit 1, --yes does not wait; no API call",
         r.returncode == 1 and "https://console.firebase.google.com/project/manual-proj/database" in r.stdout and "manuale:" in r.stdout and "1 FAIL" in r.stdout and "rilancia relay setup" in r.stdout and not API["calls"], r.stdout[-1200:] + r.stderr)
@@ -193,7 +193,7 @@ T.check("S4 with the instance made by hand: anonymous sign-in and the key manual
 API["auth_missing"] = {"fresh-proj": True}
 cfg4b = tmp / "config-4b.json"; rdir4b = tmp / "relay-4b"
 cfg4b.write_text(json.dumps({"language": "it", "relay": {"dir": str(rdir4b), "service_account": str(rdir4b / "sa.json"), "app_package": "it.example.cmwatch"}}))
-r = setup("--yes", "--project", "fresh-proj", env=dict(ENV, CLAUDE_MASTER_CONFIG=str(cfg4b)))
+r = setup("--yes", "--project", "fresh-proj", env=dict(ENV, TEAM_SUPERVISOR_CONFIG=str(cfg4b)))
 T.check("S4b Authentication never opened (404 CONFIGURATION_NOT_FOUND) → WARN with the «Inizia» console link, no PATCH, the rest done, exit 0 with the manual step listed",
         r.returncode == 0 and "premi «Inizia»" in r.stdout and "fresh-proj/authentication/providers" in r.stdout and not any(m == "PATCH" for m, _, _ in API["calls"]) and (rdir4b / "sa.json").is_file() and "manuale:" in r.stdout, r.stdout[-1000:] + r.stderr)
 API["auth_missing"] = {}
@@ -203,7 +203,7 @@ fblog.unlink()
 # S5: progetto scelto dall'elenco, topic esistente rispettato
 rdir5 = tmp / "relay-5"; cfg5 = tmp / "config-5.json"
 cfg5.write_text(json.dumps({"language": "it", "relay": {"dir": str(rdir5), "service_account": str(rdir5 / "sa.json"), "fcm_topic": "watch-trial", "app_package": "it.example.cmwatch"}}))
-r = setup(env=dict(ENV, CLAUDE_MASTER_CONFIG=str(cfg5)), stdin="1\n")
+r = setup(env=dict(ENV, TEAM_SUPERVISOR_CONFIG=str(cfg5)), stdin="1\n")
 c5 = json.loads(cfg5.read_text())["relay"]
 T.check("S5 interactive: «1» picks the first listed project (old-proj), no project created; relay.fcm_topic «watch-trial» kept; the key at relay.service_account",
         r.returncode == 0 and "progetto old-proj" in r.stdout and "projects:create" not in calls() and c5["fcm_topic"] == "watch-trial" and c5["firebase_url"] == "https://old-proj-default-rtdb.europe-west1.firebasedatabase.app" and c5["service_account"] == str(rdir5 / "sa.json") and (rdir5 / "sa.json").is_file(), r.stdout[-800:] + r.stderr)
@@ -213,19 +213,19 @@ sa_main = tmp / "sa-main.json"; sa_main.write_text(json.dumps({"type": "service_
 cfg5b = tmp / "config-5b.json"
 cfg5b.write_text(json.dumps({"language": "it", "relay": {"dir": str(tmp / "relay-5b"), "service_account": str(sa_main), "app_package": "it.example.cmwatch"}}))
 API["calls"].clear()
-r = setup("--yes", "--project", "old-proj", env=dict(ENV, CLAUDE_MASTER_CONFIG=str(cfg5b)))
+r = setup("--yes", "--project", "old-proj", env=dict(ENV, TEAM_SUPERVISOR_CONFIG=str(cfg5b)))
 T.check("S5b the key file at relay.service_account belongs to another project → FAIL «non la tocco», the file byte-identical, exit 1, no key requested from IAM",
         r.returncode == 1 and "other-real-project" in r.stdout and "non la tocco" in r.stdout and json.loads(sa_main.read_text())["private_key"] == "real" and not any(m == "POST" and p.endswith("/keys") for m, p, _ in API["calls"]), r.stdout[-700:])
 fblog.unlink()
 
 # S6: senza relay.app_package
 cfg6 = tmp / "config-6.json"; cfg6.write_text(json.dumps({"language": "it", "relay": {"dir": str(tmp / "relay-6")}}))
-r = setup("--yes", "--project", "old-proj", env=dict(ENV, CLAUDE_MASTER_CONFIG=str(cfg6)))
+r = setup("--yes", "--project", "old-proj", env=dict(ENV, TEAM_SUPERVISOR_CONFIG=str(cfg6)))
 T.check("S6 relay.app_package empty → FAIL «relay.app_package vuoto», exit 1, no app created, config not written",
         r.returncode == 1 and "relay.app_package vuoto" in r.stdout and "apps:create" not in calls() and "firebase_url" not in cfg6.read_text(), r.stdout[-600:])
 T.check("S6 the project is persisted in relay.firebase_app.project_id as soon as it is picked or created: a run stopped later never creates a second one", json.loads(cfg6.read_text())["relay"]["firebase_app"] == {"project_id": "old-proj"}, cfg6.read_text())
 
 # S7
-T.check("S7 the main config of HOME never appears: only the CLAUDE_MASTER_CONFIG files were written", not (home / ".config" / "claude-master").exists(), str(list(home.iterdir())))
+T.check("S7 the main config of HOME never appears: only the TEAM_SUPERVISOR_CONFIG files were written", not (home / ".config" / "team-supervisor").exists(), str(list(home.iterdir())))
 srv.shutdown()
 T.finish()

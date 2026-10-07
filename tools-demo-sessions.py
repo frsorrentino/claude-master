@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Set dimostrativo per la card1 (S05): la tabella VERA di `claude-master sessions` (cm-sessions.py del repo,
+"""Set dimostrativo per la card1 (S05): la tabella VERA di `team-supervisor sessions` (cm-sessions.py del repo,
 language en) su un registro finto e un tmux privato, come fa tests/sessions-verify.py. Nessuna sessione reale:
 home, config e tmux sono finti, i processi sono `sleep` con argv0 «claude». Stampa la tabella.
 Uso: python3 tools-demo-sessions.py REPO > assets/readme/demo-sessions.txt"""
@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 repo = Path(sys.argv[1])
-SCRIPT = repo / "claude-master" / "scripts" / "cm-sessions.py"
+SCRIPT = repo / "team-supervisor" / "scripts" / "cm-sessions.py"
 tmp = Path(tempfile.mkdtemp(prefix="cm-demo-"))
 home = tmp / "home"
 for d in (".claude/sessions", ".claude-work/sessions", "projects/atlas-shop", "projects/field-notes", "work/ledger-api", "work/orbit-docs"):
@@ -74,7 +74,7 @@ try:
             clients.append(subprocess.Popen(T + ["attach", "-t", f"={tm}"], stdin=s, stdout=s, stderr=s, start_new_session=True,
                                             env={**os.environ, "TERM": "xterm-256color"}))
     time.sleep(1.5)
-    env = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg),
+    env = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg),
            "CM_TMUX_ARGS": f"-L {sock}", "CM_PROC_SCAN_PIDS": " ".join(str(p.pid) for p in procs)}
     r = subprocess.run([sys.executable, str(SCRIPT), "--no-screen"], capture_output=True, text=True, env=env, timeout=60)
     print(r.stdout, end="")

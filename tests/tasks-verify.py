@@ -16,7 +16,7 @@ tmp = Path(tempfile.mkdtemp(prefix="cm-tasks-"))
 proj = tmp / "proj"
 proj.mkdir()
 ENV = dict(os.environ, CM_TASKS_DB=str(tmp / "tasks.db"))
-CLI = str(T.SCRIPTS / "claude-master")
+CLI = str(T.SCRIPTS / "team-supervisor")
 
 
 def cm(*args, stdin=None):
@@ -106,15 +106,15 @@ T.check("T5 a result outside the contract is refused", rc == 2 and "$.outcome: o
 
 # T6 corsia chiusa fuori da un piano: attende ok, poi approvato con chi, cosa, dove
 add(contract("p1", lane="closed"))
-cm("wait-ok", "p1", "--what", "release 0.5.12", "--where", "github frsorrentino/claude-master")
+cm("wait-ok", "p1", "--what", "release 0.5.12", "--where", "github frsorrentino/team-supervisor")
 st1 = show("p1")["state"]
 _l6 = json.loads(cm("list", "--state", "awaiting_ok", "--json")[1])
 T.check("T6 (contract 1.37) list --json carries the ok request of a task waiting for it: {what, where, at}",
-        [(x["id"], x["request"]["what"], x["request"]["where"], isinstance(x["request"]["at"], int)) for x in _l6] == [("p1", "release 0.5.12", "github frsorrentino/claude-master", True)], json.dumps(_l6))
-cm("approve", "p1", "--by", "maintainer (phone)", "--text", "ok", "--what", "release 0.5.12", "--where", "github frsorrentino/claude-master")
+        [(x["id"], x["request"]["what"], x["request"]["where"], isinstance(x["request"]["at"], int)) for x in _l6] == [("p1", "release 0.5.12", "github frsorrentino/team-supervisor", True)], json.dumps(_l6))
+cm("approve", "p1", "--by", "maintainer (phone)", "--text", "ok", "--what", "release 0.5.12", "--where", "github frsorrentino/team-supervisor")
 s = show("p1")
 T.check("T6 wait-ok → awaiting_ok; approve → approved, with who, text, what and where recorded",
-        st1 == "awaiting_ok" and s["state"] == "approved" and s["approvals"][-1]["by_"] == "maintainer (phone)" and s["approvals"][-1]["where_"] == "github frsorrentino/claude-master", json.dumps(s["approvals"]))
+        st1 == "awaiting_ok" and s["state"] == "approved" and s["approvals"][-1]["by_"] == "maintainer (phone)" and s["approvals"][-1]["where_"] == "github frsorrentino/team-supervisor", json.dumps(s["approvals"]))
 
 # T7 board dal codice
 b = json.loads(cm("board", "--json")[1])

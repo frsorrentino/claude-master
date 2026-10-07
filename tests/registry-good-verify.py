@@ -40,7 +40,7 @@ FAKE = T.ROOT / "tests" / "lib" / "fake-claude.sh"
 
 
 def env(**extra):
-    e = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg),
+    e = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg),
          "CM_TMUX_ARGS": tm.env["CM_TMUX_ARGS"], "CLAUDE_CONFIG_DIR": str(home / ".claude"), "CM_PROC_SCAN_PIDS": ""}
     e.update(extra)
     return e

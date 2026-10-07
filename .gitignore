@@ -8,4 +8,4 @@ __pycache__/
 tests/.scratch/
 
 # plugin eval: rapporti locali di `claude plugin eval` (tracce con prompt e costi), mai nel repo
-claude-master/evals/results/
+team-supervisor/evals/results/

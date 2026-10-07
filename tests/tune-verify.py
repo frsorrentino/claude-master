@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifica cm-tune.py (claude-master model / effort, contratto 1.12) con il claude finto e un tmux privato.
+"""Verifica cm-tune.py (team-supervisor model / effort, contratto 1.12) con il claude finto e un tmux privato.
 
 TU1  model: dal selettore di /model, «s» → «Set model to Sonnet 5 for this session only», uscita 0
 TU2  model per id, spostandosi verso l'alto (Sonnet → Fable); Opus 5.5 per id sulla voce «Opus 5.5» (2.1.283, prima
@@ -45,7 +45,7 @@ DEFAULT_LOG = tmp / "default.log"
 
 
 def env(tm):
-    return {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg),
+    return {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg),
             "CM_TMUX_ARGS": tm.env["CM_TMUX_ARGS"]}
 
 

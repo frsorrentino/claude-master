@@ -83,7 +83,7 @@ cfg.write_text(json.dumps({
 
 
 def recap(*args):
-    env = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg), "CM_CRONTAB_CMD": str(fake_crontab), "CM_DIARY_FAKE_PROC": "1"}
+    env = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg), "CM_CRONTAB_CMD": str(fake_crontab), "CM_DIARY_FAKE_PROC": "1"}
     return subprocess.run([sys.executable, str(T.SCRIPTS / "cm-recap.py"), *args], capture_output=True, text=True, env=env, timeout=60)
 
 
@@ -115,22 +115,22 @@ fake_sum = tmp / "fake-claude-sum.sh"
 fake_sum.write_text('#!/bin/sh\necho "$@" >> "%s"\necho \'{"alfa": {"fatto": "Test sistemati e changelog aggiornato", "prossimo": ""}, "sito.com": {"fatto": "Risposta al cliente inviata", "prossimo": "Attendere la conferma del cliente"}, "master": {"fatto": "Coordinamento", "prossimo": "Rispondere alla domanda aperta"}}\'\n' % (tmp / "sum-args.log"))
 fake_sum.chmod(0o755)
 cfg_model = json.loads(cfg.read_text()); cfg_model["recap"]["summary"] = "model"; cfg.write_text(json.dumps(cfg_model))
-r = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-recap.py"), "--date", "2026-09-09"], capture_output=True, text=True, env={**{"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg), "CM_DIARY_FAKE_PROC": "1"}, "CM_CLAUDE_BIN": str(fake_sum)}, timeout=60)
+r = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-recap.py"), "--date", "2026-09-09"], capture_output=True, text=True, env={**{"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg), "CM_DIARY_FAKE_PROC": "1"}, "CM_CLAUDE_BIN": str(fake_sum)}, timeout=60)
 T.check("DI1b model summary: one sentence per project from ALL its stop messages, haiku -p called once", "✓ alfa: Test sistemati e changelog aggiornato" in r.stdout and "✓ sito.\u2060com: Risposta al cliente inviata" in r.stdout and (tmp / "sum-args.log").read_text().count("-p") == 1 and "riga buona senza email" in (tmp / "sum-args.log").read_text(), r.stdout + r.stderr)
 T.check("DI1b «prossimo» only where the model gave one: not under closed rows", "prossimo: Attendere" not in r.stdout, r.stdout)
-r = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-recap.py"), "--date", "2026-09-09"], capture_output=True, text=True, env={**{"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg), "CM_DIARY_FAKE_PROC": "1"}, "CM_CLAUDE_BIN": str(fake_sum)}, timeout=60)
+r = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-recap.py"), "--date", "2026-09-09"], capture_output=True, text=True, env={**{"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg), "CM_DIARY_FAKE_PROC": "1"}, "CM_CLAUDE_BIN": str(fake_sum)}, timeout=60)
 T.check("DI1b second run served from the day's cache: no new model call", "✓ alfa: Test sistemati e changelog aggiornato" in r.stdout and (tmp / "sum-args.log").read_text().count("-p") == 1, r.stdout)
 # DI1d (14/09): il cron delle 20:00 ha PATH=/usr/bin:/bin e claude sta solo in ~/.local/bin → prima «claude» non si
 # trovava, l'errore era inghiottito e i riassunti del giorno si scrivevano vuoti. Cache svuotata: il modello va chiamato.
 import shutil as _sh
-_sd = str(json.loads(cfg.read_text()).get("state_dir") or "~/.local/state/claude-master")
+_sd = str(json.loads(cfg.read_text()).get("state_dir") or "~/.local/state/team-supervisor")
 _sd = Path(str(home) + _sd[1:]) if _sd.startswith("~") else Path(_sd)
 _sh.rmtree(_sd / "recap-summaries", ignore_errors=True)
 local_claude = home / ".local" / "bin" / "claude"
 local_claude.parent.mkdir(parents=True, exist_ok=True)
 local_claude.write_text(fake_sum.read_text().replace(str(tmp / "sum-args.log"), str(tmp / "sum-args-cron.log")))
 local_claude.chmod(0o755)
-r = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-recap.py"), "--date", "2026-09-09"], capture_output=True, text=True, env={"PATH": "/usr/bin:/bin", "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg), "CM_DIARY_FAKE_PROC": "1"}, timeout=60)
+r = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-recap.py"), "--date", "2026-09-09"], capture_output=True, text=True, env={"PATH": "/usr/bin:/bin", "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg), "CM_DIARY_FAKE_PROC": "1"}, timeout=60)
 T.check("DI1d cron PATH (/usr/bin:/bin), claude only in ~/.local/bin: the model is found and the summary is there (before: empty summaries since 12/09)", "✓ alfa: Test sistemati e changelog aggiornato" in r.stdout and (tmp / "sum-args-cron.log").is_file() and (tmp / "sum-args-cron.log").read_text().count("-p") == 1, r.stdout + r.stderr)
 local_claude.unlink()
 cfg_model["recap"]["summary"] = "last"; cfg.write_text(json.dumps(cfg_model))
@@ -197,15 +197,15 @@ T.check("DI6 the project log goes to the project's own docs/recap.md, and nothin
 # DI7 (23/09/2026): «Tra le sessioni» — i messaggi mandati con talk e non ancora consegnati
 with open(state / "ledger.jsonl", "a") as f:
     for r_ in [
-        {"ts": "2026-09-12T21:10:00", "event": "talk", "id": "m1", "sender": "master", "to": "claude-master", "text": "fatto?"},
-        {"ts": "2026-09-12T21:11:00", "event": "delivered", "id": "m1", "to": "claude-master"},
+        {"ts": "2026-09-12T21:10:00", "event": "talk", "id": "m1", "sender": "master", "to": "team-supervisor", "text": "fatto?"},
+        {"ts": "2026-09-12T21:11:00", "event": "delivered", "id": "m1", "to": "team-supervisor"},
         {"ts": "2026-09-12T21:20:00", "event": "talk", "id": "m2", "sender": "master", "to": "pix-med", "text": "risposta"},
     ]:
         f.write(json.dumps(r_, ensure_ascii=False) + "\n")
 r = recap("--date", "2026-09-12")
 T.check("DI7 «Tra le sessioni»: only the messages not delivered yet",
         r.returncode == 0 and "Tra le sessioni" in r.stdout and "1 messaggi non ancora consegnati: master → pix-med" in r.stdout
-        and "claude-master" not in r.stdout.split("Tra le sessioni")[1].split("\n\n")[1], r.stdout[-500:] + r.stderr)
+        and "team-supervisor" not in r.stdout.split("Tra le sessioni")[1].split("\n\n")[1], r.stdout[-500:] + r.stderr)
 r = recap("--date", "2026-09-11")
 T.check("DI7 a day without undelivered messages has no «Tra le sessioni» section", "Tra le sessioni" not in r.stdout, r.stdout[-300:])
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""claude-master finta per plan-verify: sessions/launch/talk/wait/close su un file di stato (FAKE_CM_DIR).
+"""team-supervisor finta per plan-verify: sessions/launch/talk/wait/close su un file di stato (FAKE_CM_DIR).
 
 Il comportamento delle sessioni sta in FAKE_CM_DIR/script.json: {cartella: [azioni per talk]}, dove ogni azione
 e' {"touch": [file], "say": "testo della risposta"}; oltre la lista si ripete l'ultima. Ogni chiamata va in

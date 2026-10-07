@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# claude-master — release in one command (author tooling, not shipped in the zip).
+# team-supervisor — release in one command (author tooling, not shipped in the zip).
 #
 #   bash release.sh 0.3.0            full release
 #   bash release.sh 0.3.0 --check    preflight + test suites only, then stop (nothing published)
@@ -7,7 +7,7 @@
 # Does, in order (fails loudly at the first broken step):
 #   1. preflight   — version consistent in plugin.json / CHANGELOG / README badge, tag absent
 #   2. tests       — every tests/*-verify.py must be green BEFORE the commit (house rule)
-#   3. zip         — ../claude-master-plugin-<v>.zip
+#   3. zip         — ../team-supervisor-plugin-<v>.zip
 #   4. commit      — "release: <v>" on the local main, files staged BY NAME (never `git add -A`:
 #                    other sessions work in this checkout). main is NEVER pushed: it carries docs/
 #                    and BRIEF.md (this workstation's plans and notes).
@@ -23,7 +23,7 @@ VER="${1:?usage: bash release.sh <version> [--check]  (e.g. 0.3.0)}"
 CHECK=0; [ "${2:-}" = "--check" ] && CHECK=1
 cd "$(dirname "$0")"
 [ -f .claude-plugin/marketplace.json ] || { echo "FAIL: run from the repo root (marketplace.json missing)"; exit 1; }
-PLUGIN=claude-master
+PLUGIN=team-supervisor
 
 echo "== 1/6 preflight =="
 grep -q "\"version\": \"$VER\"" "$PLUGIN/.claude-plugin/plugin.json" \
@@ -65,15 +65,18 @@ if [ "$CHECK" = 1 ]; then
 fi
 
 echo "== 3/6 zip =="
-ZIP="../claude-master-plugin-$VER.zip"
+ZIP="../team-supervisor-plugin-$VER.zip"
 rm -f "$ZIP"
-( cd .. && zip -r -q "claude-master-plugin-$VER.zip" \
-    claude-master/.claude-plugin \
-    claude-master/claude-master \
-    claude-master/README.md \
-    claude-master/CHANGELOG.md \
-    claude-master/LICENSE \
+# the archive's top folder is team-supervisor whatever this checkout's folder is called (07/10: still claude-master)
+ZTMP=$(mktemp -d); ln -s "$PWD" "$ZTMP/team-supervisor"
+( cd "$ZTMP" && zip -r -q "$OLDPWD/../team-supervisor-plugin-$VER.zip" \
+    team-supervisor/.claude-plugin \
+    team-supervisor/team-supervisor \
+    team-supervisor/README.md \
+    team-supervisor/CHANGELOG.md \
+    team-supervisor/LICENSE \
     -x '*/.git/*' '*/__pycache__/*' '*.bak*' '*.pyc' '*/evals/results/*' )
+rm -rf "$ZTMP"
 unzip -l "$ZIP" | tail -1
 
 echo "== 4/6 commit on the local main (never pushed) =="
@@ -163,10 +166,10 @@ def prune(root, keep_ver):
 
 
 # Every CLAUDE_CONFIG_DIR of this machine: the default one plus the ones named in
-# the claude-master config (accounts.<name>.config_dir), never hardcoded.
+# the team-supervisor config (accounts.<name>.config_dir), never hardcoded.
 dirs = [os.path.expanduser("~/.claude")]
 try:
-    cfg = json.load(open(os.path.expanduser(os.environ.get("CLAUDE_MASTER_CONFIG") or "~/.config/claude-master/config.json")))
+    cfg = json.load(open(os.path.expanduser(os.environ.get("TEAM_SUPERVISOR_CONFIG") or "~/.config/team-supervisor/config.json")))
     for a in cfg.get("accounts", {}).values():
         d = os.path.expanduser(a.get("config_dir", ""))
         if d and d not in dirs:
@@ -200,7 +203,7 @@ for base in dirs:
 PY
 
 echo ""
-echo "DONE v$VER — verify: https://github.com/frsorrentino/claude-master/releases/tag/v$VER"
+echo "DONE v$VER — verify: https://github.com/frsorrentino/team-supervisor/releases/tag/v$VER"
 echo "Local sessions pick up $VER on next restart (hooks run from the cache)."
-echo "Marketplace fsorrentino entry: {\"source\": \"git-subdir\", \"url\": \"https://github.com/frsorrentino/claude-master.git\", \"path\": \"claude-master\", \"ref\": \"v$VER\", \"sha\": \"$PUB\"}"
+echo "Marketplace fsorrentino entry: {\"source\": \"git-subdir\", \"url\": \"https://github.com/frsorrentino/team-supervisor.git\", \"path\": \"team-supervisor\", \"ref\": \"v$VER\", \"sha\": \"$PUB\"}"
 echo "Public marketplace users: claude plugin marketplace update fsorrentino"

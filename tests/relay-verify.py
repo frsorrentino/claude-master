@@ -19,7 +19,7 @@ R5   relay pair: codice a 6 cifre, /pair/<code> con pc_pub, orologio finto che r
      uids e names; --text stampa il JSON del QR; il QR a mezzi blocchi si decodifica (OpenCV, se c'e')
 R5b  i vettori del contratto 1.15 (pair-qr.json, pair-response.json: scalari 0..31 e 32..63) → pair_accept
      produce esattamente `ok`; qr_payload = pair-qr.json
-R5c  prove isolate: CLAUDE_MASTER_CONFIG di prova → pair/push/serve solo li', la configurazione principale intatta
+R5c  prove isolate: TEAM_SUPERVISOR_CONFIG di prova → pair/push/serve solo li', la configurazione principale intatta
 R6   relay serve: SSE su /cmd, i sette op del contratto eseguiti via dispatcher finto → /result, /cmd cancellato,
      /state ripubblicato; duplicati ignorati; op fuori allow-list rifiutato; launch fuori da projects rifiutato;
      RTDB giù → riconnessione; status/ensure/install/uninstall/off; install e pair rifiutati senza crontab (esce 5)
@@ -40,7 +40,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 import cm_test as T  # noqa: E402
 
-WATCH = Path.home() / "Desktop" / "workspaces" / "personali" / "claude-master-watch"   # percorso vero della macchina, non un nome del set demo
+WATCH = next((p for p in (Path.home() / "Desktop" / "workspaces" / "personali" / n for n in ("team-supervisor-app", "claude-master-watch")) if p.is_dir()), Path.home() / "Desktop" / "workspaces" / "personali" / "team-supervisor-app")   # percorso vero della macchina, non un nome del set demo
 FIX = T.ROOT / "tests" / "fixtures" / "relay"
 # 1.21: le op che il relay esegue, lette dal sorgente (l'allow-list OPS), non ricopiate a mano
 import ast as _ast, re as _re0  # noqa: E401
@@ -401,7 +401,7 @@ good_json = tmp / "good.json"      # la fotografia del registro (registry --good
 launch_adds = tmp / "launch-adds.json"   # se c'e', launch la copia su alive: la sessione nata dal lancio
 GOOD_ORBIT = {"nome": "work-orbit-docs", "cartella": str(ws / "work" / "own" / "orbit-docs"), "account": "work", "visto": "2026-09-12T09:00:00"}
 good_json.write_text(json.dumps({"sessioni": [GOOD_ORBIT]}))
-fake_cm = tmp / "claude-master"
+fake_cm = tmp / "team-supervisor"
 fake_cm.write_text(f"""#!/bin/sh
 printf '%s\\n' "$*" >> "{argslog}"
 case "$1" in
@@ -411,11 +411,11 @@ case "$1" in
   answer) if [ "$3" = "--show" ]; then if [ "$2" = "work-ledger-api" ]; then echo "«$2» chiede — Deploy: Deploy ready, waiting for the client ok. Deploy now?"; echo "  ❯ 1. yes"; echo "    2. no"; else echo "nessuna domanda aperta sullo schermo"; exit 1; fi; else case "$3" in 1|2) echo "«$2»: risposto $3. yes  (Deploy now?)" ;; --text) echo "«$2»: risposto 3. $4  (Deploy now?)" ;; --chat) echo "«$2»: risposto 4. Chat about this  (Deploy now?)" ;; *) echo "opzione $3 inesistente" >&2; exit 2 ;; esac; fi ;;
   screen) i=1; while [ $i -le 30 ]; do echo "riga $i dello schermo"; i=$((i+1)); done ;;
   panel) if [ "$2" = "field-notes" ]; then echo "   Session"; echo "   Total cost:            \$0.42"; else exit 1; fi ;;
-  talk) if [ -f "{tmp / 'talk-saved'}" ]; then echo "claude-master talk: «$2» è chiusa; messaggio m1 salvato nella casella, le arriva quando riparte (stato: claude-master talk --status m1)" >&2; else echo "consegnato"; fi ;;
+  talk) if [ -f "{tmp / 'talk-saved'}" ]; then echo "team-supervisor talk: «$2» è chiusa; messaggio m1 salvato nella casella, le arriva quando riparte (stato: team-supervisor talk --status m1)" >&2; else echo "consegnato"; fi ;;
   model) echo "$2: model Sonnet 5, this session only" ;;
   effort) if [ "$2" = "atlas-shop" ]; then echo "atlas-shop is working: try again when it is idle"; exit 3; else echo "$2: effort $3, this session only"; fi ;;
   report) if [ "$3" != "-" ]; then cp "$3" "{tmp / 'report-img'}"; echo "segnalazione consegnata a «$6»"; echo "  immagine: $2/docs/segnalazioni/2026-09-12-the-client-says-the-checkout-button-is-g.jpg"; else echo "segnalazione consegnata a «$6»"; fi ;;
-  interrupt) case "$2" in atlas-shop) echo "$2: fermata" ;; field-notes) echo "$2: niente da fermare" >&2; exit 1 ;; *) echo "claude-master interrupt: «$2» non è viva" >&2; exit 3 ;; esac ;;
+  interrupt) case "$2" in atlas-shop) echo "$2: fermata" ;; field-notes) echo "$2: niente da fermare" >&2; exit 1 ;; *) echo "team-supervisor interrupt: «$2» non è viva" >&2; exit 3 ;; esac ;;
   night) case "$2" in
       add) if [ "$4" = "FULL" ]; then echo "coda piena: 8 lavori, night.max_queued è 8" >&2; exit 4; fi; echo "in coda: 7b21d4e8 · $3 · account «work» (2 in coda)" ;;
       remove) case "$3" in 5d0e6b92) echo "tolta: $3" ;; a3f09c1e) echo "$3 è già partito: non si può togliere" >&2; exit 5 ;; *) echo "nessuna voce con id $3" >&2; exit 1 ;; esac ;;
@@ -473,7 +473,7 @@ def write_cfg(enabled=True, **extra):
 write_cfg()
 rdir2.mkdir(parents=True, exist_ok=True)
 (rdir2 / "follow.json").write_text(json.dumps(["work-ledger-api"]))
-ENV = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg), "CM_RELAY_CM": str(fake_cm),
+ENV = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg), "CM_RELAY_CM": str(fake_cm),
        "CM_RELAY_NOW": "1789210840"}   # 1.29: solo la cronologia lo legge (i dati di prova sono del 12/09/2026)
 
 
@@ -748,7 +748,7 @@ write_cfg()
 
 # R5b: i vettori del contratto 1.15 — pair-qr.json e pair-response.json (chiave privata del PC = scalare 0..31,
 # del telefono = 32..63): pair_accept sull'id della fixture accetta la risposta e produce esattamente `ok`
-os.environ.update({"CLAUDE_MASTER_CONFIG": str(cfg), "HOME": str(home), "CM_HOME": str(home)})
+os.environ.update({"TEAM_SUPERVISOR_CONFIG": str(cfg), "HOME": str(home), "CM_HOME": str(home)})
 RL = load("cm-relay")
 from cryptography.hazmat.primitives.asymmetric import x25519 as _x
 from cryptography.hazmat.primitives import serialization as _ser
@@ -784,10 +784,10 @@ T.check("R5b qr_payload with the fixture's values = pair-qr.json (d and t from t
 fx_rows = RL.qr_lines(json.dumps(FQ, ensure_ascii=False, separators=(",", ":")))
 fx_dec = qr_decode(fx_rows)
 T.check("R5b the fixture's JSON drawn as QR and decoded (OpenCV) gives back the same document (skipped without cv2)", fx_dec is None or (fx_dec and json.loads(fx_dec) == FQ), str(fx_dec)[:100])
-for kk in ("CLAUDE_MASTER_CONFIG", "HOME", "CM_HOME"):
+for kk in ("TEAM_SUPERVISOR_CONFIG", "HOME", "CM_HOME"):
     os.environ.pop(kk, None)
 
-# R5c (1.15): prove isolate — con CLAUDE_MASTER_CONFIG su una configurazione di prova (relay.dir, service account e
+# R5c (1.15): prove isolate — con TEAM_SUPERVISOR_CONFIG su una configurazione di prova (relay.dir, service account e
 # firebase_url suoi) pair, push e serve lavorano solo li': chiave, devices.json, /allowed e crontab della
 # configurazione principale restano come sono (le prove dell'app non devono scollegare l'orologio vero)
 URL_ISO, CALLS_ISO, STORE_ISO = T.fake_rtdb("iso-project")
@@ -796,7 +796,7 @@ SA_ISO = tmp / "sa-iso.json"; SA_ISO.write_text(SA.read_text().replace("fake-pro
 cfg_iso = tmp / "config-iso.json"
 cfg_iso.write_text(json.dumps(dict(json.loads(cfg.read_text()), relay={"enabled": True, "firebase_url": URL_ISO, "service_account": str(SA_ISO), "token_url": URL_ISO + "/token",
                                                                          "fcm_url": URL_ISO, "dir": str(rdir_iso), "host": "iso-host", "debounce_s": 1, "fcm_topic": "watch-iso", "firebase_app": APP})))
-ENV_ISO = dict(ENV, CLAUDE_MASTER_CONFIG=str(cfg_iso))
+ENV_ISO = dict(ENV, TEAM_SUPERVISOR_CONFIG=str(cfg_iso))
 snap = lambda: ((rdir2 / "key").read_bytes(), (rdir2 / "devices.json").read_bytes(), json.dumps(STORE.get("allowed"), sort_keys=True), cron.read_text(), (rdir2 / "serve.pid").exists())  # noqa: E731
 before_iso = snap()
 pr = subprocess.Popen([sys.executable, str(T.SCRIPTS / "cm-relay.py"), "pair", "--timeout", "8", "--text"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=ENV_ISO)
@@ -938,7 +938,7 @@ relay("push")
 res = send_cmd(CMDS[6])   # allow_all ledger-api
 T.check("R6 allow_all without a «don't ask again» option → ok false with the contract's text", res and res["ok"] is False and res["text"] == "no «don't ask again» option on this question", str(res))
 # R6 (1.10, 15/09, da claude-master-watch): answer con «text:<testo>» e «chat»
-# R10 (contratto 1.12, 16/09): modello ed effort dal polso, solo per la sessione, via `claude-master model|effort`;
+# R10 (contratto 1.12, 16/09): modello ed effort dal polso, solo per la sessione, via `team-supervisor model|effort`;
 # il testo di un rifiuto e' la prima riga del comando, breve, così com'è
 RES = json.loads((FIX / "cmd-result-sample.json").read_text())["result"]
 res = send_cmd(CMDS[9])   # model field-notes claude-sonnet-5
@@ -962,7 +962,7 @@ T.check("R11 (1.13) launch with text → `launch PATH --window`, then `talk` wit
 T.check("R11 (1.13) /result ok with the fixture's text and `session` = field-notes-2, the name the watch will see in sessions[].name",
         res and res["ok"] is True and res["text"] == RES[11]["text"] and res.get("session") == RES[11]["session"] == "field-notes-2", str(res))
 launch_adds.unlink()
-# R13 (contratto 1.17, 29/09): la coda di stanotte dall'app, via `claude-master night add|remove`
+# R13 (contratto 1.17, 29/09): la coda di stanotte dall'app, via `team-supervisor night add|remove`
 led = ws / "work" / "clients" / "ledger-api"
 n_calls = len(cm_calls())
 res = send_cmd(dict(CMDS[12], arg=str(led)))
@@ -1089,7 +1089,7 @@ res = send_cmd(dict(CMDS[1], id="6f1c2d3e-0002-4000-8000-000000000303"))
 T.check("R17 talk only saved it in the inbox (the session closed meanwhile) → ok false, the message waits there",
         res and res["ok"] is False and res["text"] == "atlas-shop closed meanwhile: the message waits in its inbox and arrives when it restarts", str(res))
 rows_alive("ledger-api", "atlas-shop", "field-notes")
-# R18 (contratto 1.21, 30/09): il tasto Stop — op interrupt via `claude-master interrupt`; `ops` nello stato
+# R18 (contratto 1.21, 30/09): il tasto Stop — op interrupt via `team-supervisor interrupt`; `ops` nello stato
 aw18 = json.loads((rdir2 / "awaiting.json").read_text()) if (rdir2 / "awaiting.json").exists() else {}
 (rdir2 / "awaiting.json").write_text(json.dumps(dict(aw18, **{"atlas-shop": int(time.time())})))
 n_calls = len(cm_calls())
@@ -1119,7 +1119,7 @@ p19 = json.loads(send_cmd(dict(CMDS[19], id="6f1c2d3e-0130-4000-8000-00000000030
 bad = [send_cmd(dict(CMDS[19], id=f"6f1c2d3e-0130-4000-8000-00000000030{i}", arg=a)) for i, a in ((2, "x"), (3, "5:after=nope"))]
 none19 = send_cmd(dict(CMDS[19], id="6f1c2d3e-0130-4000-8000-000000000304", session="atlas-shop-none"))
 f19 = {e["id"]: e["files"] for e in json.loads(res["text"])["entries"]}
-T.check("R19 (1.22) files: a png written (path made absolute from the session's cwd, mime, size null when absent), no file for a .py edit or a failed write, the PDF of SendUserFile, the image archived by `claude-master report`",
+T.check("R19 (1.22) files: a png written (path made absolute from the session's cwd, mime, size null when absent), no file for a .py edit or a failed write, the PDF of SendUserFile, the image archived by `team-supervisor report`",
         [x["mime"] for x in f19["a6.0"]] == ["image/png"] and f19["a6.0"][0]["path"].endswith("/field-notes/docs/cover.png") and f19["a6.0"][0]["size"] is None
         and f19["a6.1"] is None and f19["a6.2"] is None and [x["mime"] for x in f19["a7.0"]] == ["application/pdf"]
         and f19["a7.1"][0]["path"].endswith("/docs/reports/2026-09-12-checkout-is-grey.jpg") and all(v is None for k, v in f19.items() if not k.startswith(("a6", "a7"))), str(f19))
@@ -1171,7 +1171,7 @@ r22e = send_cmd(dict(fcmd[0], id="6f1c2d3e-0140-4000-8000-000000000203", session
 T.check("R22 (1.24) refusals in plain words: a listed file that is missing, a listed non-image over the cap («too large: <bytes> max <bytes>», 1.34), a session that is not running",
         r22c and r22c["text"] == "missing or unreadable" and r22d and r22d["text"] == f"too large: 1300000 max {RL.FILE_ONE_MAX}" and r22e and r22e["text"] == "no session atlas-shop-none", str([r22c, r22d, r22e]))
 from PIL import Image as _Im22
-rep22 = (ws / "personal" / "atlas-shop").resolve() / "docs" / "reports"   # l'immagine archiviata da `claude-master report`
+rep22 = (ws / "personal" / "atlas-shop").resolve() / "docs" / "reports"   # l'immagine archiviata da `team-supervisor report`
 rep22.mkdir(parents=True, exist_ok=True)
 _Im22.frombytes("RGB", (1600, 1600), _os22.urandom(1600 * 1600 * 3)).save(rep22 / "2026-09-12-checkout-is-grey.jpg", "JPEG", quality=95)
 jpg22 = str(rep22 / "2026-09-12-checkout-is-grey.jpg")
@@ -1245,14 +1245,20 @@ _m31 = json.loads((FIX / "state-1-question.json").read_text())["choices"]["model
 (adv31 / "S-A.json").write_text(json.dumps({"session_id": "S-A", "ctx_tokens": 36000, "advice": {"model": _m31[1]["id"], "effort": "high", "reason": "Checkout refactor:\nFable high",
                                             "switch_cost_tokens": 36000, "at": _now31, "source": "fable-director", "when": "now", "differs": True}}))
 (adv31 / "S-F.json").write_text(json.dumps({"session_id": "S-F", "advice": {"model": "claude-unknown-9", "effort": "high", "reason": "x", "switch_cost_tokens": 1, "at": _now31, "when": "now", "differs": True}}))
-(adv31 / "S-L.json").write_text(json.dumps({"session_id": "S-L", "advice": {"model": _m31[1]["id"], "effort": "low", "reason": "old", "switch_cost_tokens": 1, "at": _now31 - 30000, "when": "now", "differs": False}}))
+_m1m31 = next((m["id"] for m in _m31 if "[" in m["id"]), None)
+(adv31 / "S-L.json").write_text(json.dumps({"session_id": "S-L", "advice": {"model": _m1m31.split("[")[0], "effort": "low", "reason": "base id", "switch_cost_tokens": 1, "at": _now31, "when": "next_task", "differs": False}}))
 write_cfg(advice_dir=str(adv31))
 rows_alive("ledger-api", "atlas-shop", "field-notes")
 d31 = json.loads(relay("push", "--dry-run").stdout)
 s31 = {x["name"]: x for x in d31["sessions"]}
 T.check("R31 (1.37) advice from fable-director's snapshot <advice_dir>/<session_id>.json: {model, effort, reason on one line, switch_cost_tokens, at, source, when, differs}; a model outside the choices and an advice older than advice_max_age_s → no field",
         s31["atlas-shop"].get("advice") == {"model": _m31[1]["id"], "effort": "high", "reason": "Checkout refactor: Fable high", "switch_cost_tokens": 36000, "at": _now31, "source": "fable-director", "when": "now", "differs": True}
-        and "advice" not in s31["field-notes"] and "advice" not in s31["ledger-api"], json.dumps({k: v.get("advice") for k, v in s31.items()}))
+        and "advice" not in s31["field-notes"], json.dumps({k: v.get("advice") for k, v in s31.items()}))
+T.check("R31 (07/10) an advice with the base id («claude-opus-5») is kept when the choices carry the window («claude-opus-5[1m]»), as Tune.sameModel in the app",
+        _m1m31 is not None and (s31["ledger-api"].get("advice") or {}).get("model") == _m1m31.split("[")[0], json.dumps(s31["ledger-api"].get("advice")))
+(adv31 / "S-F.json").write_text(json.dumps({"session_id": "S-F", "advice": {"model": _m31[1]["id"], "effort": "low", "reason": "old", "switch_cost_tokens": 1, "at": _now31 - 30000, "when": "now", "differs": False}}))
+T.check("R31 (1.37) an advice older than advice_max_age_s (6 h) → no field",
+        "advice" not in {x["name"]: x for x in json.loads(relay("push", "--dry-run").stdout)["sessions"]}["field-notes"], "")
 T.check("R31 (1.37) approvals from the registry's tasks in awaiting_ok, the oldest first, deploy true when what or where names production",
         d31["approvals"] == [{"task": "notes-pr", "title": "Open the PR of the notes", "what": "push the branch notes", "where": "github fork", "deploy": False, "requested_at": 1789210500},
                              {"task": "atlas-release-2-4", "title": "Release 2.4 of atlas-shop", "what": "tag v2.4 and push to origin main", "where": "production (shop.example.com)", "deploy": True, "requested_at": 1789210600}], str(d31["approvals"]))
@@ -1568,8 +1574,8 @@ _db27 = Path(str(cfg)).parent / "tasks.db"
 _tk27 = {"schema_version": 1, "task": {"id": "invoices", "title": "Invoices endpoint", "plan": None, "where": {"project": str(_la), "session": None, "host": "local", "account": None},
          "check": {"cmd": "true", "cwd": None, "timeout_s": 10}, "perimeter": [], "lane": "open", "depends_on": [], "route": "session", "hold": False,
          "attempts_max": 3, "data_class": "internal", "requested_by": "test"}}
-subprocess.run([str(T.SCRIPTS / "claude-master"), "task", "add", "-"], input=json.dumps(_tk27), capture_output=True, text=True, env=dict(os.environ, **ENV))
-subprocess.run([str(T.SCRIPTS / "claude-master"), "task", "done", "invoices"], capture_output=True, text=True, env=dict(os.environ, **ENV))
+subprocess.run([str(T.SCRIPTS / "team-supervisor"), "task", "add", "-"], input=json.dumps(_tk27), capture_output=True, text=True, env=dict(os.environ, **ENV))
+subprocess.run([str(T.SCRIPTS / "team-supervisor"), "task", "done", "invoices"], capture_output=True, text=True, env=dict(os.environ, **ENV))
 _c27 = _sq27.connect(str(_db27)); _c27.execute("UPDATE results SET at=1789208000 WHERE task='invoices'"); _c27.commit(); _c27.close()
 rows_alive("field-notes")
 r27 = send_cmd(CMDS[29])
@@ -1660,7 +1666,7 @@ r = relay("off")
 T.check("R6 off: the daemon stops, the cron stays", r.returncode == 0 and T.wait_until(lambda: serve_pid() == 0, 4) and "relay ensure" in cron.read_text(), r.stdout + r.stderr)
 relay("ensure")
 r = relay("uninstall")
-T.check("R6 uninstall: daemon stopped and cron lines removed", r.returncode == 0 and T.wait_until(lambda: serve_pid() == 0, 4) and "claude-master relay" not in cron.read_text(), r.stdout + cron.read_text())
+T.check("R6 uninstall: daemon stopped and cron lines removed", r.returncode == 0 and T.wait_until(lambda: serve_pid() == 0, 4) and "team-supervisor relay" not in cron.read_text(), r.stdout + cron.read_text())
 # 0.4.20: senza crontab (o cryptography) install e pair si fermano prima di scrivere o chiedere: esce 5, comando da lanciare
 ENV_NOCRON = dict(ENV, CM_CRONTAB_CMD=str(tmp / "no-such-crontab"))
 before = cron.read_text()
@@ -1737,7 +1743,7 @@ r = hook("Stop", {"session_id": "S-A", "cwd": str(ws / "personal" / "atlas-shop"
 time.sleep(2.5)
 T.check("R7 relay.enabled=false: the hook does not push", r.returncode == 0 and state_puts() == n0, "")
 write_cfg()
-os.environ.update({"CLAUDE_MASTER_CONFIG": str(cfg), "HOME": str(home), "CM_RELAY_CM": str(fake_cm)})
+os.environ.update({"TEAM_SUPERVISOR_CONFIG": str(cfg), "HOME": str(home), "CM_RELAY_CM": str(fake_cm)})
 n0 = state_puts()
 (rdir2 / "awaiting.json").write_text(json.dumps({"atlas-shop": int(time.time())}))
 r = relay("push", "--dry-run"); dryaw = json.loads(r.stdout)
@@ -1825,7 +1831,7 @@ T.check("R9 (1.11) a session without a readable transcript has the three fields 
 # R21 (30/09, dal telefono: prompt e risposte non nell'ordine dato): i comandi che arrivano insieme (il put iniziale dopo
 # una riconnessione) si eseguono in ordine di `issued`, non di chiave (uuid casuali)
 _env21 = dict(os.environ)
-os.environ.update({"CLAUDE_MASTER_CONFIG": str(cfg), "HOME": str(home), "CM_HOME": str(home)})
+os.environ.update({"TEAM_SUPERVISOR_CONFIG": str(cfg), "HOME": str(home), "CM_HOME": str(home)})
 RL = load("cm-relay")
 os.environ.clear(); os.environ.update(_env21)
 cmds21 = {"z-first-key": C.encrypt({"op": "prompt", "issued": 1789210903}, k), "a-last-key": C.encrypt({"op": "answer", "issued": 1789210905}, k),
@@ -1836,7 +1842,7 @@ cmds21b = {"t-old": C.encrypt({"op": "transcript", "session": "atlas-shop", "arg
            "t-new": C.encrypt({"op": "transcript", "session": "atlas-shop", "arg": "20:after=x", "issued": 1789210914}, k),
            "t-other": C.encrypt({"op": "transcript", "session": "field-notes", "arg": "20", "issued": 1789210911}, k),
            "p-1": C.encrypt({"op": "prompt", "session": "atlas-shop", "arg": "go", "issued": 1789210912}, k)}
-_env21 = dict(os.environ); os.environ.update({"CLAUDE_MASTER_CONFIG": str(cfg), "HOME": str(home), "CM_HOME": str(home)})
+_env21 = dict(os.environ); os.environ.update({"TEAM_SUPERVISOR_CONFIG": str(cfg), "HOME": str(home), "CM_HOME": str(home)})
 got21 = [c for c, _ in RL.in_order(cmds21b)]
 os.environ.clear(); os.environ.update(_env21)
 sup = (STORE.get("result") or {}).get("t-old")

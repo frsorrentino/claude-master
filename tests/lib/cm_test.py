@@ -1,4 +1,4 @@
-"""Harness dei test di claude-master.
+"""Harness dei test di team-supervisor.
 
 Nessun framework: ogni test e' uno script che stampa OK/FAIL per caso ed esce
 con codice diverso da zero se uno fallisce (convenzione di fable-director).
@@ -23,7 +23,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-PLUGIN = ROOT / "claude-master"
+PLUGIN = ROOT / "team-supervisor"
 SCRIPTS = PLUGIN / "scripts"
 FIXTURES = ROOT / "tests" / "fixtures"
 
@@ -129,7 +129,7 @@ def run_config(args, home, config=None, machine=None, extra_env=None, stdin=None
     env["HOME"] = str(home)
     env["CM_HOME"] = str(home)
     if config is not None:
-        env["CLAUDE_MASTER_CONFIG"] = str(config)
+        env["TEAM_SUPERVISOR_CONFIG"] = str(config)
     if machine is not None:
         env["CM_FAKE_MACHINE"] = str(machine)
     if extra_env:

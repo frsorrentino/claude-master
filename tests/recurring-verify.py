@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""claude-master recurring (contratto 1.33, 04/10/2026): la lista delle azioni ricorrenti della master sul PC, l'ordine
+"""team-supervisor recurring (contratto 1.33, 04/10/2026): la lista delle azioni ricorrenti della master sul PC, l'ordine
 dall'ultima usata, al massimo 8 nello stato, e la voce che sale in cima quando il suo prompt parte."""
 import json
 import os
@@ -17,7 +17,7 @@ ENV = dict(os.environ, CM_RECURRING=str(tmp / "recurring.json"))
 
 
 def rc(*a):
-    p = subprocess.run([str(T.SCRIPTS / "claude-master"), "recurring", *a], capture_output=True, text=True, env=ENV, timeout=30)
+    p = subprocess.run([str(T.SCRIPTS / "team-supervisor"), "recurring", *a], capture_output=True, text=True, env=ENV, timeout=30)
     return p.returncode, p.stdout, p.stderr
 
 

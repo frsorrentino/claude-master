@@ -1,14 +1,14 @@
 {
-  "name": "claude-master-dev",
-  "description": "The marketplace of claude-master: add it with `claude plugin marketplace add frsorrentino/claude-master`, then `claude plugin install claude-master@claude-master-dev`.",
+  "name": "team-supervisor-dev",
+  "description": "The marketplace of team-supervisor: add it with `claude plugin marketplace add frsorrentino/team-supervisor`, then `claude plugin install team-supervisor@team-supervisor-dev`.",
   "owner": {
     "name": "Francesco Sorrentino",
     "email": "info@francescosorrentino.com"
   },
   "plugins": [
     {
-      "name": "claude-master",
-      "source": "./claude-master",
+      "name": "team-supervisor",
+      "source": "./team-supervisor",
       "description": "Run many Claude Code sessions on one machine: launch them in the right folder and account, in tmux, with a terminal window whose tab tells you which is which; list, close, restart, talk to them and restore them after a reboot. Configurable per machine, generic across terminals."
     }
   ]

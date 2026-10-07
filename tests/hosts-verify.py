@@ -42,7 +42,7 @@ cfgf.write_text(json.dumps({
     "folder_map": [{"path": "~/ws", "account": "personale"}, {"path": "~/ws/alfa", "account": "pro"}],
     "scheduler": {"remote_root": {"posix": str(remote_home / "claude-work")}},
 }))
-ENV = dict(os.environ, HOME=str(home), CM_HOME=str(home), CLAUDE_MASTER_CONFIG=str(cfgf),
+ENV = dict(os.environ, HOME=str(home), CM_HOME=str(home), TEAM_SUPERVISOR_CONFIG=str(cfgf),
            CM_SSH_BIN=str(LIB / "fake-ssh.py"), CM_SCP_BIN=str(LIB / "fake-scp.py"), FAKE_SSH_HOME=str(remote_home),
            CM_HOSTS_TTY="0", FAKE_SSH_LOG=str(tmp / "ssh.log"))
 ENV.pop("CLAUDE_CONFIG_DIR", None)

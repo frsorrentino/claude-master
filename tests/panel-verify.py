@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifica `claude-master panel` (02/10/2026): il pannello di un comando slash letto e chiuso, tmux privato.
+"""Verifica `team-supervisor panel` (02/10/2026): il pannello di un comando slash letto e chiuso, tmux privato.
 
 PN1 pannello intero (bordo «▔▔▔», testo, «Esc to cancel»): testo fra bordo e piè di pagina, un Esc lo chiude, exit 0
 PN2 pannello piu' alto dello schermo (/cost a 32 righe, dal vivo): il piè di pagina non si vede; il testo arriva fino
@@ -30,7 +30,7 @@ def fake(tm, name, lines, rows=30):
 
 def panel(tm, name, wait="2"):
     env = {"PATH": __import__("os").environ["PATH"], "HOME": str(tmp), "CM_TMUX_ARGS": tm.env["CM_TMUX_ARGS"],
-           "CLAUDE_MASTER_CONFIG": str(tmp / "nessuna.json"), "CM_PROC_SCAN_PIDS": ""}
+           "TEAM_SUPERVISOR_CONFIG": str(tmp / "nessuna.json"), "CM_PROC_SCAN_PIDS": ""}
     return subprocess.run([sys.executable, str(T.SCRIPTS / "cm-talk.py"), "panel", name, "--wait", wait],
                           capture_output=True, text=True, env=env, timeout=60)
 

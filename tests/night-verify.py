@@ -67,12 +67,12 @@ cfg.write_text(json.dumps({
     "default_account": "personale",
     "folder_map": [{"path": str(ws / "agenzia"), "account": "professionale"}],
     "bot": {"api_base": f"http://127.0.0.1:{srv.server_port}", "token_file": str(tg / ".env"), "access_file": str(tg / "access.json")},
-    "night": {"cron_time": "02:00", "min_free_mb": 500, "max_quota_pct": 80, "max_items_per_run": 3, "max_turns": 12, "max_queued": 3},
+    "night": {"cron_time": "02:00", "min_free_mb": 500, "max_quota_pct": 80, "max_items_per_run": 3, "max_turns": 12, "max_queued": 3, "permission_mode": "acceptEdits"},   # 06/10: il default e' «default», acceptEdits lo sceglie l'utente
 }))
 
 
 def night(*args, free_mb="4000", claude=FAKE):
-    env = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg),
+    env = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg),
            "CM_CRONTAB_CMD": str(fake_crontab), "CM_CLAUDE_BIN": str(claude), "FAKE_CLAUDE_ARGS_LOG": str(argslog),
            "FAKE_CLAUDE_ECHO_ENV": "CLAUDE_CONFIG_DIR", "CM_NIGHT_FREE_MB": free_mb}
     return subprocess.run([sys.executable, str(T.SCRIPTS / "cm-night.py"), *args], capture_output=True, text=True, env=env, timeout=120)

@@ -9,7 +9,7 @@ manda le due righe catturate in E6a: auth con il peerToken del DESTINATARIO
 import glob, json, os, socket, sys, uuid
 
 name, text = sys.argv[1], sys.argv[2]
-from_name = "claude-master-script"
+from_name = "team-supervisor-script"
 from_mode = "bypass"
 a = sys.argv[3:]
 if "--from-name" in a:

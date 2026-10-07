@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""claude-master render (03/10/2026): Markdown → una pagina HTML con il modello fisso; nessun HTML passa; la chat del
+"""team-supervisor render (03/10/2026): Markdown → una pagina HTML con il modello fisso; nessun HTML passa; la chat del
 telefono mostra la pagina nella voce del comando (files, come le immagini di `report`)."""
 import json
 import os
@@ -44,7 +44,7 @@ Rilasciate **quattro versioni**, con `release.sh` e *calma*.
 
 
 def render(*a, cwd=tmp, stdin=None):
-    p = subprocess.run([str(T.SCRIPTS / "claude-master"), "render", *a], cwd=cwd, input=stdin, capture_output=True, text=True, timeout=60)
+    p = subprocess.run([str(T.SCRIPTS / "team-supervisor"), "render", *a], cwd=cwd, input=stdin, capture_output=True, text=True, timeout=60)
     return p.returncode, p.stdout, p.stderr
 
 
@@ -64,19 +64,19 @@ T.check("RD3 Markdown: bold, italic, inline code, ## as h2, nested list, ✓ gre
 T.check("RD4 nothing passes as HTML: <script>, an <img onerror>, <b> in a code block are text; a javascript: link stays text; an https link keeps its & escaped",
         "<script" not in page and "<img" not in page and "&lt;script&gt;" in body and "&lt;b&gt;codice&lt;/b&gt; &amp; altro" in body
         and 'href="javascript' not in page and '<a href="https://github.com/x?a=1&amp;b=2">GitHub</a>' in body, body[-500:])
-rc, out, _ = render("-", "--title", "Titolo dato", "--meta", "master · claude-master", "--out", str(tmp / "x" / "y.html"), stdin="solo testo\n")
+rc, out, _ = render("-", "--title", "Titolo dato", "--meta", "master · team-supervisor", "--out", str(tmp / "x" / "y.html"), stdin="solo testo\n")
 p2 = (tmp / "x" / "y.html").read_text() if rc == 0 else ""
-T.check("RD5 from stdin with --title, --meta and --out (folders made)", rc == 0 and out.strip() == f"html: {tmp / 'x' / 'y.html'}" and "<h1>Titolo dato</h1><p>master · claude-master</p>" in p2 and "<p>solo testo</p>" in p2, out + p2[:200])
+T.check("RD5 from stdin with --title, --meta and --out (folders made)", rc == 0 and out.strip() == f"html: {tmp / 'x' / 'y.html'}" and "<h1>Titolo dato</h1><p>master · team-supervisor</p>" in p2 and "<p>solo testo</p>" in p2, out + p2[:200])
 T.check("RD6 a missing file → exit 1 and the error, nothing written", render("nope.md")[0] == 1, "")
 
-# la chat del telefono: la voce Bash di `claude-master render` porta la pagina in files (come `report` le immagini)
+# la chat del telefono: la voce Bash di `team-supervisor render` porta la pagina in files (come `report` le immagini)
 spec = __import__("importlib.util").util.spec_from_file_location("cm_core", T.SCRIPTS / "cm-core.py")
 core = __import__("importlib.util").util.module_from_spec(spec)
 spec.loader.exec_module(core)
 tr = tmp / "t.jsonl"
 tr.write_text("\n".join(json.dumps(x, separators=(",", ":")) for x in [
     {"type": "assistant", "uuid": "a1", "timestamp": "2026-10-03T19:00:00.000Z", "isSidechain": False, "cwd": str(tmp),
-     "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "claude-master render recap.md --title Oggi"}}]}},
+     "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "team-supervisor render recap.md --title Oggi"}}]}},
     {"type": "user", "uuid": "r1", "timestamp": "2026-10-03T19:00:01.000Z", "isSidechain": False, "cwd": str(tmp),
      "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "is_error": False, "content": f"html: {m.group(1) if m else '/x.html'}\n"}]}},
     {"type": "assistant", "uuid": "a2", "timestamp": "2026-10-03T19:00:02.000Z", "isSidechain": False, "cwd": str(tmp),

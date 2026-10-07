@@ -45,7 +45,7 @@ def write_cfg(as_tab=True):
         "language": "it", "sessions": {"max_sessions": 50}, "state_dir": str(state),
         "workspace": {"root": str(home / "ws"), "root_session_name": "master"},
         "accounts": {"personale": {"config_dir": str(home / ".claude")}},
-        "session": {"startup_timeout_s": 25, "death_check_s": 1},
+        "session": {"dialog_patterns": ["trust (this|the) folder", "Is this a project you", "Bypass Permissions mode"], "startup_timeout_s": 25, "death_check_s": 1},
         "terminal": {"backend": "chromeos", "garcon": str(fake_garcon), "attach_wait_s": 8, "attach_retry_wait_s": 4, "open_as_tab": as_tab},
         "tile": {"chrome_bridge_cli": str(T.ROOT / "tests" / "lib" / "fake-bridge.py"), "placeholder_file": str(state / "next-session"),
                  "monitor_registry": str(state / "monitors.json"), "new_client_wait_s": 8, "window_open_wait_s": 5},
@@ -60,7 +60,7 @@ FAKE = T.ROOT / "tests" / "lib" / "fake-claude.sh"
 
 
 def env(**extra):
-    e = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg),
+    e = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg),
          "CM_TMUX_ARGS": tm.env["CM_TMUX_ARGS"], "FAKE_BRIDGE_STATE": str(bridge_state), "FAKE_BRIDGE_PLACEHOLDER": str(state / "next-session"),
          "FAKE_BRIDGE_TMUX_ARGS": tm.env["CM_TMUX_ARGS"], "FAKE_GARCON_LOG": str(garcon_log), "WAYLAND_DISPLAY": "wl-0", "CM_PROC_SCAN_PIDS": "", "CM_CLAUDE_BIN": str(FAKE)}
     e.update(extra)

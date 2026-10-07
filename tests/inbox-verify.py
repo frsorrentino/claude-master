@@ -39,7 +39,7 @@ cfg.write_text(json.dumps({"language": "it", "state_dir": str(state), "default_a
 
 
 def env(extra=None):
-    e = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg),
+    e = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg),
          "CLAUDE_CONFIG_DIR": str(home / ".claude"), "CM_PROC_SCAN_PIDS": ""}
     e.update(extra or {})
     return e
@@ -82,7 +82,7 @@ T.check("IB3 an expired message (past 48 h) is not delivered: status expired", b
 py("[I.put('gamma',f'messaggio numero {i}','master') for i in range(7)]")
 b5 = py("print(I.deliver_block('gamma','','stop'))").stdout
 T.check("IB4 over five messages: five shown, the rest still pending and the text says how to read them",
-        b5.count("— da master") == 5 and "altri 2" in b5 and "claude-master inbox gamma" in b5
+        b5.count("— da master") == 5 and "altri 2" in b5 and "team-supervisor inbox gamma" in b5
         and sum(1 for r in recs("gamma") if r["status"] == "pending") == 2, b5[-300:])
 
 # IB5 talk
@@ -125,7 +125,7 @@ T.check("IB8 the activity log: talk rows (sender, recipient, id, first line only
         any(r["to"] == "alfa" and r["text"] == "Risposta: la release e' pubblicata." for r in talks) and any(r["event"] == "delivered" for r in led)
         and not any("Seconda riga" in json.dumps(r) for r in led), json.dumps(talks[:2]))
 # IB9: annullare un messaggio in attesa (01/10/2026, un /exit rimasto per una sessione chiusa prima di riceverlo)
-py(f"I.put('delta','/exit','claude-master',{str(work)!r})")
+py(f"I.put('delta','/exit','team-supervisor',{str(work)!r})")
 did = recs("delta")[0]["id"]
 inbox = lambda *a: subprocess.run([sys.executable, str(T.SCRIPTS / "cm-inbox.py")] + list(a), capture_output=True, text=True, env=env(), timeout=30)
 c1 = inbox("cancel", did)

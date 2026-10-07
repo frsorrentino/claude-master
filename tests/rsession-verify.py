@@ -51,7 +51,7 @@ base_cfg = {
                  "professionale": {"config_dir": str(home / ".claude-pixel"), "tmux_prefix": "pix-"}},
     "default_account": "personale",
     "folder_map": [{"path": str(ws / "pro"), "account": "professionale"}, {"path": str(ws / "personali"), "account": "personale"}],
-    "session": {"claude_args": ["--dangerously-skip-permissions"], "startup_timeout_s": 25, "death_check_s": 1},
+    "session": {"dialog_patterns": ["trust (this|the) folder", "Is this a project you", "Bypass Permissions mode"], "claude_args": ["--dangerously-skip-permissions"], "startup_timeout_s": 25, "death_check_s": 1},
     "terminal": {"backend": "none"},
     "registry": {"file": str(tmp / "registry.json")},
     "sessions": {"max_sessions": 0},   # tetto locale a zero: un lancio remoto non ne tiene conto
@@ -67,7 +67,7 @@ FAKE = T.ROOT / "tests" / "lib" / "fake-claude.sh"
 
 
 def env(**extra):
-    e = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg),
+    e = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg),
          "CLAUDE_CONFIG_DIR": str(home / ".claude"), "CM_RSESSION_ADAPTER": str(FAKE_AD), "FAKE_WIN_ROOT": str(winroot),
          "CM_LOADAVG": "0.1", "CM_NPROC": "8", "CM_MEMAVAIL_GB": "5", "CM_PROC_SCAN_PIDS": "", "CM_LAUNCH_NO_TTY": "1",
          "GIT_AUTHOR_NAME": "Prova", "GIT_AUTHOR_EMAIL": "prova@example.com", "GIT_COMMITTER_NAME": "Prova",
@@ -134,7 +134,7 @@ T.check("RS2 launch --host win: exit 0, name win-alfa, link from the host's regi
 T.check("RS2 the snapshot of HEAD becomes a new repository there: base commit, .cm-session.json, no .env, no uncommitted file",
         (rdir / "README.md").is_file() and (rdir / "src" / "a.txt").is_file() and not (rdir / ".env").exists()
         and not (rdir / "nuovo-non-committato.txt").exists() and (rdir / ".cm-session.json").is_file()
-        and g(rdir, "log", "--format=%s").strip().startswith("claude-master: base " + g(alfa, "rev-parse", "HEAD").strip()), out)
+        and g(rdir, "log", "--format=%s").strip().startswith("team-supervisor: base " + g(alfa, "rev-parse", "HEAD").strip()), out)
 T.check("RS2 trust written before the start; args: config's claude_args, then --remote-control win-alfa -n win-alfa",
         [c["verb"] for c in calls() if c["verb"] in ("trust", "start")] == ["trust", "start"]
         and starts and starts[0]["args"] == ["--dangerously-skip-permissions", "--remote-control", "win-alfa", "-n", "win-alfa"], json.dumps(starts))
@@ -192,7 +192,7 @@ kb2 = ws / "personali" / "kb2"
 kb2.mkdir()
 repo(kb2, {"a": "a\n"})
 r = launch(str(kb2), "--host", "win", "--no-window")
-T.check("RS6 a folder already there but not ours → refused, nothing sent", r.returncode == 6 and "non è di claude-master" in r.stderr, r.stdout + r.stderr)
+T.check("RS6 a folder already there but not ours → refused, nothing sent", r.returncode == 6 and "non è di team-supervisor" in r.stderr, r.stdout + r.stderr)
 nr = ws / "personali" / "noreg"
 nr.mkdir()
 repo(nr, {"a": "a\n"})

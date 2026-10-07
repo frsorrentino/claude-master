@@ -1,8 +1,8 @@
-# claude-master
+# team-supervisor
 
-![Version](https://img.shields.io/badge/version-0.6.10-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.7.0-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
-[![claude-master in 40 seconds: a question from a Claude Code session on a Wear OS watch — «Staging is green. Deploy 2.8.0?» — answered with one tap.](assets/readme/promo-poster.jpg)](https://www.francescosorrentino.com/plugins/claude-master-watch)
+[![team-supervisor in 40 seconds: a question from a Claude Code session on a Wear OS watch — «Staging is green. Deploy 2.8.0?» — answered with one tap.](assets/readme/promo-poster.jpg)](https://www.francescosorrentino.com/plugins/claude-master-watch)
 
 **Run several Claude Code sessions on one computer without losing track of
 them.** Each project gets its own terminal tab; one list shows what is running
@@ -21,10 +21,10 @@ and a [supported terminal](#terminal-backends), on Linux, macOS, ChromeOS or
 WSL2 ([not native Windows](#windows)).
 
 ```bash
-claude plugin marketplace add frsorrentino/claude-master && claude plugin install claude-master@claude-master-dev --scope user
+claude plugin marketplace add frsorrentino/team-supervisor && claude plugin install team-supervisor@team-supervisor-dev --scope user
 ```
 
-Then `claude-master init --yes --shim --shell` and `claude-master doctor`:
+Then `team-supervisor init --yes --shim --shell` and `team-supervisor doctor`:
 the [Quickstart](#quickstart) has each step.
 
 **Phone and watch: beta, testers welcome.** Sign up at [groups.google.com/g/claude-master-testers](https://groups.google.com/g/claude-master-testers) to get the
@@ -33,9 +33,9 @@ phone and watch apps from Google Play. You need an Android 13+ phone, a Wear OS
 logged in (`npm install -g firebase-tools`, `firebase login`). Then, on the PC:
 
 ```bash
-claude-master relay setup     # your own Firebase project, guided; --dry-run shows the steps
-claude-master relay pair      # a QR: scan it with the phone app
-claude-master relay install   # keeps the relay running
+team-supervisor relay setup     # your own Firebase project, guided; --dry-run shows the steps
+team-supervisor relay pair      # a QR: scan it with the phone app
+team-supervisor relay install   # keeps the relay running
 ```
 
 The phone pairs with the PC and passes the key to the watch, which then works
@@ -54,20 +54,20 @@ hardware: [Terminal backends](#terminal-backends) says which. On ChromeOS the
 window commands also need [chrome-bridge](https://github.com/frsorrentino/chrome-bridge).
 
 ```bash
-claude plugin marketplace add frsorrentino/claude-master
-claude plugin install claude-master@claude-master-dev --scope user
-claude-master init --dry-run             # reads your machine and shows every value it found, with its source
-claude-master init --yes --shim --shell  # writes the config; --shim = the `claude-master` command in ~/.local/bin;
+claude plugin marketplace add frsorrentino/team-supervisor
+claude plugin install team-supervisor@team-supervisor-dev --scope user
+team-supervisor init --dry-run             # reads your machine and shows every value it found, with its source
+team-supervisor init --yes --shim --shell  # writes the config; --shim = the `team-supervisor` command in ~/.local/bin;
                                          # --shell = the file that makes `claude` open a named tab
-claude-master doctor                     # all green, or one line per thing to fix
-claude-master launch ~/projects/x        # your first session, in its own tab
+team-supervisor doctor                     # all green, or one line per thing to fix
+team-supervisor launch ~/projects/x        # your first session, in its own tab
 ```
 
 `init --shell` prints one line to add to your `.bashrc` or `.zshrc`. From then
 on, typing `claude` in a project folder opens that project's session in a
 named, coloured tab instead of an anonymous window. To undo everything:
-`claude plugin uninstall claude-master`, remove that line, and
-`claude-master recap uninstall` / `night uninstall` / `guard uninstall` if you
+`claude plugin uninstall team-supervisor`, remove that line, and
+`team-supervisor recap uninstall` / `night uninstall` / `guard uninstall` if you
 had turned those on.
 
 ## What you get
@@ -79,12 +79,12 @@ in the pictures (`master`, `atlas-shop`, `ledger-api`, `field-notes`, `orbit-doc
 
 ### Sessions at a glance
 
-![Sessions at a glance: the real `claude-master sessions` table on the demo set — PID, account, name, state, folder, window, channel, uptime — with the session waiting for an answer and nobody attached on the first row.](assets/readme/card1-sessions.png)
+![Sessions at a glance: the real `team-supervisor sessions` table on the demo set — PID, account, name, state, folder, window, channel, uptime — with the session waiting for an answer and nobody attached on the first row.](assets/readme/card1-sessions.png)
 
-`claude-master sessions` lists every session of every account: busy, idle, or
+`team-supervisor sessions` lists every session of every account: busy, idle, or
 stopped on a question waiting for you, whether a tab is attached, which
 channel reaches it. A detached session stuck on a question is work standing
-still, not work in progress: it goes first. `claude-master next` picks the one
+still, not work in progress: it goes first. `team-supervisor next` picks the one
 that needs you most. Three more notes on a row, read without asking anyone:
 «at lower priority» when the session runs past its limit in `/low-priority`
 mode (slow but alive; it shows only on the session's own screen, so the note
@@ -101,9 +101,10 @@ demo set: every account has its own, set in `accounts.<name>.tmux_prefix`.
 
 ![Launch by a piece of a name: launch resolves a folder fragment under the workspace root, deduces the account from the folder, opens the session as a tab of the Terminal window already open and prints its Remote Control link.](assets/readme/card2-launch.png)
 
-`claude-master launch atlas` resolves the folder under your workspace root,
+`team-supervisor launch atlas` resolves the folder under your workspace root,
 deduces the account (personal or work, by a map you set once: a warning, never
-a refusal), answers the trust and bypass dialogs, and opens the session as a
+a refusal), stops on the trust and bypass dialogs for you to accept them (or
+answers them, if you list them in `session.dialog_patterns`), and opens the session as a
 tab of the Terminal window you already have, with no start tab beside it. A
 typo never becomes a folder: `--create` only when you ask, with the full path
 shown first. Typing `claude` inside a project folder does the same. Past
@@ -116,9 +117,9 @@ without a terminal it exits 7 and says to close an idle session or repeat with
 
 ![Talk and answer: a prompt sent to another session and its reply read from its transcript; the question a session is stuck on, with numbered options, answered by number — and the same question on the Wear OS app, rendered from the app's code, on the demo set.](assets/readme/card3-talk.png)
 
-`claude-master talk ledger-api "deploy done?"` delivers a prompt to another
+`team-supervisor talk ledger-api "deploy done?"` delivers a prompt to another
 session, on either account, and reads the answer back from its transcript.
-`claude-master answer ledger-api --show` reads the question a session is stuck on,
+`team-supervisor answer ledger-api --show` reads the question a session is stuck on,
 options numbered; `answer ledger-api 1` answers it: a message in the inbox never
 unblocks a dialog, this does. The phone gets the same question with its
 options as buttons the moment the session stops.
@@ -131,14 +132,14 @@ The first shell after a reboot offers to bring every session back, each with
 its own conversation. Two lists feed it: the registry, reconciled every five
 minutes, and the «last good set», which grows with the sessions and never
 shrinks on its own — two windows closed by hand before the reboot cannot make
-a session disappear from the proposal. `claude-master restore --dry-run` shows
+a session disappear from the proposal. `team-supervisor restore --dry-run` shows
 what would come back, with the source and the date of each.
 
 ### Restart in place, keep talking
 
 ![Restart in place: restart arm sets one flag per session; at the end of the turn the Stop hook exits the session cleanly, frees the tmux name and launches it again with --continue, so the conversation continues.](assets/readme/card5-restart.png)
 
-`claude-master restart arm` restarts the current session when its turn ends
+`team-supervisor restart arm` restarts the current session when its turn ends
 and resumes where it was, because hooks, settings and plugins are read at
 startup only. It keeps the model too: a new default model reaches a resumed
 session only through `/model`, while `launch` starts on it. One flag per session, so eight sessions can arm in the same
@@ -151,7 +152,7 @@ safe instant.
 
 ![Your screen, arranged: the master session as the big window on the left and the other four stacked on the right, each an app window of the ChromeOS Terminal with no start tab; the tile, merge, move and layout commands beside it.](assets/readme/card6-screen.png)
 
-On ChromeOS, `claude-master tile` gives every session an app window of its
+On ChromeOS, `team-supervisor tile` gives every session an app window of its
 own and arranges them: equal columns, a grid when they get narrow, and with an
 odd count that includes the master, the master big on the left and the others
 stacked on the right. `merge` brings them back as tabs of one window, `move
@@ -163,7 +164,7 @@ layout. The Terminal's start tab is evicted, never left beside a session.
 ![From your wrist: the Wear OS app (beta) on the demo set — a session's card, a question with its options, the quota — real screens rendered from the app's code.](assets/readme/card7-wrist.png)
 
 The native Wear OS app is out in **beta**:
-[github.com/frsorrentino/claude-master-watch](https://github.com/frsorrentino/claude-master-watch).
+[github.com/frsorrentino/team-supervisor-app](https://github.com/frsorrentino/team-supervisor-app).
 Sign up as a tester ([Try it](#try-it)), or build it yourself from the app's
 README. The relay runs on your PC, with your own Firebase. The list shows every
 session with its state and icon; a tap opens its card — state, outcome, next
@@ -188,15 +189,15 @@ watch cannot carry or will not receive:
 - a question a session is stuck on, when the watch is not paired, or the relay
   or the network is down — the phone is then the only channel left.
 
-`claude-master bot status` shows the token, the allowed chats and the log; there
+`team-supervisor bot status` shows the token, the allowed chats and the log; there
 is no daemon to keep alive any more. The morning «what waits for you» lives on
 the watch, which shows without pause who is waiting on a question and who is
 idle.
 
 ### Relay for the Wear OS app
 
-`claude-master relay` puts the PC on the bus of the native watch app
-([github.com/frsorrentino/claude-master-watch](https://github.com/frsorrentino/claude-master-watch),
+`team-supervisor relay` puts the PC on the bus of the native watch app
+([github.com/frsorrentino/team-supervisor-app](https://github.com/frsorrentino/team-supervisor-app),
 whose README has the watch side under «Set up»):
 `relay push` publishes an encrypted `/state` (the v1 contract in
 `tests/fixtures/relay/`) to Firebase RTDB, appends `/events` and wakes the watch
@@ -205,7 +206,7 @@ with FCM; `relay serve` listens on `/cmd` and runs the allow-listed commands
 writing `/result`; `relay pair` shows a QR for the phone app and a six-digit
 code for the watch, and agrees the AES key over X25519 with whichever answers
 first. Setup: a Firebase project with RTDB and FCM, its
-service account JSON in `~/.claude-master/relay/service-account.json` (0600,
+service account JSON in `~/.team-supervisor/relay/service-account.json` (0600,
 never in the repo), `relay.enabled`, `relay.firebase_url` and `relay.fcm_topic`
 in the config, then `relay pair`, `relay install`. RTDB rules: `/state`,
 `/events` and `/result` readable only by a uid present in `/allowed`, `/cmd`
@@ -221,7 +222,7 @@ read it from — that state lives only in the session's memory) and `goal`
 without a `/goal`).
 
 Contract 1.17 lets the app edit tonight's queue: `night_add` (the folder of a
-published project and the prompt, run as `claude-master night add`) and
+published project and the prompt, run as `team-supervisor night add`) and
 `night_remove` (the job id), and `/state` carries `night.items`, the queue in
 run order with each prompt cut to 160 characters. The field is there even when
 the queue is empty: its absence tells the app to ask for an update. The queue
@@ -237,12 +238,12 @@ characters, and the day in `ref`; the quota guard's resume at the reset is a
 Contract 1.19 is «Share» from the phone: the phone writes an image, encrypted
 like a command, in `/share/<id>` (at most 1.5 MB, JPEG or PNG), then sends
 `report` with the session, the text and that id; the relay runs
-`claude-master report <session folder> <image|-> "<text>" --session <name>` and
+`team-supervisor report <session folder> <image|-> "<text>" --session <name>` and
 deletes the node, whatever the outcome (unread nodes go after 10 minutes).
 `/state` carries `share: {max_bytes}` so the app knows it can.
 
 Contract 1.21 adds the Stop button: `interrupt` with the session runs
-`claude-master interrupt`, and `/state` carries `ops`, the command ops this relay
+`team-supervisor interrupt`, and `/state` carries `ops`, the command ops this relay
 executes, so the app shows a button only when its op is there.
 
 Contract 1.22 is the conversation for the phone's chat: `transcript` with `n`,
@@ -273,7 +274,7 @@ another session's message and not run. A busy session, or one on a dialog, is
 refused («<name> is busy»), as is a command outside the list («not allowed: …»).
 A command that opens a panel over the prompt (`/cost`, `/usage`) has its text
 read and sent back in the result, then the panel is closed with one Esc
-(`claude-master panel <name>`), so nothing stays open on the PC.
+(`team-supervisor panel <name>`), so nothing stays open on the PC.
 
 Contract 1.26 gives the phone the whole project list for «Launch»: `projects`
 answers with every project of every account (the fields of `/state.projects`),
@@ -307,7 +308,7 @@ Contract 1.35 serves the web app on the same machine: with `relay.web.enabled`
 the relay daemon listens on `127.0.0.1:<relay.web.port>` (8765 by default),
 serves the built web app from `relay.web.dir` on `/` and a local API with the
 contract's JSON in clear (state, events, a state stream, commands, files,
-attachments) behind a local token. `claude-master relay web` prints the address
+attachments) behind a local token. `team-supervisor relay web` prints the address
 with the token and opens it in the browser.
 Contract 1.36 labels what comes from the web app («via the web app»), and
 contract 1.37 brings the master's help to the app: fable-director's advice of
@@ -346,7 +347,7 @@ without a SHA fingerprint (the API key is not restricted: the Play signature
 differs from the development one), saves its data in `relay.firebase_app` and
 `<relay.dir>/google-services.json`, creates the firebase-adminsdk key at
 `relay.service_account` (0600) and writes `relay.enabled`, `relay.firebase_url`
-and `relay.fcm_topic` into the config in use, `CLAUDE_MASTER_CONFIG` included.
+and `relay.fcm_topic` into the config in use, `TEAM_SUPERVISOR_CONFIG` included.
 The database instance, anonymous sign-in and the key go through Google's REST
 APIs with the CLI's own token; when that token is missing, those steps print
 the exact console link and wait for Enter. On a project born a minute ago
@@ -357,7 +358,7 @@ replaced. `--dry-run` lists what would be done and writes nothing; `--yes` takes
 the defaults; the end is a summary like `doctor`'s.
 
 To try the app without touching the watch already paired, point
-`CLAUDE_MASTER_CONFIG` at a trial config with its own `relay.dir`,
+`TEAM_SUPERVISOR_CONFIG` at a trial config with its own `relay.dir`,
 `relay.service_account` and `relay.firebase_url`: `relay pair`, `relay push` and
 `relay serve` then work only there, and the main config's key, `devices.json`,
 `/allowed` and crontab stay as they are.
@@ -383,7 +384,7 @@ works again.
 
 ![Guard, diary and night shift: on a phone, the Telegram chat with the 20:00 recap — one sentence per project with its icon, the ones waiting on a question first, the next step under each; beside it the quota warning at 95 percent and the resume at the reset, what one-way Telegram still sends, and the overnight queue.](assets/readme/card8-guard.png)
 
-`claude-master guard` warns once per window when an account passes 95 % of
+`team-supervisor guard` warns once per window when an account passes 95 % of
 its quota and, at the reset, sends «resume where you were» to the sessions
 that hit the wall. At 20:00 the recap: one sentence per project on what was
 done and the next step, the ones waiting on a question first, the same line
@@ -398,14 +399,14 @@ A plan is a JSON file of units of work. Each unit names its folder, a check
 that can fail (a command that exits 0 when the work is right), the files it may
 touch, and a lane: open (local commits, tests, docs), wide (shared code) or
 closed (push, release, publication). Edges exist only where one unit's output
-really enters the next, and each edge says what passes. `claude-master plan
-approve` records the approval once; `claude-master plan run` does the rest:
+really enters the next, and each edge says what passes. `team-supervisor plan
+approve` records the approval once; `team-supervisor plan run` does the rest:
 ready units run in parallel, each in a session of its folder (opened and closed
 for it), a script unit without a session; the session's own outcome is
 recorded, but only the check rerun by the engine marks a unit done. A red unit
 goes back alone, with the reason and the narrowed perimeter, three times at
 most; then it is failed, the units after it are cancelled and the root session
-is told. The registry (`claude-master task`, SQLite next to the configuration)
+is told. The registry (`team-supervisor task`, SQLite next to the configuration)
 keeps every task, result and approval, and the constraints that failed tasks
 leave behind are attached to the next tasks of the same project.
 
@@ -419,7 +420,7 @@ account, the unit's brief asks it to open its budget with the unit's check as
 (`schemas/task-contract.v1.json`) is the same file in both plugins. Without it,
 nothing changes: the engine reruns the check itself.
 
-`claude-master timeline` shows what the sessions did, in time order: the
+`team-supervisor timeline` shows what the sessions did, in time order: the
 prompts, the tests they ran with their summary line, the folder's commits, the
 «Esito:» lines and the registry's outcomes, from code. The phone reads the same
 timeline (contract 1.29, op `timeline`) for its summary; there each session's
@@ -428,13 +429,13 @@ timeline (contract 1.29, op `timeline`) for its summary; there each session's
 ### More machines
 
 One control machine, other computers doing the heavy work. You declare a host
-by name and ssh alias; claude-master measures it and proposes what it can do:
+by name and ssh alias; team-supervisor measures it and proposes what it can do:
 
 ```bash
-claude-master host add laptop --ssh laptop     # pins the host key, asks before installing a 3-file helper
-claude-master host doctor laptop               # OS, cores, RAM, GPU, WebGL, tools, a 20 s benchmark, bandwidth
-claude-master host confirm laptop              # roles, limits and trust, as proposed or edited
-claude-master offload ~/film --recipe render   # the exact commit, the declared assets, the result back
+team-supervisor host add laptop --ssh laptop     # pins the host key, asks before installing a 3-file helper
+team-supervisor host doctor laptop               # OS, cores, RAM, GPU, WebGL, tools, a 20 s benchmark, bandwidth
+team-supervisor host confirm laptop              # roles, limits and trust, as proposed or edited
+team-supervisor offload ~/film --recipe render   # the exact commit, the declared assets, the result back
 ```
 
 - **Measured, not guessed.** `doctor` runs one remote command that returns
@@ -502,7 +503,7 @@ Remote sessions start, talk and come back as above.
 
 ![Doctor: one PASS, WARN or FAIL line per thing checked — the plugin's cache and version in each account, the hooks, the relay's daemon, the cron lines — each with the command that fixes it.](assets/readme/card9-doctor.png)
 
-`claude-master doctor` checks both accounts: the plugin in the cache at the
+`team-supervisor doctor` checks both accounts: the plugin in the cache at the
 right version, the hooks wired in, the relay's daemon alive, the cron lines
 present; each line says what to do. Run it after every update: hooks run
 from the cache, and a live session keeps its old version until it restarts.
@@ -519,20 +520,20 @@ Ten commands cover a normal day; the complete reference is at the end.
 
 | you want to… | you type |
 |---|---|
-| open a session on a project | `claude-master launch <folder>` (or just `claude` inside it) |
-| see everything running | `claude-master sessions` |
-| find what needs you | `claude-master next` |
-| talk to another session | `claude-master talk <name> "…"` |
-| answer the question another session is stuck on | `claude-master answer <name> --show` · `answer <name> 2` (the watch shows you the options when it stops) |
-| see what a session is doing, from the phone | `claude-master screen <name>` |
-| close one | `claude-master close <name>` (refuses one with a tab attached: close the tab instead) |
-| restart this one, keep the conversation | `claude-master restart arm` · `restart list` |
-| send a screenshot to a project | `claude-master report <project> <image> "…"` |
-| get everything back after a reboot | `claude-master restore` (the shell offers it) |
-| arrange the windows | `claude-master tile` · `merge` · `move destra` · `layout save mattina` |
-| put a session to sleep, wake it later | `claude-master park <name>` · `unpark <name>` |
+| open a session on a project | `team-supervisor launch <folder>` (or just `claude` inside it) |
+| see everything running | `team-supervisor sessions` |
+| find what needs you | `team-supervisor next` |
+| talk to another session | `team-supervisor talk <name> "…"` |
+| answer the question another session is stuck on | `team-supervisor answer <name> --show` · `answer <name> 2` (the watch shows you the options when it stops) |
+| see what a session is doing, from the phone | `team-supervisor screen <name>` |
+| close one | `team-supervisor close <name>` (one open in a tab is closed through its tab when idle; busy or asking: refused) |
+| restart this one, keep the conversation | `team-supervisor restart arm` · `restart list` |
+| send a screenshot to a project | `team-supervisor report <project> <image> "…"` |
+| get everything back after a reboot | `team-supervisor restore` (the shell offers it) |
+| arrange the windows | `team-supervisor tile` · `merge` · `move destra` · `layout save mattina` |
+| put a session to sleep, wake it later | `team-supervisor park <name>` · `unpark <name>` |
 
-Inside a session the same things are slash commands (`/claude-master:sessions`,
+Inside a session the same things are slash commands (`/team-supervisor:sessions`,
 `:launch`, `:close`, `:restart`, `:report`, `:quota`), and a short set of rules
 is loaded at every start so the agent knows how to resolve a half-typed folder
 name, that it may create a folder only if you asked, and how to reach another
@@ -560,12 +561,12 @@ Four things are worth knowing before you turn them on.
   anywhere can start, answer or stop a session. What can act on a session is
   the paired watch, and before a «yes» from the watch reaches a session the
   plugin takes a git checkpoint of its workspace.
-- **Errors of claude-master's own commands are recorded, locally.** A
+- **Errors of team-supervisor's own commands are recorded, locally.** A
   `PostToolUseFailure` hook ([claude-observe](https://github.com/frsorrentino/claude-observe),
-  in `claude-master/observe/`) writes each failed `claude-master` command
+  in `team-supervisor/observe/`) writes each failed `team-supervisor` command
   (except the exit codes documented as normal, like a refused restart) and
   each watch command the relay could not carry out to
-  `~/.local/state/claude-observe/claude-master.jsonl` (or under
+  `~/.local/state/claude-observe/team-supervisor.jsonl` (or under
   `$XDG_STATE_HOME`), a 0600 file on this computer; the same error again is
   one line with a count. Of a command only its name, subcommand and option
   names are kept: arguments become `<ARG>`, error texts are cleaned of the
@@ -584,7 +585,7 @@ the diary and the night queue are scheduled tasks that run for seconds.
 ## Data handling
 
 - **Reads:** Claude Code's own session registry, transcripts and settings for each account, and the last lines of each session's tmux pane. It checks that `.credentials.json` exists to recognize an account folder; it never opens it.
-- **Writes on disk:** its state folder (`~/.local/state/claude-master/`: registry, inbox, restart log, night queue, relay key and paired devices), the report images in a project's `docs/segnalazioni/`, and, only after your yes to `init`, the shim, one shell line, crontab lines.
+- **Writes on disk:** its state folder (`~/.local/state/team-supervisor/`: registry, inbox, restart log, night queue, relay key and paired devices), the report images in a project's `docs/segnalazioni/`, and, only after your yes to `init`, the shim, one shell line, crontab lines.
 - **Leaves the machine only if you turn it on:** the encrypted session state to *your own* Firebase project for the watch (`relay.enabled`), one-way notices through Claude Code's `telegram` plugin (`bot.enabled`), a `claude -p` call on your account to shorten a long question (`hooks.ask_notify.synth_model`), and the anonymized error report you approve in `observe send`.
 - **No telemetry, no update check, no account of its own.** The full page: [PRIVACY.md](PRIVACY.md).
 
@@ -606,10 +607,10 @@ machine by `init`, with defaults only where nothing was found.
 
 ## Configuration
 
-One file for the whole machine, `~/.config/claude-master/config.json`, written
-by `claude-master init` from what it finds: your accounts and their folders,
+One file for the whole machine, `~/.config/team-supervisor/config.json`, written
+by `team-supervisor init` from what it finds: your accounts and their folders,
 the workspace root, the terminal you use, the language of the messages. You
-rarely touch it; when you do, `claude-master doctor` tells you if something no
+rarely touch it; when you do, `team-supervisor doctor` tells you if something no
 longer adds up. A minimal example for two accounts:
 
 ```json
@@ -637,7 +638,7 @@ longer adds up. A minimal example for two accounts:
 | `bot.*` · `recap.*` · `night.*` · `guard.*` | one-way Telegram, the evening diary, the night queue, the quota guard: all off or empty until you turn them on |
 | `language` | `it` or `en` |
 
-The full list with defaults: [`claude-master/config.example.json`](claude-master/config.example.json).
+The full list with defaults: [`team-supervisor/config.example.json`](team-supervisor/config.example.json).
 
 ## From the phone and from the wrist
 
@@ -648,12 +649,12 @@ report — and whatever the watch is not receiving.
 
 ```bash
 # config.json: "bot": {"enabled": true}   — the token and chats of the `telegram` plugin
-claude-master bot status       # token, allowed chats, log; nothing to keep alive
-claude-master recap install    # the day's diary to those chats at 20:00 (recap.cron_time)
-claude-master night install    # the overnight queue at 02:00 (night.cron_time); fill it with `night add`
-claude-master relay setup      # the Firebase project, guided (--dry-run to see the steps)
-claude-master relay pair       # once: a QR for the phone, a 6-digit code for the watch
-claude-master relay install    # the relay's daemon and its keeper
+team-supervisor bot status       # token, allowed chats, log; nothing to keep alive
+team-supervisor recap install    # the day's diary to those chats at 20:00 (recap.cron_time)
+team-supervisor night install    # the overnight queue at 02:00 (night.cron_time); fill it with `night add`
+team-supervisor relay setup      # the Firebase project, guided (--dry-run to see the steps)
+team-supervisor relay pair       # once: a QR for the phone, a 6-digit code for the watch
+team-supervisor relay install    # the relay's daemon and its keeper
 ```
 
 Two limits, stated plainly. After a **reboot** nobody is logged in and
@@ -693,16 +694,16 @@ only sees a monitor that has a window on it: `move` tells you to drag one there.
 
 ### Windows
 
-claude-master runs sessions in tmux and reads processes from `/proc`, so it
+team-supervisor runs sessions in tmux and reads processes from `/proc`, so it
 does not run on native Windows: use it inside WSL2, where it is Linux. On
 native Windows, installed by mistake or through a shared settings file, it stays
 quiet instead of failing. Claude Code runs its hooks through Git Bash; they
 start Python through `scripts/py.sh` (`python3`, then `python`, then `py -3`,
 skipping the Microsoft Store alias) and stop at once: the first session prints
 one line saying WSL2 is needed, later ones print nothing, and with no Python at
-all each hook writes one line to its log and exits 0. The `claude-master`
+all each hook writes one line to its log and exits 0. The `team-supervisor`
 command prints the same line and exits 3; only `version` and `root` answer.
-`claude plugin disable claude-master` removes it.
+`claude plugin disable team-supervisor` removes it.
 
 ## Commands
 
@@ -712,45 +713,45 @@ The complete reference. Italian aliases (`lancia`, `chiudi`, `sessioni`,
 
 | command | what it does |
 |---|---|
-| `claude-master init [--dry-run\|--yes] [--force] [--shim] [--shell] [--cron] [--tmux]` | reads the machine and proposes or writes the configuration; the flags print (or install with `--yes`) the shim, the shell file, the crontab line, the `.tmux.conf` block |
-| `claude-master doctor` | PASS / WARN / FAIL with a remedy per line |
-| `claude-master config [--sh\|--get KEY\|--path]` | the effective configuration |
-| `claude-master launch <dir> [--create] [--continue\|--resume <id>] [--account N] [--no-window] [--bg] [--profile N] [--force]` | a session in tmux; dialogs answered, startup confirmed by the registry, tab verified attached — on ChromeOS as a tab of the Terminal window already open (`terminal.open_as_tab`); past `sessions.max_sessions` sessions at work it asks, or exits 7 without a terminal (`--force` skips the check) |
-| `claude-master sessions [--watch]` | every live session of every account, with the notes «at lower priority», «goal: …», «idle for N h» |
-| `claude-master close <name> \| --abandoned [--dry-run]` | closes a session nobody is attached to; refuses one with a tab |
-| `claude-master restart arm [--clean\|--switch-account [N]]` | restart when the turn ends |
-| `claude-master talk <name> "prompt" [--wait S] [--force]` | a prompt to another session, the reply read from its transcript |
-| `claude-master answer <name> --show` · `answer <name> <n> [--text "…"]` | reads the question another session is stuck on (options numbered) and answers it by number, from any session or from the phone through the root session |
-| `claude-master model <name> <model>` · `claude-master effort <name> <level>` | switches another session's model or effort **for that session only**, through its own picker: the default for new sessions is never touched. Refuses a session that is working, has a question open or has text typed in its prompt; values come from `tune.models` and `tune.efforts` |
-| `claude-master screen <name> [--lines N]` | the last 30 lines of a session's terminal, for the phone («screen NAME» to the root session) |
-| `claude-master wait <name> [--timeout S]` | blocks until that session is idle; says if a `/goal` is still open there |
-| `claude-master interrupt <name>` | stops the turn that session is running: one Esc, sent only while «esc to interrupt» is on its screen (never a double Esc at an idle prompt, never on an open dialog) |
-| `claude-master report <project> <image\|-> "text" [--no-launch]` | screenshot into the project's `docs/segnalazioni/`, prompt delivered |
-| `claude-master queue <name> "prompt" [--expires M] \| --show \| --clear` | a prompt delivered when that session's next turn ends |
-| `claude-master next [--all] [--attach]` | the session that needs you most |
-| `claude-master park <name> \| --idle-over D \| --ram-below MB [--auto]` · `claude-master unpark <name>` | hibernate a session and bring it back |
-| `claude-master registry [--show\|--good\|--closed NAME]` | refresh the list of sessions to restore (also from cron); `--good` is the «last good set», which never shrinks on its own |
-| `claude-master restore [--dry-run\|--yes]` | relaunch the sessions registered before a reboot: the union of the registry and the last good set, each with its source and date |
-| `claude-master cloud <dir> "task"` · `claude-master follow <id> "message"` | a cloud session from the folder's account; a message to it |
-| `claude-master desk [start\|stop\|status]` | a Remote Control desk in the workspace root (optional, off by default); the sessions it spawns run without Claude in Chrome, which `claude remote-control` turns on only with `--chrome` |
-| `claude-master tile [names] [--rows\|--grid] [--on PLACE] [--dry-run] [--where]` · `claude-master merge` · `claude-master move PLACE` · `claude-master layout save\|restore\|list NAME` | windows side by side, as tabs, on another monitor, or by saved layout (ChromeOS) |
-| `claude-master attach <name>` · `claude-master color <name>` · `claude-master quota` | attach a terminal; the tab's shape and colour; how full each account's quota is |
-| `claude-master guard run` · `install\|uninstall\|status` | quota guard: one warning per window above `guard.warn_pct` with the reset time, on Telegram when no watch is receiving; at the reset, the sessions that hit the wall get «resume where you were» and a pending night queue runs | |
-| `claude-master bot status` | one-way Telegram: the token, the allowed chats and the log of what was sent |
-| `claude-master recap [--date D\|--since H] [--send] [--full]` · `recap install\|uninstall\|status` | the day's diary, per project: waiting on a question first (with a link), then alive, then closed |
-| `claude-master inbox [NAME] [--all]` · `claude-master talk --status ID` · `claude-master inbox cancel ID` | the durable inbox: `talk` writes each message to disk before delivering it; a session that was closed gets its messages when it starts again, a busy one at the end of its turn; `cancel` withdraws a message still pending |
-| `claude-master observe add\|list\|show\|mark\|export\|report` | the local record of claude-master's own errors (see «What you are trusting»): add a workaround or a verdict, triage, or send them as one anonymized issue |
-| `claude-master night add <dir> "prompt" [--model M] [--effort E] [--max-turns N]` · `list` · `remove <id>` · `run [--dry-run\|--one] [--send]` · `install\|uninstall\|status` | the overnight queue |
-| `claude-master host add NAME --ssh ALIAS [--kind K] [--yes]` · `host doctor NAME\|local [--no-bench] [--force-bench]` · `host confirm NAME [--roles …] [--trust work\|full] [--limits …]` · `host list\|remove\|update NAME` | declare another machine, measure it, confirm roles, limits and trust; the remote helper is installed only on a yes |
-| `claude-master launch <dir> --host H\|auto` · `host admit H <dir>` · `host fetch H <name>` · `host sessions` · `talk\|wait\|close H:<name>` | a session on another host when the folder passes the host's rule; prompts and replies through its native inbox; its commits back on a local branch |
-| `claude-master hosts [poll [--cron]\|install\|uninstall]` | the host table; one round of the poller, or its crontab line |
-| `claude-master offload <dir> --recipe NAME [--host H] [--explain] [--dirty]` · `offload --needs k=v,… -- <command>` · `offload list\|status\|log [-f]\|wait\|fetch\|cancel\|clean <id>` | a heavy job on the host that does it best: exact commit, declared assets, results back with sha256 |
-| `claude-master heavy run [--needs …] -- <command>` · `heavy status` | the same scheduler for a command a session would run here: it stays here inside a lease, or becomes an offload and waits |
-| `claude-master task add FILE\|- [--topic T]` · `list` · `show ID` · `start ID` · `result ID FILE` · `done ID [--constraint T]` · `wait-ok ID --what W --where D` · `approve ID --by B --text T` · `cancel ID` · `board [--json]` · `constraint add\|list` | the task registry: contracts validated, done only when the check rerun here is green, results, approvals and constraints recorded; `board` aggregates states and outcomes |
-| `claude-master plan check FILE` · `approve FILE --by B --text T` · `run FILE\|ID [--parallel N] [--turn-timeout S] [--dry-run]` · `status ID` | the map engine: approve a plan once, run its units in parallel where no edge joins them, retry only the red unit |
-| `claude-master timeline [NAME] [--since 6h] [--json] [--limit N]` | per session, in time order: prompts, tests with their summary, commits, «Esito:» lines, registry outcomes |
-| `claude-master render FILE.md\|- [--title T] [--meta M] [--out F]` | a Markdown summary as one HTML page with a fixed template, shown in the phone's chat under the command |
-| `claude-master recurring list\|add ID --label L --prompt P [--param]\|remove ID\|used ID` | the master's recurring actions, shown in the app's «Recurring» box, last used first |
+| `team-supervisor init [--dry-run\|--yes] [--force] [--shim] [--shell] [--cron] [--tmux]` | reads the machine and proposes or writes the configuration; the flags print (or install with `--yes`) the shim, the shell file, the crontab line, the `.tmux.conf` block |
+| `team-supervisor doctor` | PASS / WARN / FAIL with a remedy per line |
+| `team-supervisor config [--sh\|--get KEY\|--path]` | the effective configuration |
+| `team-supervisor launch <dir> [--create] [--continue\|--resume <id>] [--account N] [--no-window] [--bg] [--profile N] [--force]` | a session in tmux; dialogs answered, startup confirmed by the registry, tab verified attached — on ChromeOS as a tab of the Terminal window already open (`terminal.open_as_tab`); past `sessions.max_sessions` sessions at work it asks, or exits 7 without a terminal (`--force` skips the check) |
+| `team-supervisor sessions [--watch]` | every live session of every account, with the notes «at lower priority», «goal: …», «idle for N h» |
+| `team-supervisor close <name> \| --abandoned [--dry-run]` | closes a session; one open in a Terminal tab only when idle, by closing its tab through chrome-bridge (never a detach or a kill); refuses a busy one, one asking a question, and itself |
+| `team-supervisor restart arm [--clean\|--switch-account [N]]` | restart when the turn ends |
+| `team-supervisor talk <name> "prompt" [--wait S] [--force]` | a prompt to another session, the reply read from its transcript |
+| `team-supervisor answer <name> --show` · `answer <name> <n> [--text "…"]` | reads the question another session is stuck on (options numbered) and answers it by number, from any session or from the phone through the root session |
+| `team-supervisor model <name> <model>` · `team-supervisor effort <name> <level>` | switches another session's model or effort **for that session only**, through its own picker: the default for new sessions is never touched. Refuses a session that is working, has a question open or has text typed in its prompt; values come from `tune.models` and `tune.efforts` |
+| `team-supervisor screen <name> [--lines N]` | the last 30 lines of a session's terminal, for the phone («screen NAME» to the root session) |
+| `team-supervisor wait <name> [--timeout S]` | blocks until that session is idle; says if a `/goal` is still open there |
+| `team-supervisor interrupt <name>` | stops the turn that session is running: one Esc, sent only while «esc to interrupt» is on its screen (never a double Esc at an idle prompt, never on an open dialog) |
+| `team-supervisor report <project> <image\|-> "text" [--no-launch]` | screenshot into the project's `docs/segnalazioni/`, prompt delivered |
+| `team-supervisor queue <name> "prompt" [--expires M] \| --show \| --clear` | a prompt delivered when that session's next turn ends |
+| `team-supervisor next [--all] [--attach]` | the session that needs you most |
+| `team-supervisor park <name> \| --idle-over D \| --ram-below MB [--auto]` · `team-supervisor unpark <name>` | hibernate a session and bring it back |
+| `team-supervisor registry [--show\|--good\|--closed NAME]` | refresh the list of sessions to restore (also from cron); `--good` is the «last good set», which never shrinks on its own |
+| `team-supervisor restore [--dry-run\|--yes]` | relaunch the sessions registered before a reboot: the union of the registry and the last good set, each with its source and date |
+| `team-supervisor cloud <dir> "task"` · `team-supervisor follow <id> "message"` | a cloud session from the folder's account; a message to it |
+| `team-supervisor desk [start\|stop\|status]` | a Remote Control desk in the workspace root (optional, off by default); the sessions it spawns run without Claude in Chrome, which `claude remote-control` turns on only with `--chrome` |
+| `team-supervisor tile [names] [--rows\|--grid] [--on PLACE] [--dry-run] [--where]` · `team-supervisor merge` · `team-supervisor move PLACE` · `team-supervisor layout save\|restore\|list NAME` | windows side by side, as tabs, on another monitor, or by saved layout (ChromeOS) |
+| `team-supervisor attach <name>` · `team-supervisor color <name>` · `team-supervisor quota` | attach a terminal; the tab's shape and colour; how full each account's quota is |
+| `team-supervisor guard run` · `install\|uninstall\|status` | quota guard: one warning per window above `guard.warn_pct` with the reset time, on Telegram when no watch is receiving; at the reset, the sessions that hit the wall get «resume where you were» and a pending night queue runs | |
+| `team-supervisor bot status` | one-way Telegram: the token, the allowed chats and the log of what was sent |
+| `team-supervisor recap [--date D\|--since H] [--send] [--full]` · `recap install\|uninstall\|status` | the day's diary, per project: waiting on a question first (with a link), then alive, then closed |
+| `team-supervisor inbox [NAME] [--all]` · `team-supervisor talk --status ID` · `team-supervisor inbox cancel ID` | the durable inbox: `talk` writes each message to disk before delivering it; a session that was closed gets its messages when it starts again, a busy one at the end of its turn; `cancel` withdraws a message still pending |
+| `team-supervisor observe add\|list\|show\|mark\|export\|report` | the local record of team-supervisor's own errors (see «What you are trusting»): add a workaround or a verdict, triage, or send them as one anonymized issue |
+| `team-supervisor night add <dir> "prompt" [--model M] [--effort E] [--max-turns N]` · `list` · `remove <id>` · `run [--dry-run\|--one] [--send]` · `install\|uninstall\|status` | the overnight queue |
+| `team-supervisor host add NAME --ssh ALIAS [--kind K] [--yes]` · `host doctor NAME\|local [--no-bench] [--force-bench]` · `host confirm NAME [--roles …] [--trust work\|full] [--limits …]` · `host list\|remove\|update NAME` | declare another machine, measure it, confirm roles, limits and trust; the remote helper is installed only on a yes |
+| `team-supervisor launch <dir> --host H\|auto` · `host admit H <dir>` · `host fetch H <name>` · `host sessions` · `talk\|wait\|close H:<name>` | a session on another host when the folder passes the host's rule; prompts and replies through its native inbox; its commits back on a local branch |
+| `team-supervisor hosts [poll [--cron]\|install\|uninstall]` | the host table; one round of the poller, or its crontab line |
+| `team-supervisor offload <dir> --recipe NAME [--host H] [--explain] [--dirty]` · `offload --needs k=v,… -- <command>` · `offload list\|status\|log [-f]\|wait\|fetch\|cancel\|clean <id>` | a heavy job on the host that does it best: exact commit, declared assets, results back with sha256 |
+| `team-supervisor heavy run [--needs …] -- <command>` · `heavy status` | the same scheduler for a command a session would run here: it stays here inside a lease, or becomes an offload and waits |
+| `team-supervisor task add FILE\|- [--topic T]` · `list` · `show ID` · `start ID` · `result ID FILE` · `done ID [--constraint T]` · `wait-ok ID --what W --where D` · `approve ID --by B --text T` · `cancel ID` · `board [--json]` · `constraint add\|list` | the task registry: contracts validated, done only when the check rerun here is green, results, approvals and constraints recorded; `board` aggregates states and outcomes |
+| `team-supervisor plan check FILE` · `approve FILE --by B --text T` · `run FILE\|ID [--parallel N] [--turn-timeout S] [--dry-run]` · `status ID` | the map engine: approve a plan once, run its units in parallel where no edge joins them, retry only the red unit |
+| `team-supervisor timeline [NAME] [--since 6h] [--json] [--limit N]` | per session, in time order: prompts, tests with their summary, commits, «Esito:» lines, registry outcomes |
+| `team-supervisor render FILE.md\|- [--title T] [--meta M] [--out F]` | a Markdown summary as one HTML page with a fixed template, shown in the phone's chat under the command |
+| `team-supervisor recurring list\|add ID --label L --prompt P [--param]\|remove ID\|used ID` | the master's recurring actions, shown in the app's «Recurring» box, last used first |
 
 ## Tests
 

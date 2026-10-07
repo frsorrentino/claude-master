@@ -52,7 +52,7 @@ cfg.write_text(json.dumps({
     "accounts": {"personale": {"config_dir": str(home / ".claude")},
                  "professionale": {"config_dir": str(home / ".claude-pixel"), "tmux_prefix": "pix-"}},
     "folder_map": [{"path": str(home / "ws" / "personali"), "account": "personale"}],
-    "session": {"startup_timeout_s": 20, "death_check_s": 1},
+    "session": {"dialog_patterns": ["trust (this|the) folder", "Is this a project you", "Bypass Permissions mode"], "startup_timeout_s": 20, "death_check_s": 1},
     "terminal": {"backend": "none"},
     "registry": {"file": str(tmp / "registry.json")},
     "restart": {"flag_file": str(state / "restart.json"), "log": str(state / "restart.log"), "exit_wait_s": 5, "term_wait_s": 3},
@@ -64,7 +64,7 @@ FAKE = T.ROOT / "tests" / "lib" / "fake-claude.sh"
 
 
 def env(**extra):
-    e = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg),
+    e = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg),
          "CM_CLAUDE_BIN": str(FAKE), "CM_PROC_SCAN_PIDS": ""}
     e.update(extra)
     return e
@@ -106,23 +106,23 @@ T.check("H2 SessionStart triggers the registry", (tmp / "registry.json").exists(
 # H3
 k = r.stdout
 # 2200 (02/10/2026): la regola 10, «Prossimi:» per i consigli toccabili del telefono, approvata dal maintainer
-T.check("H3 kernel printed at startup, bounded", "CLAUDE-MASTER" in k and len(k) <= 2200 and len(k.strip().splitlines()) <= 13, f"{len(k)} chars, {len(k.splitlines())} lines")
+T.check("H3 kernel printed at startup, bounded", "TEAM-SUPERVISOR" in k and len(k) <= 2200 and len(k.strip().splitlines()) <= 13, f"{len(k)} chars, {len(k.splitlines())} lines")
 r = hook("SessionStart", {"session_id": "sid2", "source": "compact"})
-T.check("H3 kernel re-emitted after compact", "CLAUDE-MASTER" in r.stdout, r.stdout[:100])
+T.check("H3 kernel re-emitted after compact", "TEAM-SUPERVISOR" in r.stdout, r.stdout[:100])
 # H4: la sessione nasce con le ultime righe del recap del progetto
 proj = home / "ws" / "personali" / "alfa"
 (proj / "docs").mkdir(parents=True, exist_ok=True)
 (proj / "docs" / "recap.md").write_text("# Recap di alfa\n\n" + "\n".join(f"- 2026-09-0{i}: riga {i}" for i in range(1, 8)) + "\n")
 r = hook("SessionStart", {"session_id": "sid3", "cwd": str(proj), "source": "startup"})
-T.check("H4 SessionStart prints the last 5 recap lines of the project after the kernel", "RECAP RECENTE (docs/recap.md)" in r.stdout and "riga 7" in r.stdout and "riga 3" in r.stdout and "riga 2" not in r.stdout and r.stdout.index("CLAUDE-MASTER") < r.stdout.index("RECAP RECENTE"), r.stdout[-400:])
+T.check("H4 SessionStart prints the last 5 recap lines of the project after the kernel", "RECAP RECENTE (docs/recap.md)" in r.stdout and "riga 7" in r.stdout and "riga 3" in r.stdout and "riga 2" not in r.stdout and r.stdout.index("TEAM-SUPERVISOR") < r.stdout.index("RECAP RECENTE"), r.stdout[-400:])
 r = hook("SessionStart", {"session_id": "sid3", "cwd": str(home / "ws"), "source": "startup"})
 T.check("H4 no recap file → nothing extra", "RECAP" not in r.stdout, r.stdout[-200:])
 r = hook("SessionStart", {"session_id": "sid2", "source": "weird"})
-T.check("H3 no kernel for an unknown source", "CLAUDE-MASTER" not in r.stdout, r.stdout[:100])
+T.check("H3 no kernel for an unknown source", "TEAM-SUPERVISOR" not in r.stdout, r.stdout[:100])
 cfg2 = tmp / "config-nokernel.json"
 d = json.loads(cfg.read_text()); d["hooks"] = {"session_kernel": {"enabled": False}}; cfg2.write_text(json.dumps(d))
-r = hook("SessionStart", {"session_id": "sid2", "source": "startup"}, CLAUDE_MASTER_CONFIG=str(cfg2))
-T.check("H3 kernel disabled by config", "CLAUDE-MASTER" not in r.stdout, r.stdout[:100])
+r = hook("SessionStart", {"session_id": "sid2", "source": "startup"}, TEAM_SUPERVISOR_CONFIG=str(cfg2))
+T.check("H3 kernel disabled by config", "TEAM-SUPERVISOR" not in r.stdout, r.stdout[:100])
 # H4
 q = state / "queue"; q.mkdir()
 (q / "sid3").write_text(json.dumps({"text": "scaduta", "expires": time.time() - 10}) + "\n" + json.dumps({"text": "fai la seconda cosa"}) + "\n" + json.dumps({"text": "terza"}) + "\n")
@@ -260,7 +260,7 @@ with T.PrivateTmux() as tm:
     morto = subprocess.Popen(["true"]); morto.wait()
     e8 = {k: v for k, v in e.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "TMUX")}
     # TMUX: l'esecutore vero la eredita da claude, che gira in un riquadro (il recupero vale solo sotto tmux)
-    e8.update(CLAUDE_MASTER_CONFIG=str(cfg8), CM_TERMINAL_DRY_RUN="1", XDG_RUNTIME_DIR=str(rt), CM_X11_SOCKET_DIR=str(x11),
+    e8.update(TEAM_SUPERVISOR_CONFIG=str(cfg8), CM_TERMINAL_DRY_RUN="1", XDG_RUNTIME_DIR=str(rt), CM_X11_SOCKET_DIR=str(x11),
               TMUX="/tmp/tmux-fake/default,1,0")
 
     def exec8(tag):
@@ -280,7 +280,7 @@ with T.PrivateTmux() as tm:
     # rilancia lo stesso; non muore mai → annullato, e l'avviso (app/Telegram) e' tentato e scritto nel log
     c9 = json.loads(cfg8.read_text()); c9["restart"] = dict(c9.get("restart") or {}, exit_wait_s=1, term_wait_s=1, kill_wait_s=1, dead_wait_s=40)
     cfg9 = tmp / "config-r9.json"; cfg9.write_text(json.dumps(c9))
-    e9 = dict(e8, CLAUDE_MASTER_CONFIG=str(cfg9), CM_RESTART_TEST_ALIVE_UNTIL=str(int(time.time()) + 30))
+    e9 = dict(e8, TEAM_SUPERVISOR_CONFIG=str(cfg9), CM_RESTART_TEST_ALIVE_UNTIL=str(int(time.time()) + 30))
     f9 = state / "restart-r9-tardi.json"
     f9.write_text(json.dumps({"tmux": "beta", "pid": morto.pid, "cartella": str(home / "ws" / "personali" / "beta"), "gen": "tardi"}))
     r9 = subprocess.run([str(T.SCRIPTS / "cm-restart.sh"), "exec", str(f9)], capture_output=True, text=True, env=e9, timeout=120)

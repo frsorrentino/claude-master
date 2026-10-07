@@ -25,7 +25,7 @@ GIT = ["git", "-c", "user.email=t@t", "-c", "user.name=t"]
 subprocess.run(["git", "init", "-q"], cwd=copy, check=True)
 subprocess.run(GIT + ["add", "-A"], cwd=copy, check=True)
 subprocess.run(GIT + ["commit", "-q", "-m", "x"], cwd=copy, check=True)
-pj = copy / "claude-master" / ".claude-plugin" / "plugin.json"
+pj = copy / "team-supervisor" / ".claude-plugin" / "plugin.json"
 ver = json.loads(pj.read_text())["version"]
 
 
@@ -65,7 +65,7 @@ T.check("RL4 an «unreleased» entry of ANOTHER version does not block: prefligh
 # RL5 (17/09/2026): lo zip impacchetta la cartella del plugin dal disco — un file non tracciato li' dentro uscirebbe
 # nel pacchetto pubblico (un docs/recap.md scritto per errore sotto scripts/, visto per caso prima della 0.4.13)
 marker.unlink(missing_ok=True)
-stray = copy / "claude-master" / "scripts" / "docs" / "recap.md"
+stray = copy / "team-supervisor" / "scripts" / "docs" / "recap.md"
 stray.parent.mkdir(parents=True)
 stray.write_text("privato\n")
 r = run(ver)

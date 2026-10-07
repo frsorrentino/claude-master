@@ -26,14 +26,14 @@ home = tmp / "home"
 garcon = Path(tmp) / "garcon"
 garcon.write_text("#!/bin/sh\n")
 garcon.chmod(0o755)
-DISPATCH = str(T.PLUGIN / "scripts" / "claude-master")
+DISPATCH = str(T.PLUGIN / "scripts" / "team-supervisor")
 
 
 def run(backend, *args, display="wayland-0", extra=None, garcon_path=str(garcon)):
     cfg = tmp / f"config-{backend}.json"
     cfg.write_text(json.dumps({"language": "en", "accounts": {"default": {"config_dir": str(home / ".claude")}},
                                "terminal": {"backend": backend, "garcon": garcon_path}}))
-    env = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg),
+    env = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg),
            "CM_TERMINAL_DRY_RUN": "1"}
     if display:
         env["WAYLAND_DISPLAY"] = display

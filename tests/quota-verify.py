@@ -44,7 +44,7 @@ os.utime(f2, (now - 3 * 3600, now - 3 * 3600))
 
 
 def run(*args):
-    env = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg)}
+    env = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg)}
     return subprocess.run([sys.executable, str(T.SCRIPTS / "cm-quota.py")] + list(args), capture_output=True, text=True, env=env, timeout=30)
 
 

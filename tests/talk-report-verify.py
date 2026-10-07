@@ -35,7 +35,7 @@ cfg.write_text(json.dumps({
     "language": "it", "state_dir": str(tmp / "state"),
     "workspace": {"root": str(home / "ws"), "project_dirs": ["personali"]},
     "accounts": {"personale": {"config_dir": str(home / ".claude")}},
-    "session": {"claude_args": ["--dangerously-skip-permissions"], "startup_timeout_s": 20, "death_check_s": 1},
+    "session": {"dialog_patterns": ["trust (this|the) folder", "Is this a project you", "Bypass Permissions mode"], "claude_args": ["--dangerously-skip-permissions"], "startup_timeout_s": 20, "death_check_s": 1},
     "terminal": {"backend": "none"},
     "registry": {"file": str(tmp / "registry.json")},
     "talk": {"quiet_s": 3, "max_wait_s": 20},
@@ -51,7 +51,7 @@ def proc_start(pid):
 
 
 def env(**extra):
-    e = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg),
+    e = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg),
          "CM_TMUX_ARGS": tm.env["CM_TMUX_ARGS"], "CM_CLAUDE_BIN": str(FAKE), "CM_PROC_SCAN_PIDS": ""}
     e.update(extra)
     return e

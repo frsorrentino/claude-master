@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Verifica la copia di claude-observe dentro claude-master (23/09/2026). La logica la prova la suite della fonte
+"""Verifica la copia di claude-observe dentro team-supervisor (23/09/2026). La logica la prova la suite della fonte
 (github.com/frsorrentino/claude-observe, tests/observe-verify.py); qui solo che la copia e' quella e che e' collegata.
 
 OI1 check.sh della fonte: la copia coincide (la fonte sta accanto, ../claude-observe, o in CLAUDE_OBSERVE_SRC)
 OI2 hooks.json: PostToolUseFailure solo verso la copia, con matcher Bash; SessionStart con cm-hook E la copia
-OI3 `claude-master observe add/list` passa dalla copia, nel file claude-master.jsonl della cartella comune
-OI4 l'hook della copia: un comando claude-master fallito → record con la versione di plugin.json; un codice innocuo → niente
+OI3 `team-supervisor observe add/list` passa dalla copia, nel file team-supervisor.jsonl della cartella comune
+OI4 l'hook della copia: un comando team-supervisor fallito → record con la versione di plugin.json; un codice innocuo → niente
 OI5 il relay: record_external come lo chiama cm-relay.py (source relay)
 OI6 cm-hook.py non tocca piu' le osservazioni: niente righe OSSERVAZIONI, PostToolUseFailure ignorato
 """
@@ -29,12 +29,12 @@ cfg = tmp / "cm-config.json"
 cfg.write_text(json.dumps({"language": "it", "state_dir": str(tmp / "cmstate"), "accounts": {"personale": {"config_dir": str(home / ".claude")}},
                            "default_account": "personale"}))
 ENV = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "LANG": "it_IT.UTF-8", "XDG_STATE_HOME": str(state),
-       "CLAUDE_OBSERVE_CONFIG": str(tmp / "observe.json"), "CLAUDE_CONFIG_DIR": str(home / ".claude"), "CLAUDE_MASTER_CONFIG": str(cfg)}
+       "CLAUDE_OBSERVE_CONFIG": str(tmp / "observe.json"), "CLAUDE_CONFIG_DIR": str(home / ".claude"), "TEAM_SUPERVISOR_CONFIG": str(cfg)}
 
 
 def recs():
     try:
-        return [json.loads(l) for l in (box / "claude-master.jsonl").read_text().splitlines() if l.strip()]
+        return [json.loads(l) for l in (box / "team-supervisor.jsonl").read_text().splitlines() if l.strip()]
     except OSError:
         return []
 
@@ -48,10 +48,10 @@ ss = [h["command"] for e in hooks.get("SessionStart", []) for h in e["hooks"]]
 T.check("OI2 PostToolUseFailure only to the copy (matcher Bash); SessionStart runs cm-hook and the copy",
         ptf == [("Bash", 'bash "${CLAUDE_PLUGIN_ROOT}/observe/py.sh" "${CLAUDE_PLUGIN_ROOT}/observe/observe.py" hook')]
         and any("cm-hook.py\" SessionStart" in c for c in ss) and any("observe.py\" session-start" in c for c in ss), json.dumps(hooks)[:600])
-cli = T.PLUGIN / "scripts" / "claude-master"
-a = subprocess.run([str(cli), "observe", "add", "claude-master", "restart --clean perde la coda", "--class", "D"], capture_output=True, text=True, env=ENV)
+cli = T.PLUGIN / "scripts" / "team-supervisor"
+a = subprocess.run([str(cli), "observe", "add", "team-supervisor", "restart --clean perde la coda", "--class", "D"], capture_output=True, text=True, env=ENV)
 l = subprocess.run([str(cli), "observe", "list"], capture_output=True, text=True, env=ENV)
-T.check("OI3 claude-master observe add/list go through the copy, into claude-master.jsonl of the common folder",
+T.check("OI3 team-supervisor observe add/list go through the copy, into team-supervisor.jsonl of the common folder",
         a.returncode == 0 and any(x["source"] == "manual" for x in recs()) and "restart --clean perde la coda" in l.stdout, a.stdout + a.stderr + l.stdout)
 ver = json.loads((T.PLUGIN / ".claude-plugin" / "plugin.json").read_text())["version"]
 
@@ -62,11 +62,11 @@ def hook(cmd, err):
     return subprocess.run([sys.executable, str(COPY), "hook"], input=json.dumps(p), capture_output=True, text=True, env=ENV)
 
 
-hook("claude-master tile --boh", "Exit code 2\nopzione sconosciuta")
-hook("claude-master restart arm --switch-account", "Exit code 4\nrifiutato")
+hook("team-supervisor tile --boh", "Exit code 2\nopzione sconosciuta")
+hook("team-supervisor restart arm --switch-account", "Exit code 4\nrifiutato")
 h = [x for x in recs() if x["source"] == "hook-bash"]
-T.check("OI4 the copy's hook: a failed claude-master command → a record with the version from plugin.json; a benign exit → nothing",
-        len(h) == 1 and h[0]["call"] == "claude-master tile --boh" and h[0]["context"]["tool_version"] == ver, json.dumps(h)[:500])
+T.check("OI4 the copy's hook: a failed team-supervisor command → a record with the version from plugin.json; a benign exit → nothing",
+        len(h) == 1 and h[0]["call"] == "team-supervisor tile --boh" and h[0]["context"]["tool_version"] == ver, json.dumps(h)[:500])
 code = ("import importlib.util,sys;from pathlib import Path;s=importlib.util.spec_from_file_location('o',Path(sys.argv[1]));"
         "m=importlib.util.module_from_spec(s);s.loader.exec_module(m);m.record_external('relay','relay answer','sessione occupata','atlas-shop')")
 subprocess.run([sys.executable, "-c", code, str(T.SCRIPTS.parent / "observe" / "observe.py")], env=ENV, check=True)

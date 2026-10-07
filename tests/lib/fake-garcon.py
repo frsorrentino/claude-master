@@ -2,7 +2,7 @@
 """garcon finto (`garcon --client --terminal [cmd args...]`) per i test con il chrome-bridge finto:
 aggiunge al mondo del bridge (FAKE_BRIDGE_STATE) una finestra app nuova con la scheda #home e una
 shell; senza comando la shell consuma il segnaposto (FAKE_BRIDGE_PLACEHOLDER) e attacca un client
-tmux come farebbe shell/claude-master.sh; con `attach NOME` attacca NOME (la scheda porta l'URL di
+tmux come farebbe shell/team-supervisor.sh; con `attach NOME` attacca NOME (la scheda porta l'URL di
 attach). Ogni chiamata in FAKE_GARCON_LOG. Il client vive in un aiutante staccato (pty)."""
 import json
 import os
@@ -22,7 +22,7 @@ w["tabs"].append({"id": tid, "windowId": nid, "url": URL + "#home", "title": "Te
 name = ""
 if "attach" in args:
     name = args[args.index("attach") + 1]
-    w["tabs"].append({"id": tid + 1, "windowId": nid, "url": f"{URL}?command=claude-master&args[]=attach&args[]={name}&args[]=ephemeral", "title": "🔴 " + name, "active": True})
+    w["tabs"].append({"id": tid + 1, "windowId": nid, "url": f"{URL}?command=team-supervisor&args[]=attach&args[]={name}&args[]=ephemeral", "title": "🔴 " + name, "active": True})
 else:
     ph = os.environ.get("FAKE_BRIDGE_PLACEHOLDER", "")
     w["tabs"].append({"id": tid + 1, "windowId": nid, "url": URL, "title": "Terminal", "active": True})

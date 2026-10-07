@@ -29,7 +29,7 @@ cfg.write_text(json.dumps({
     "accounts": {"personale": {"config_dir": str(home / ".claude")},
                  "professionale": {"config_dir": str(home / ".claude-pixel"), "tmux_prefix": "pix-"}},
     "folder_map": [{"path": str(home / "ws" / "pro"), "account": "professionale"}],
-    "session": {"startup_timeout_s": 20, "death_check_s": 1},
+    "session": {"dialog_patterns": ["trust (this|the) folder", "Is this a project you", "Bypass Permissions mode"], "startup_timeout_s": 20, "death_check_s": 1},
     "terminal": {"backend": "none"},
     "registry": {"file": str(reg), "cron_minutes": 15},
     "restore": {"last": "master", "confirm_timeout_s": 1},
@@ -41,7 +41,7 @@ scen = tmp / "scen"; scen.write_text("plain")
 
 
 def env(**extra):
-    e = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg),
+    e = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg),
          "CM_TMUX_ARGS": tm.env["CM_TMUX_ARGS"], "CM_CLAUDE_BIN": str(FAKE), "CM_PROC_SCAN_PIDS": "",
          "FAKE_CLAUDE_ARGS_LOG": str(argslog), "FAKE_CLAUDE_SCENARIO_FILE": str(scen)}
     e.update(extra)
@@ -86,7 +86,7 @@ with T.PrivateTmux() as tm:
     T.check("X4 snapshot: one closed shortly before the reboot is proposed, one dead for days is not",
             r.returncode == 0 and "chiusa-prima" in r.stdout and "vecchia" not in r.stdout and "(2)" in r.stdout, r.stdout + r.stderr)
     # X3
-    r = subprocess.run([str(T.SCRIPTS / "cm-restore.sh"), "--dry-run"], capture_output=True, text=True, env=env(CLAUDE_MASTER_CONFIG=str(cfg)), timeout=60)
+    r = subprocess.run([str(T.SCRIPTS / "cm-restore.sh"), "--dry-run"], capture_output=True, text=True, env=env(TEAM_SUPERVISOR_CONFIG=str(cfg)), timeout=60)
     reg.write_text(json.dumps({"salvato": "x", "sessioni": []}))
     r = subprocess.run([str(T.SCRIPTS / "cm-restore.sh"), "--dry-run"], capture_output=True, text=True, env=env(), timeout=60)
     T.check("X3b empty registry but a snapshot (written by the relaunches): restore reads the snapshot (all alive → skipped, exit 0)", r.returncode == 0 and "viva" in r.stdout, r.stdout + r.stderr)
@@ -103,11 +103,11 @@ crontab_cmd = tmp / "crontab"
 crontab_cmd.write_text(f'#!/bin/bash\nif [ "$1" = -l ]; then cat "{fakecron}" 2>/dev/null; exit 0; fi\ncat > "{fakecron}"\n')
 crontab_cmd.chmod(0o755)
 r = T.run_config(["init", "--cron"], home, cfg, extra_env={"CM_CRONTAB_CMD": str(crontab_cmd)})
-T.check("K1 --cron prints the line with the configured cadence", "*/15 * * * *" in r.stdout and "claude-master registry" in r.stdout and not fakecron.exists(), r.stdout + r.stderr)
+T.check("K1 --cron prints the line with the configured cadence", "*/15 * * * *" in r.stdout and "team-supervisor registry" in r.stdout and not fakecron.exists(), r.stdout + r.stderr)
 r = T.run_config(["init", "--cron", "--yes"], home, cfg, extra_env={"CM_CRONTAB_CMD": str(crontab_cmd)})
-T.check("K1 --cron --yes installs it once", fakecron.exists() and fakecron.read_text().count("claude-master registry") == 1, r.stdout + r.stderr + (fakecron.read_text() if fakecron.exists() else ""))
+T.check("K1 --cron --yes installs it once", fakecron.exists() and fakecron.read_text().count("team-supervisor registry") == 1, r.stdout + r.stderr + (fakecron.read_text() if fakecron.exists() else ""))
 r = T.run_config(["init", "--cron", "--yes"], home, cfg, extra_env={"CM_CRONTAB_CMD": str(crontab_cmd)})
-T.check("K1 second --cron --yes does not duplicate", fakecron.read_text().count("claude-master registry") == 1, fakecron.read_text())
+T.check("K1 second --cron --yes does not duplicate", fakecron.read_text().count("team-supervisor registry") == 1, fakecron.read_text())
 
 T.rm(str(tmp))
 T.finish()

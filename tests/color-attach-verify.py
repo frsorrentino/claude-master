@@ -44,7 +44,7 @@ cfg.write_text(json.dumps({
 
 
 def run(script, *args, extra=None):
-    env = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg),
+    env = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg),
            "CM_TMUX_ARGS": tm.env["CM_TMUX_ARGS"]}
     env.pop("TMUX", None)
     if extra:
@@ -91,7 +91,7 @@ with T.PrivateTmux() as tm:
     # K5: concorrenza
     tm("new-session", "-d", "-s", "par1", "bash", "--norc")
     tm("new-session", "-d", "-s", "par2", "bash", "--norc")
-    env = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(cfg),
+    env = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg),
            "CM_TMUX_ARGS": tm.env["CM_TMUX_ARGS"]}
     reg.write_text("")   # tutti liberi: senza lock i due sceglierebbero lo stesso 0
     ps = [subprocess.Popen([str(T.SCRIPTS / "cm-color.sh"), n], stdout=subprocess.PIPE, text=True, env=env) for n in ("par1", "par2")]
@@ -100,7 +100,7 @@ with T.PrivateTmux() as tm:
 
     # A1: attach ephemeral dentro un tmux "runner" (serve un tty) — l'attach usa il socket privato
     tm("new-session", "-d", "-s", "target", "bash", "--norc")
-    runner_cmd = (f"env -u TMUX PATH='{os.environ['PATH']}' HOME='{home}' CM_HOME='{home}' CLAUDE_MASTER_CONFIG='{cfg}' "
+    runner_cmd = (f"env -u TMUX PATH='{os.environ['PATH']}' HOME='{home}' CM_HOME='{home}' TEAM_SUPERVISOR_CONFIG='{cfg}' "
                   f"CM_TMUX_ARGS='{tm.env['CM_TMUX_ARGS']}' '{T.SCRIPTS}/cm-attach.sh' target ephemeral; sleep 5")
     tm("new-session", "-d", "-s", "runner", "-x", "80", "-y", "24", runner_cmd)
     for _ in range(20):
@@ -128,7 +128,7 @@ with T.PrivateTmux() as tm:
     # K7: le CM_* di una sessione nata sotto un'altra config (qui: il «registro vero» è colors-altra)
     def loaded_env(config):
         out = subprocess.run(["bash", "-c", f"source '{T.SCRIPTS / 'cm-lib.sh'}' && env -0"], capture_output=True,
-                             env={"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CLAUDE_MASTER_CONFIG": str(config)}).stdout
+                             env={"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(config)}).stdout
         return {k: v for k, v in (kv.split("=", 1) for kv in out.decode().split("\0") if kv.startswith("CM_") and "=" in kv) if k != "CM_TMUX_ARGS"}
     other_reg = Path(tmp) / "colors-altra"; other_reg.write_text("vera\t0\n")
     other_cfg = Path(tmp) / "config-altra.json"
