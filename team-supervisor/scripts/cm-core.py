@@ -557,6 +557,7 @@ def _human(d):
 
 
 _PREFIXES = None
+_VOICE = None
 
 
 def _prompt_prefixes():
@@ -582,11 +583,31 @@ def _prompt_prefixes():
     return _PREFIXES
 
 
+def _voice_texts():
+    """1.42: le istruzioni vocali che il relay aggiunge dopo il prefisso a un prompt della modalita' live, in tutte le lingue."""
+    global _VOICE
+    if _VOICE is None:
+        _VOICE = []
+        for f in sorted((HERE.parent / "messages").glob("*.json")):
+            try:
+                v = json.loads(f.read_text()).get("relay.prompt_voice")
+            except (OSError, ValueError):
+                continue
+            if v:
+                _VOICE.append(v)
+    return _VOICE
+
+
 def _origin_of(text):
     """(testo senza il prefisso del relay, origin): «phone», «watch», «web», «remote» (relay, dispositivo ignoto) o «pc»."""
     for p, origin in _prompt_prefixes():
         if text.startswith(p):
-            return text[len(p):].strip(), origin
+            rest = text[len(p):].strip()
+            for v in _voice_texts():
+                if rest.startswith(v):
+                    rest = rest[len(v):].strip()
+                    break
+            return rest, origin
     return text, "pc"
 
 

@@ -2,6 +2,8 @@
 
 ## 0.3.x
 
+- **0.7.2 — 2026-10-07: the relay side of the app's live mode — voice prompts and live approvals with a double confirmation.**
+  - Relay, contract 1.42 (asked by the app for the live mode, phase 3; specification approved by the maintainer on 06/10; additive, `v` stays 1). `prompt` with `voice: true` adds the voice instructions («Dall'utente a voce, in modalità live: …») after the device's prefix, for any session; the timeline and `transcript` strip them with the prefix. `approve` with `via: "live"` is refused unless `confirmations` is an integer of 2 or more («<task>: live approval needs a double confirmation»); accepted, the registry's text reads «<text> (dal telefono, modalità live, doppia conferma)». Without the new fields nothing changes.
 - **0.7.1 — 2026-10-07: data for the night page, and the timeline keeps what the person wrote.**
   - Night report (`cm-night-report.py`): the data of the «Notte» page (schema v1) and a static HTML preview, built from code — timeline, night queue and its outcomes, task registry, relay state and the commits of the window. A night job's outcome comes from its «Esito:» line (new outcome `stopped`), each commit is counted once per repo and goes to the worktree that made it, rows of the same session are merged, a stale relay «next» is ignored, and `night run` rebuilds the report at the end of a run.
   - Timeline: the summary written after a compaction is no longer taken for a prompt of the person; relay prompts sent before the rename, with the old prefix, still count as the person's.

@@ -1239,6 +1239,38 @@ r31d = send_cmd(dict(CMDS[34], id="6f1c2d3e-0372-4000-8000-000000000373", arg=No
 r31e = send_cmd(dict(CMDS[34], id="6f1c2d3e-0372-4000-8000-000000000374", text="  "))
 T.check("R31 (1.37) decision with the master closed → kept in its inbox, said so; an empty decision → refused",
         r31d and r31d["ok"] is True and "inbox" in r31d["text"] and r31e and r31e["ok"] is False and r31e["text"] == "empty decision: nothing to save", str([r31d, r31e]))
+# R35 (contratto 1.42, 07/10, modalita' live dell'app): il prompt a voce porta le istruzioni vocali dopo il prefisso del
+# dispositivo; l'approve dal polso in modalita' live vale solo con la doppia conferma
+_voice34 = json.loads((T.SCRIPTS.parent / "messages" / "it.json").read_text()).get("relay.prompt_voice")
+_alive_bak34 = alive.read_text()
+alive.write_text(json.dumps(json.loads(_alive_bak34) + [{"pid": 10, "name": "master", "tmux": "master", "cwd": str(ws / "personal" / "atlas-shop"), "status": "idle", "waiting": False,
+                                                       "link": None, "account": "personal", "session_id": "S-M", "attached": False, "started_at": 1789120000000}]))
+n_calls = len(cm_calls())
+r34a = send_cmd(CMDS[37])
+talk34 = [c for c in cm_calls()[n_calls:] if c.startswith("talk master ")]
+T.check("R35 (1.42) prompt with voice true → talk with the phone's prefix, then the voice instructions, then the text, --no-wait; «delivered» as in the fixture",
+        r34a and r34a["ok"] is True and r34a["text"] == RES[37]["text"] and _voice34 == "Dall'utente a voce, in modalità live: rispondi in 2 o 3 frasi, senza tabelle, percorsi né codice; se proponi seguiti, Prossimi numerati; chiudi con la riga Watch."
+        and len(talk34) == 1 and talk34[0] == "talk master " + json.loads((T.SCRIPTS.parent / "messages" / "it.json").read_text())["relay.prompt_prefix_phone"] + " " + _voice34 + " which session is closest to a release? --no-wait",
+        str(r34a) + str(talk34))
+n_calls = len(cm_calls())
+r34b = send_cmd(dict(CMDS[37], id="6f1c2d3e-0380-4000-8000-000000000383", voice=False))
+talk34b = [c for c in cm_calls()[n_calls:] if c.startswith("talk master ")]
+T.check("R35 (1.42) voice false or absent → the prompt as before, no voice instructions",
+        r34b and r34b["ok"] is True and len(talk34b) == 1 and "modalità live" not in talk34b[0], str(r34b) + str(talk34b))
+alive.write_text(_alive_bak34)
+n_calls = len(cm_calls())
+r34c = send_cmd(CMDS[38])
+T.check("R35 (1.42) approve via live with 2 confirmations → `task approve <task> --by <by> --text \"<text> (dal telefono, modalità live, doppia conferma)\"`, as in the fixture",
+        r34c and r34c["ok"] is True and r34c["text"] == RES[38]["text"] and "task approve atlas-release-2-4 --by phone-pixel8 --text ok (dal telefono, modalità live, doppia conferma)" in cm_calls()[n_calls:],
+        str(r34c) + str(cm_calls()[n_calls:]))
+n_calls = len(cm_calls())
+r34d = send_cmd(CMDS[39])
+r34e = [send_cmd(dict(CMDS[39], id=f"6f1c2d3e-0382-4000-8000-00000000038{i}", **kw)) for i, kw in ((4, {"confirmations": None}), (5, {"confirmations": True}), (6, {"confirmations": "2"}))]
+_c34 = dict(CMDS[39]); _c34.pop("confirmations"); _c34["id"] = "6f1c2d3e-0382-4000-8000-000000000387"
+r34e.append(send_cmd(_c34))
+T.check("R35 (1.42) approve via live with 1 confirmation → refused as in the fixture; missing, null, true or a string → refused the same; nothing recorded",
+        r34d and r34d["ok"] is False and r34d["text"] == RES[39]["text"] and all(r and r["ok"] is False and r["text"] == RES[39]["text"] for r in r34e)
+        and not any(c.startswith("task approve") for c in cm_calls()[n_calls:]), str([r34d] + r34e) + str(cm_calls()[n_calls:]))
 adv31 = tmp / "fd-sessions"; adv31.mkdir(exist_ok=True)
 _now31 = int(time.time())
 _m31 = json.loads((FIX / "state-1-question.json").read_text())["choices"]["models"]

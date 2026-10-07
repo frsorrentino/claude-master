@@ -1,6 +1,6 @@
 # team-supervisor
 
-![Version](https://img.shields.io/badge/version-0.7.1-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.7.2-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 [![team-supervisor in 40 seconds: a question from a Claude Code session on a Wear OS watch — «Staging is green. Deploy 2.8.0?» — answered with one tap.](assets/readme/promo-poster.jpg)](https://www.francescosorrentino.com/plugins/claude-master-watch)
 
@@ -315,6 +315,10 @@ contract 1.37 brings the master's help to the app: fable-director's advice of
 model and effort for each session, the registry's tasks waiting for an ok with
 an «Approve» button (op `approve`), «Save as decision» for the master's memory
 (op `decision`), and the sessions that are finished or duplicated.
+Contract 1.42 serves the app's live mode: a prompt dictated by voice
+(`voice: true`) carries short spoken-answer instructions after the device's
+prefix, and an approval given from the wrist (`via: "live"`) counts only with a
+double confirmation (`confirmations` of 2 or more).
 
 Contract 1.20 counts the phone as well as the watch before falling back to
 Telegram. Each paired device writes `/seen/<uid>` (the Firebase server time)

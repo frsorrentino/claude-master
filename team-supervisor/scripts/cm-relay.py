@@ -1878,10 +1878,16 @@ def approve_task(cmd, arg):
     scritto a mano — `task approve <task> --by <chi> --text "<testo> (dal telefono)"`. Solo un compito che aspetta
     davvero un ok; arrivano solo dai dispositivi accoppiati (il bus) e dalla web app locale (il token)."""
     tid = str(arg or "").strip()
+    # 1.42 (07/10, modalita' live): l'ok dato al polso vale solo con la doppia conferma; `confirmations` intero, mai un bool
+    live = cmd.get("via") == "live"
+    n = cmd.get("confirmations")
+    if live and (isinstance(n, bool) or not isinstance(n, int) or n < 2):
+        return False, M("relay.cmd_approve_live_needs_two", task=tid or "?")
     if not re.fullmatch(r"[A-Za-z0-9._-]{1,80}", tid) or tid not in {a["task"] for a in approvals_list()}:
         return False, M("relay.cmd_approve_not_waiting", task=tid or "?")
     text = S.one_line(str(cmd.get("text") or "").strip())[:500] or "ok"
-    rc, out = run_cm("task", "approve", tid, "--by", str(cmd.get("by") or "app"), "--text", f"{text} ({from_device(cmd)})")
+    where = from_device(cmd) + (", " + M("relay.approve_live") if live else "")
+    rc, out = run_cm("task", "approve", tid, "--by", str(cmd.get("by") or "app"), "--text", f"{text} ({where})")
     if rc != 0:
         return False, (out.splitlines() or ["task approve failed"])[0]
     return True, M("relay.cmd_approved", task=tid)
@@ -1962,7 +1968,9 @@ def execute(cmd):
                 return False, "empty prompt"
             if not is_live(tm):
                 return False, M("relay.cmd_not_running", name=session)
-            rc, out = run_cm("talk", tm, prefix_for(cmd) + " " + text, "--no-wait")
+            # 1.42: un prompt dettato in modalita' live porta le istruzioni vocali dopo il prefisso (timeline e transcript le tolgono)
+            voice = " " + M("relay.prompt_voice") if cmd.get("voice") is True else ""
+            rc, out = run_cm("talk", tm, prefix_for(cmd) + voice + " " + text, "--no-wait")
             if rc != 0:
                 return False, out.splitlines()[0] if out else "talk failed"
             if saved_in_inbox(out):

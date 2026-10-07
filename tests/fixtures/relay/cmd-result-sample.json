@@ -314,6 +314,40 @@
       "device": "web",
       "issued": 1789210995,
       "by": "web-safari"
+    },
+    {
+      "id": "6f1c2d3e-0380-4000-8000-000000000380",
+      "op": "prompt",
+      "session": "master",
+      "arg": "which session is closest to a release?",
+      "voice": true,
+      "device": "phone",
+      "issued": 1789211000,
+      "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0381-4000-8000-000000000381",
+      "op": "approve",
+      "session": null,
+      "arg": "atlas-release-2-4",
+      "text": "ok",
+      "via": "live",
+      "confirmations": 2,
+      "device": "phone",
+      "issued": 1789211010,
+      "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0382-4000-8000-000000000382",
+      "op": "approve",
+      "session": null,
+      "arg": "atlas-release-2-4",
+      "text": "ok",
+      "via": "live",
+      "confirmations": 1,
+      "device": "phone",
+      "issued": 1789211020,
+      "by": "phone-pixel8"
     }
   ],
   "result": [
@@ -540,6 +574,24 @@
       "ok": false,
       "text": "unknown device nope0000",
       "at": 1789210996
+    },
+    {
+      "id": "6f1c2d3e-0380-4000-8000-000000000380",
+      "ok": true,
+      "text": "delivered",
+      "at": 1789211001
+    },
+    {
+      "id": "6f1c2d3e-0381-4000-8000-000000000381",
+      "ok": true,
+      "text": "approved atlas-release-2-4",
+      "at": 1789211011
+    },
+    {
+      "id": "6f1c2d3e-0382-4000-8000-000000000382",
+      "ok": false,
+      "text": "atlas-release-2-4: live approval needs a double confirmation",
+      "at": 1789211021
     }
   ]
 }

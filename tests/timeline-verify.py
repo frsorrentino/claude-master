@@ -29,6 +29,7 @@ ENV = dict(os.environ, TEAM_SUPERVISOR_CONFIG=str(cfg), CM_BIN=str(Path(__file__
 NOW = int(time.time())
 PFX = json.loads((T.PLUGIN / "messages" / "it.json").read_text())["relay.prompt_prefix_phone"]
 PFX_WEB = json.loads((T.PLUGIN / "messages" / "it.json").read_text())["relay.prompt_prefix_web"]
+VOICE = json.loads((T.PLUGIN / "messages" / "it.json").read_text()).get("relay.prompt_voice", "Dall'utente a voce, in modalità live:")
 
 
 def iso(t):
@@ -74,6 +75,8 @@ L = [
     line("user", "p4", NOW - 2050, "x", proj, origin={"kind": "peer", "body": PFX_WEB + " rifai il totale", "msg_id": "m3"}),
     # un prompt dal telefono arrivato prima del rinomino (07/10): il prefisso diceva «claude-master»
     line("user", "p5", NOW - 2020, "x", proj, origin={"kind": "peer", "body": PFX.replace("team-supervisor", "claude-master") + " chiudo ora", "msg_id": "m4"}),
+    # 1.42: un prompt a voce dalla modalità live, con le istruzioni vocali dopo il prefisso
+    line("user", "p6", NOW - 2010, "x", proj, origin={"kind": "peer", "body": PFX + " " + VOICE + " quale sessione è vicina al rilascio?", "msg_id": "m5"}),
     # il riassunto di una compattazione: riga `user` senza origin, come nelle trascrizioni vere (07/10)
     line("user", "c1", NOW - 2000, "This session is being continued from a previous conversation that ran out of context.", proj,
          origin=None, isCompactSummary=True, isVisibleInTranscriptOnly=True),
@@ -117,8 +120,8 @@ kinds = [(e["kind"], e["text"]) for e in atlas["events"]]
 T.check("TL1 the live session by its short name (prefix w- dropped), live, its folder; the closed one of the window by its folder name; the 20-hour-old one left out",
         rc == 0 and set(by) == {"atlas", "orbit"} and atlas.get("live") is True and atlas.get("project") == str(proj) and by["orbit"]["live"] is False
         and [e["text"] for e in by["orbit"]["events"]] == ["docs aggiornate"], out[:400] + err)
-T.check("TL2 in time order: the prompt, three tests, the commit, the outcome, the phone's and the web app's prompts, the task (closed just now); nothing older than the window",
-        [k for k, _ in kinds] == ["prompt", "test", "test", "test", "commit", "outcome", "prompt", "prompt", "prompt", "task"] and atlas["events"] == sorted(atlas["events"], key=lambda e: e["at"])
+T.check("TL2 in time order: the prompt, three tests, the commit, the outcome, the phone's, the web app's and the voice prompts, the task (closed just now); nothing older than the window",
+        [k for k, _ in kinds] == ["prompt", "test", "test", "test", "commit", "outcome", "prompt", "prompt", "prompt", "prompt", "task"] and atlas["events"] == sorted(atlas["events"], key=lambda e: e["at"])
         and not any("too old" in t or "old work" in t for _, t in kinds), str(kinds))
 tests = [e for e in atlas["events"] if e["kind"] == "test"]
 T.check("TL3 tests named by their suite, with the summary line: 12/12 OK green; «3/4 OK, FAIL» red although the command exited 0; pytest with is_error red",
@@ -131,8 +134,8 @@ T.check("TL5 commits from git log of the folder: the one in the window once (the
 outc = [e["text"] for e in atlas["events"] if e["kind"] == "outcome"]
 T.check("TL6 the «Esito:» line of the session, not the subagent's", outc == ["campo IVA aggiunto, checkout verde"], str(outc))
 prompts = [(e["text"], e["ref"]) for e in atlas["events"] if e["kind"] == "prompt"]
-T.check("TL7 prompts: the one typed (ref null), the phone's through the relay once, prefix stripped (ref phone), the web app's (ref web, 1.36), one with the prefix from before the rename (phone); another session's message and a compaction summary left out",
-        prompts == [("aggiungi il campo IVA al checkout", None), ("controlla anche il carrello", "phone"), ("rifai il totale", "web"), ("chiudo ora", "phone")], str(prompts))
+T.check("TL7 prompts: the one typed (ref null), the phone's through the relay once, prefix stripped (ref phone), the web app's (ref web, 1.36), one with the prefix from before the rename (phone), a voice prompt without the voice instructions (1.42, phone); another session's message and a compaction summary left out",
+        prompts == [("aggiungi il campo IVA al checkout", None), ("controlla anche il carrello", "phone"), ("rifai il totale", "web"), ("chiudo ora", "phone"), ("quale sessione è vicina al rilascio?", "phone")], str(prompts))
 tk = [e for e in atlas["events"] if e["kind"] == "task"]
 T.check("TL8 the registry's accepted outcome for the folder", len(tk) == 1 and tk[0]["ok"] is True and tk[0]["ref"] == "vat" and tk[0]["text"].startswith("IVA nel checkout: check green"), str(tk))
 rc, txt, _ = tl("atlas", "--since", "6h")
