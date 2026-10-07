@@ -2,6 +2,9 @@
 
 ## 0.3.x
 
+- **0.7.1 — 2026-10-07: data for the night page, and the timeline keeps what the person wrote.**
+  - Night report (`cm-night-report.py`): the data of the «Notte» page (schema v1) and a static HTML preview, built from code — timeline, night queue and its outcomes, task registry, relay state and the commits of the window. A night job's outcome comes from its «Esito:» line (new outcome `stopped`), each commit is counted once per repo and goes to the worktree that made it, rows of the same session are merged, a stale relay «next» is ignored, and `night run` rebuilds the report at the end of a run.
+  - Timeline: the summary written after a compaction is no longer taken for a prompt of the person; relay prompts sent before the rename, with the old prefix, still count as the person's.
 - **0.7.0 — 2026-10-07: renamed from claude-master to team-supervisor; close works on the sessions open in a tab; the plugin no longer approves its own actions.**
   - Renamed (the maintainer's decision of 07/10): plugin, marketplace (`team-supervisor@team-supervisor-dev`), repository `frsorrentino/team-supervisor` (GitHub redirects the old links), command `team-supervisor` and namespace `/team-supervisor:…`. Folders `~/.config/team-supervisor`, `~/.team-supervisor`, `~/.local/state/team-supervisor`, `~/.cache/team-supervisor`; the variables `TEAM_SUPERVISOR_CONFIG|ROOT|PY` (the old `CLAUDE_MASTER_*` still read until 21/10/2026). Unchanged: the relay's encryption label and Firebase project, the per-project `.claude-master-inbox`/`-reports` and the remote helper folder, the Android package of the app. Installed as `claude-master@…`: uninstall it and install `team-supervisor@team-supervisor-dev`.
   - claude-observe synced (a6eb545): anonymous sending offered when the service lists it, team-supervisor among them; the plugin's own anonymizer first.

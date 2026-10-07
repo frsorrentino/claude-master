@@ -575,6 +575,9 @@ def _prompt_prefixes():
                                 ("relay.prompt_prefix", "remote"), ("relay.prompt_prefix_legacy", "remote")):
                 if m.get(key):
                     _PREFIXES.append((m[key], origin))
+                    # i prompt arrivati prima del rinomino (07/10) dicevano «claude-master»: le trascrizioni restano
+                    if "team-supervisor" in m[key]:
+                        _PREFIXES.append((m[key].replace("team-supervisor", "claude-master"), origin))
         _PREFIXES.sort(key=lambda x: -len(x[0]))
     return _PREFIXES
 

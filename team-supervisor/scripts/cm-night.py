@@ -287,6 +287,17 @@ def summary_line(item, res, report):
     return f"{mark} {os.path.basename(item['dir'])} ({item['account']}, {res['seconds']} s, rc={res['rc']}): {first}\n   {report}"
 
 
+def refresh_report():
+    """Il rapporto della pagina «Notte» rigenerato a fine giro (07/10: quello fatto a meta' notte non vedeva il resto).
+    Facoltativo: se cade, il giro e' fatto lo stesso e il log lo dice."""
+    cmd = [sys.executable, os.environ.get("CM_NIGHT_REPORT_BIN") or str(HERE / "cm-night-report.py")]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        log(f"night report: rc={p.returncode} " + " ".join((p.stdout or p.stderr).split())[:300])
+    except (OSError, subprocess.TimeoutExpired) as e:
+        log(f"night report: {e.__class__.__name__}")
+
+
 def run(argv):
     dry = "--dry-run" in argv or "--prova" in argv
     one = "--one" in argv
@@ -334,6 +345,8 @@ def run(argv):
         lines.append(summary_line(item, res, report))
         print(lines[-1])
         ran += 1
+    if ran and not dry:
+        refresh_report()
     if send and lines:
         text = M("night.summary_title", n=len(lines), left=len(read_jsonl(queue_path()))) + "\n" + "\n".join(lines)
         # contratto 1.18: il resoconto anche all'app, evento `night_report` del relay, prima di Telegram

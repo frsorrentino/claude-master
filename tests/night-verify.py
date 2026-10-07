@@ -7,6 +7,7 @@ NI3 run: claude -p nella cartella con --permission-mode e --max-turns, CLAUDE_CO
     il secondo account, rapporto in docs/notte, voce spostata in done, riassunto --send su Telegram
 NI4 guardie: RAM sotto soglia → voce saltata con motivo, resta in coda; --one esegue una sola voce
 NI5 install (riga cron alle 02:00), status, uninstall
+NI3b a fine giro (non --dry-run, almeno una voce eseguita) il rapporto della pagina «Notte» si rigenera
 NI6 (contratto 1.17 del relay) prompt vuoto e coda piena rifiutati; durante `run` la voce in corso porta `started`
     e `remove` la rifiuta, una voce tolta non parte, una voce aggiunta resta in coda
 """
@@ -71,10 +72,15 @@ cfg.write_text(json.dumps({
 }))
 
 
+report_marker = tmp / "night-report.calls"
+fake_report = tmp / "fake-night-report.py"
+fake_report.write_text(f"import sys\nopen({str(report_marker)!r}, 'a').write(' '.join(sys.argv[1:]) + '\\n')\nprint('/x/report.json')\n")
+
+
 def night(*args, free_mb="4000", claude=FAKE):
     env = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg),
            "CM_CRONTAB_CMD": str(fake_crontab), "CM_CLAUDE_BIN": str(claude), "FAKE_CLAUDE_ARGS_LOG": str(argslog),
-           "FAKE_CLAUDE_ECHO_ENV": "CLAUDE_CONFIG_DIR", "CM_NIGHT_FREE_MB": free_mb}
+           "FAKE_CLAUDE_ECHO_ENV": "CLAUDE_CONFIG_DIR", "CM_NIGHT_FREE_MB": free_mb, "CM_NIGHT_REPORT_BIN": str(fake_report)}
     return subprocess.run([sys.executable, str(T.SCRIPTS / "cm-night.py"), *args], capture_output=True, text=True, env=env, timeout=120)
 
 
@@ -98,6 +104,7 @@ T.check("NI1 remove by id", r.returncode == 0 and rid not in queue.read_text() a
 # NI2
 r = night("run", "--dry-run")
 T.check("NI2 --dry-run: lists what it would run, queue untouched, claude not called", r.returncode == 0 and r.stdout.count("-p") >= 2 and len(queue.read_text().splitlines()) == 2 and not argslog.exists(), r.stdout + r.stderr)
+T.check("NI2 --dry-run: the night report is not rebuilt", not report_marker.exists(), "")
 
 # NI3
 r = night("run", "--send")
@@ -107,6 +114,9 @@ T.check("NI3 CLAUDE_CONFIG_DIR only for the second account (T68)", "CLAUDE_CONFI
 reports = sorted((ws / "personali" / "alfa" / "docs" / "notte").glob("*.md")) + sorted((ws / "agenzia" / "clienti" / "sito.com" / "docs" / "notte").glob("*.md"))
 T.check("NI3 a report per item in docs/notte with prompt and output", len(reports) == 2 and "sistema i test rossi" in reports[0].read_text() and "Sent to cloud session (fake)" in reports[0].read_text(), str(reports))
 T.check("NI3 queue emptied, done has both with rc", queue.read_text().strip() == "" and len((state / "night-done.jsonl").read_text().splitlines()) == 2 and '"rc": 0' in (state / "night-done.jsonl").read_text(), (state / "night-done.jsonl").read_text()[:300])
+T.check("NI3 end of the run: the night report rebuilt once, after the items, and the log says so",
+        report_marker.is_file() and len(report_marker.read_text().splitlines()) == 1
+        and "night report: rc=0 /x/report.json" in (state / "night.log").read_text(), (state / "night.log").read_text()[-400:])
 T.check("NI3 --send: one Telegram message with both items", len(CALLS["sendMessage"]) == 1 and "alfa" in CALLS["sendMessage"][0]["text"] and "sito.com" in CALLS["sendMessage"][0]["text"] and "✓" in CALLS["sendMessage"][0]["text"], str(CALLS["sendMessage"])[:400])
 
 # NI4

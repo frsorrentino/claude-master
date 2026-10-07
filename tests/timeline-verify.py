@@ -72,6 +72,11 @@ L = [
     line("user", "p2", NOW - 2190, "x", proj, origin={"kind": "peer", "body": PFX + " controlla anche il carrello", "msg_id": "m1"}),
     line("user", "p3", NOW - 2100, "x", proj, origin={"kind": "peer", "body": "another session talking", "msg_id": "m2"}),
     line("user", "p4", NOW - 2050, "x", proj, origin={"kind": "peer", "body": PFX_WEB + " rifai il totale", "msg_id": "m3"}),
+    # un prompt dal telefono arrivato prima del rinomino (07/10): il prefisso diceva «claude-master»
+    line("user", "p5", NOW - 2020, "x", proj, origin={"kind": "peer", "body": PFX.replace("team-supervisor", "claude-master") + " chiudo ora", "msg_id": "m4"}),
+    # il riassunto di una compattazione: riga `user` senza origin, come nelle trascrizioni vere (07/10)
+    line("user", "c1", NOW - 2000, "This session is being continued from a previous conversation that ran out of context.", proj,
+         origin=None, isCompactSummary=True, isVisibleInTranscriptOnly=True),
 ]
 d1 = conf / "projects" / slug(proj)
 d1.mkdir(parents=True)
@@ -113,7 +118,7 @@ T.check("TL1 the live session by its short name (prefix w- dropped), live, its f
         rc == 0 and set(by) == {"atlas", "orbit"} and atlas.get("live") is True and atlas.get("project") == str(proj) and by["orbit"]["live"] is False
         and [e["text"] for e in by["orbit"]["events"]] == ["docs aggiornate"], out[:400] + err)
 T.check("TL2 in time order: the prompt, three tests, the commit, the outcome, the phone's and the web app's prompts, the task (closed just now); nothing older than the window",
-        [k for k, _ in kinds] == ["prompt", "test", "test", "test", "commit", "outcome", "prompt", "prompt", "task"] and atlas["events"] == sorted(atlas["events"], key=lambda e: e["at"])
+        [k for k, _ in kinds] == ["prompt", "test", "test", "test", "commit", "outcome", "prompt", "prompt", "prompt", "task"] and atlas["events"] == sorted(atlas["events"], key=lambda e: e["at"])
         and not any("too old" in t or "old work" in t for _, t in kinds), str(kinds))
 tests = [e for e in atlas["events"] if e["kind"] == "test"]
 T.check("TL3 tests named by their suite, with the summary line: 12/12 OK green; «3/4 OK, FAIL» red although the command exited 0; pytest with is_error red",
@@ -126,8 +131,8 @@ T.check("TL5 commits from git log of the folder: the one in the window once (the
 outc = [e["text"] for e in atlas["events"] if e["kind"] == "outcome"]
 T.check("TL6 the «Esito:» line of the session, not the subagent's", outc == ["campo IVA aggiunto, checkout verde"], str(outc))
 prompts = [(e["text"], e["ref"]) for e in atlas["events"] if e["kind"] == "prompt"]
-T.check("TL7 prompts: the one typed (ref null), the phone's through the relay once, prefix stripped (ref phone), the web app's (ref web, 1.36); another session's message left out",
-        prompts == [("aggiungi il campo IVA al checkout", None), ("controlla anche il carrello", "phone"), ("rifai il totale", "web")], str(prompts))
+T.check("TL7 prompts: the one typed (ref null), the phone's through the relay once, prefix stripped (ref phone), the web app's (ref web, 1.36), one with the prefix from before the rename (phone); another session's message and a compaction summary left out",
+        prompts == [("aggiungi il campo IVA al checkout", None), ("controlla anche il carrello", "phone"), ("rifai il totale", "web"), ("chiudo ora", "phone")], str(prompts))
 tk = [e for e in atlas["events"] if e["kind"] == "task"]
 T.check("TL8 the registry's accepted outcome for the folder", len(tk) == 1 and tk[0]["ok"] is True and tk[0]["ref"] == "vat" and tk[0]["text"].startswith("IVA nel checkout: check green"), str(tk))
 rc, txt, _ = tl("atlas", "--since", "6h")

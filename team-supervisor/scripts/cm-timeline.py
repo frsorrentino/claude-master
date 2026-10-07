@@ -153,7 +153,9 @@ def transcript_events(path, since):
                         tail = [ln for ln in _result_text(b).splitlines() if SUMMARY_RE.search(ln)]
                         e["ref"] = one_line(tail[-1], 120) if tail else None
                         e["ok"] = e["ok"] and not any("FAIL" in ln.split(" OK", 1)[-1] or re.search(r"\bfailed\b", ln) for ln in tail)
-            if core._human(d):
+            # il riassunto di una compattazione («This session is being continued…») e' una riga `user` senza origin,
+            # ma non l'ha scritta la persona (07/10: spostava la finestra della pagina «Notte» alle 20:32)
+            if core._human(d) and not d.get("isCompactSummary"):
                 human_prompt(out, at, content)
         elif d.get("type") == "attachment":
             a = d.get("attachment") or {}
