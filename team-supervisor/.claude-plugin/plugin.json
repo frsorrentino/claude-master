@@ -1,7 +1,7 @@
 {
   "name": "team-supervisor",
   "displayName": "Team Supervisor",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "description": "Run many Claude Code sessions on one machine: launch them in the right folder and account, in tmux, with a terminal window whose tab tells you which is which; list, close, restart, talk to them and restore them after a reboot. Configurable per machine, generic across terminals.",
   "author": {
     "name": "Francesco Sorrentino",

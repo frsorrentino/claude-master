@@ -822,5 +822,10 @@
   "plan.brief_result": "End your answer with one line: CM-RESULT {{\"task\": \"{id}\", \"attempt\": {attempt}, \"outcome\": \"green|red\", \"reason\": \"…\", \"proof\": {{\"kind\": \"check|commit|link\", \"value\": \"…\"}}, \"at\": <epoch s>}} (with outcome red add \"perimeter\": [the files to fix]).",
   "plan.failed_notice": "plan run: unit {id} ({title}) is red after {n} attempts: {reason}. The nodes depending on it are cancelled; the user decides.",
   "plan.read_only": "none: read-only",
-  "guard.lane_closed": "Closed lane: «{cmd}» publishes something, and this folder has no task of an approved plan and no recorded ok. Register it (team-supervisor plan approve, or task add + task wait-ok and the user's ok) and retry."
+  "guard.lane_closed": "Closed lane: «{cmd}» publishes something, and this folder has no task of an approved plan and no recorded ok. Register it (team-supervisor plan approve, or task add + task wait-ok and the user's ok) and retry.",
+  "relay.stale_title": "⚠ state stopped for {min} min",
+  "relay.stale_code": "no push since {since}: the relay daemon was running old code. Restarted at {at}.",
+  "relay.stale_push": "no push since {since}: the guard pushed directly at {at}.",
+  "relay.stale_lock": "no push since {since}: the push lock has been held for {lock} min.",
+  "relay.stale_ok": "The state is moving again."
 }

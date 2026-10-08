@@ -525,9 +525,10 @@ T.check("R4 third push: ledger-api vanished → gone; the FCM for it", any(e["ki
 # async con debounce: due richieste in mezzo secondo → una sola scrittura di /state
 n_put = len([x for x in CALLS["requests"] if x == ("PUT", "/state.json")])
 t0 = time.time(); r1 = relay("push", "--async"); r2 = relay("push", "--async"); dt = time.time() - t0
+puts_back = len([x for x in CALLS["requests"] if x == ("PUT", "/state.json")]) - n_put   # 08/10: «subito» = la push non e' ancora partita
 T.wait_until(lambda: len([x for x in CALLS["requests"] if x == ("PUT", "/state.json")]) > n_put, 5)
 time.sleep(1.5)
-T.check("R4 push --async: returns at once (< 2 s for two calls), one /state write for two requests within the debounce", r1.returncode == 0 and r2.returncode == 0 and dt < 2 and len([x for x in CALLS["requests"] if x == ("PUT", "/state.json")]) == n_put + 1, f"dt={dt:.2f} puts={len([x for x in CALLS['requests'] if x == ('PUT', '/state.json')]) - n_put}")
+T.check("R4 push --async: returns at once (no /state write yet when both calls are back; the time alone depends on the machine's load), one /state write for two requests within the debounce", r1.returncode == 0 and r2.returncode == 0 and puts_back == 0 and dt < 6 and len([x for x in CALLS["requests"] if x == ("PUT", "/state.json")]) == n_put + 1, f"dt={dt:.2f} puts={len([x for x in CALLS['requests'] if x == ('PUT', '/state.json')]) - n_put}")
 # oltre 8 KB: molti progetti → fit_state
 for i in range(150):
     (ws / "personal" / f"progetto-con-un-nome-lungo-{i:03d}").mkdir()
@@ -1655,9 +1656,13 @@ T.check("R28 (1.31) already 8 devices (1.39) → ok false «already 8 devices»,
 (rdir2 / "devices.json").write_text(_dev28); http("PUT", "/allowed.json", _all28 or {})
 T.check("R28 (1.31) /state ops carries pair_add", "pair_add" in json.loads(relay("push", "--dry-run").stdout).get("ops", []), "")
 T.check("R14 (1.18) events-sample: a recap, a night_report and the quota resume, with the shape of the other events",
-        [e["kind"] for e in EV[-4:-1]] == ["recap", "night_report", "quota"] and all(set(e) == set(EV[0]) for e in EV) and EV[-4]["ref"] == "2026-09-12", str(EV[-4:-1])[:300])
+        [e["kind"] for e in EV if e["kind"] in ("recap", "night_report", "quota")][-3:] == ["recap", "night_report", "quota"] and all(set(e) == set(EV[0]) for e in EV)
+        and next(e for e in EV if e["kind"] == "recap")["ref"] == "2026-09-12", str([e["kind"] for e in EV])[:300])
 T.check("R34 (1.40) events-sample: restart_failed, a restart that did not succeed (no session, ref = the session's name), with the shape of the other events",
-        EV[-1]["kind"] == "restart_failed" and EV[-1]["session"] is None and EV[-1]["ref"] == "field-notes" and set(EV[-1]) == set(EV[0]), str(EV[-1]))
+        (_rf := next((e for e in EV if e["kind"] == "restart_failed"), {})) and _rf["session"] is None and _rf["ref"] == "field-notes" and set(_rf) == set(EV[0]), str(_rf))
+_rs = next((e for e in EV if e["kind"] == "relay_stale"), {})
+T.check("R38 (1.45) events-sample: relay_stale, no session and no ref, with the shape of the other events",
+        _rs and _rs["session"] is None and _rs["ref"] is None and _rs["title"].startswith("⚠") and set(_rs) == set(EV[0]), str(_rs))
 rows_alive("ledger-api", "atlas-shop", "field-notes")
 r = relay("push", "--dry-run"); dry11 = json.loads(r.stdout)
 p_atlas = next(p_ for p_ in dry11["projects"] if p_["name"] == "atlas-shop")
@@ -2038,5 +2043,121 @@ T.check("R37 (1.44) night is a passive read (it wakes nobody, it never triggers 
 _st37 = S.build_state({"night_report": _latest37}, 1)
 T.check("R37 (1.44) /state night.report = {date, generated_at} of the last report; absent without reports",
         _st37["night"].get("report") == {"date": "2026-10-07", "generated_at": json.loads(_sample37)["generated_at"]} and "report" not in S.build_state({}, 1)["night"], str(_st37["night"]))
+
+
+# R38 (08/10, dopo lo stato fermo dalle 10:47 alle 11:49): ensure riavvia un demone con il codice vecchio; la guardia
+import fcntl as _f38
+_save38 = {n: getattr(RL, n) for n in ("serve_alive", "serve_stop", "push", "emit", "_load")}
+_calls38 = {"stop": 0, "push": [], "emit": [], "tg": []}
+class _Bot38:
+    def send(self, text, watch_quiet=False):
+        _calls38["tg"].append(text)
+_popen38 = RL.subprocess.Popen
+_rdir38 = RL.rdir
+_d38 = tmp / "relay38"; _d38.mkdir(exist_ok=True)
+try:
+    RL.rdir = lambda: _d38   # una cartella sua: il relay di prova di R6/R30 e' ancora vivo e pubblica in rdir2
+    RL.serve_alive = lambda: 0 if _calls38["stop"] else 4242
+    def _stop38():
+        _calls38["stop"] += 1; return True
+    RL.serve_stop = _stop38
+    RL.subprocess.Popen = lambda *a, **kw: None
+    RL.write_json(RL.serve_status_path(), {"pid": 4242, "code": "cm-relay.py:1:1"})
+    RL.guard_path().unlink(missing_ok=True)
+    RL.ensure()
+    _g38 = RL.read_json(RL.guard_path(), {})
+    T.check("R38 ensure: the live daemon runs older code than the disk → stopped and started again, «codice cambiato» in the log",
+            _calls38["stop"] == 1 and _g38.get("cause") == "code" and "codice cambiato" in RL.log_path().read_text(), str(_g38))
+    RL.push = lambda **kw: _calls38["push"].append(kw.get("origin"))
+    RL.emit = lambda kind, title, body, **kw: _calls38["emit"].append((kind, title, body))
+    RL._load = lambda name: _Bot38() if name == "cm-bot" else _save38["_load"](name)
+    RL.guard_path().unlink(missing_ok=True)
+    _now38 = time.time()
+    RL.write_json(RL.rdir() / "last-state.json", {"state": {"published_at": _now38 - 400}, "pushed_at": _now38 - 412})
+    RL.guard(_now38)
+    RL.guard(_now38 + 60)
+    T.check("R38 guard: the state older than 180 s → a direct push (origin «guardia»), Telegram told once, not every minute",
+            _calls38["push"] == ["guardia", "guardia"] and len(_calls38["tg"]) == 1 and "fermo" in _calls38["tg"][0], str(_calls38))
+    RL.write_json(RL.rdir() / "last-state.json", {"state": {"published_at": _now38 + 100}})
+    RL.guard(_now38 + 120)
+    T.check("R38 guard: when the state moves again → one event relay_stale (1.45) with since when and why; the episode closed",
+            len(_calls38["emit"]) == 1 and _calls38["emit"][0][0] == "relay_stale" and "8 min" in _calls38["emit"][0][1]
+            and "push diretta" in _calls38["emit"][0][2] and not RL.guard_path().exists(), str(_calls38["emit"]))
+    _calls38["push"].clear(); _calls38["tg"].clear()
+    RL.write_json(RL.rdir() / "last-state.json", {"state": {"published_at": _now38 - 400}})
+    RL.write_json(RL.guard_path(), {"since": _now38 - 400, "cause": "push", "lock_since": _now38 - 300})
+    with open(str(RL.rdir() / "push.lock"), "w") as _l38:
+        _f38.flock(_l38, _f38.LOCK_EX)
+        RL.guard(_now38)
+        _f38.flock(_l38, _f38.LOCK_UN)
+    _g38 = RL.read_json(RL.guard_path(), {})
+    T.check("R38 guard: the push lock held for more than 180 s → no waiting and no push, cause «lock», said once",
+            not _calls38["push"] and _g38.get("cause") == "lock" and len(_calls38["tg"]) == 1 and "lock" in _calls38["tg"][0], str(_g38) + str(_calls38["tg"]))
+finally:
+    for _n, _v in _save38.items():
+        setattr(RL, _n, _v)
+    RL.subprocess.Popen = _popen38
+    RL.guard_path().unlink(missing_ok=True)
+    RL.rdir = _rdir38
+
+
+# R39 (08/10, battito leggero): il battito del cron ripubblica lo stato pronto se le sorgenti non sono cambiate
+_save39 = {n: getattr(RL, n) for n in ("rdir", "rtdb", "key", "_push", "push")}
+_d39 = tmp / "relay39"; _d39.mkdir(exist_ok=True)
+_puts39, _full39 = [], []
+try:
+    RL.rdir = lambda: _d39
+    RL.key = lambda: k
+    RL.rtdb = lambda method, path, body=None, params=None: _puts39.append((method, path, body))
+    def _fullpush39(dry_run=False, now=None, m=None):
+        _full39.append(1); t = time.time()
+        m.update(ts=t, collected=t, put_at=t, published=t, events=0)
+        return {"sessions": []}
+    RL._push = _fullpush39
+    def _setup39(state="idle", age=10):
+        st = {"v": 1, "ts": time.time() - age, "sessions": [{"name": "x", "state": state}]}
+        RL.write_json(_d39 / "last-state.json", {"state": st, "full": dict(st), "seq": 3})
+        RL.write_json(RL.beat_path(), {"fp": RL.sources_print(), "full_at": time.time() - age})
+    _setup39()
+    _t39 = time.time()
+    RL.push(origin="cron", light=True)
+    _pub39 = C.decrypt(_puts39[-1][2], k) if _puts39 else {}
+    T.check("R39 heartbeat with nothing changed: no collect, the ready state put again with a new published_at, origin «battito» in the log",
+            not _full39 and _puts39 and _puts39[-1][1] == "state" and float(_pub39.get("published_at") or 0) >= _t39
+            and "origine battito" in RL.log_path().read_text(), str(_full39) + str(_pub39)[:120])
+    _setup39()
+    (Path(cm_state_dir39 := RL.cm.expand(RL.CFG["state_dir"])) / "waiting").mkdir(parents=True, exist_ok=True)
+    (Path(cm_state_dir39) / "waiting" / "sid-39").write_text("{}")
+    RL.push(origin="cron", light=True)
+    (Path(cm_state_dir39) / "waiting" / "sid-39").unlink()
+    T.check("R39 a source changed (a question waiting) → the full collect", len(_full39) == 1, str(_full39))
+    _setup39(age=400)
+    RL.push(origin="cron", light=True)
+    T.check("R39 the last full collect older than 5 minutes → the full collect anyway", len(_full39) == 2, str(_full39))
+    _setup39(state="busy", age=150)
+    RL.push(origin="cron", light=True)
+    T.check("R39 a session at work and the last collect older than 2 minutes → the full collect", len(_full39) == 3, str(_full39))
+    _setup39(state="busy", age=60)
+    RL.push(origin="cron", light=True)
+    T.check("R39 a session at work but a collect 1 minute ago → the light heartbeat", len(_full39) == 3, str(_full39))
+    _setup39()
+    with open(Path(cm_state_dir39) / "ledger.jsonl", "a") as _lf39:
+        _lf39.write('{"event": "watch-cmd", "op": "transcript"}\n')
+    RL.push(origin="cron", light=True)
+    T.check("R39 a new ledger line alone (a chat read) does not force the full collect: the state changes come with a hook", len(_full39) == 3, str(_full39))
+    _light39 = []
+    RL.push = lambda **kw: _light39.append(kw.get("light"))
+    for _f in RL.push_req_dir().iterdir():
+        _f.unlink()
+    _save_deb39 = RL.R.get("debounce_s"); RL.R["debounce_s"] = 0.1
+    _w39 = RL.PushWorker(); _w39.start()
+    RL.push_request("cron"); T.wait_until(lambda: len(_light39) == 1, 5)
+    RL.push_request("hook"); RL.push_request("cron"); T.wait_until(lambda: len(_light39) == 2, 5)
+    _w39.stop.set(); _w39.join(2)
+    RL.R["debounce_s"] = _save_deb39
+    T.check("R39 the worker tries the light heartbeat only when the cron alone asked (a hook in between → full push)", _light39 == [True, False], str(_light39))
+finally:
+    for _n, _v in _save39.items():
+        setattr(RL, _n, _v)
 
 T.finish()

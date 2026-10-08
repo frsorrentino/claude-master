@@ -822,5 +822,10 @@
   "plan.brief_result": "Chiudi la risposta con una riga sola: CM-RESULT {{\"task\": \"{id}\", \"attempt\": {attempt}, \"outcome\": \"green|red\", \"reason\": \"…\", \"proof\": {{\"kind\": \"check|commit|link\", \"value\": \"…\"}}, \"at\": <epoch s>}} (con outcome red aggiungi \"perimeter\": [i file da sistemare]).",
   "plan.failed_notice": "plan run: l'unità {id} ({title}) è rossa dopo {n} tentativi: {reason}. I nodi che ne dipendono sono annullati; decide l'utente.",
   "plan.read_only": "nessuno: sola lettura",
-  "guard.lane_closed": "Corsia chiusa: «{cmd}» pubblica qualcosa, e in questa cartella non c'è un compito di un piano approvato né un ok registrato. Registralo (team-supervisor plan approve, o task add + task wait-ok e l'ok dell'utente) e riprova."
+  "guard.lane_closed": "Corsia chiusa: «{cmd}» pubblica qualcosa, e in questa cartella non c'è un compito di un piano approvato né un ok registrato. Registralo (team-supervisor plan approve, o task add + task wait-ok e l'ok dell'utente) e riprova.",
+  "relay.stale_title": "⚠ stato fermo da {min} min",
+  "relay.stale_code": "nessuna push dalle {since}: il demone del relay girava con il codice vecchio. Riavviato alle {at}.",
+  "relay.stale_push": "nessuna push dalle {since}: push diretta della guardia alle {at}.",
+  "relay.stale_lock": "nessuna push dalle {since}: il lock delle push è occupato da {lock} min.",
+  "relay.stale_ok": "Lo stato è ripartito."
 }

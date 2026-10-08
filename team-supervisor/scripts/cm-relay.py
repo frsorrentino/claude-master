@@ -745,7 +745,7 @@ def _s(x):
     return f"{x:.1f}".replace(".", ",")
 
 
-def push(dry_run=False, now=None, origin="diretta", requested=None, stamp=None):
+def push(dry_run=False, now=None, origin="diretta", requested=None, stamp=None, light=False):
     """Una push. Il lock copre raccolta, eventi e PUT; FCM, avvisi e pulizie (m["post"]) girano dopo averlo lasciato
     (08/10, fase 1). `stamp`: la richiesta del ripiego senza demone; se dopo il lock push-request ha un timbro piu'
     nuovo, la push la fa chi l'ha scritto e questa esce senza raccogliere (None)."""
@@ -765,7 +765,11 @@ def push(dry_run=False, now=None, origin="diretta", requested=None, stamp=None):
                     return None   # una richiesta piu' recente: la sua push copre anche questa
             except OSError:
                 pass
-        st = _push(False, now, m)
+        st = _light(m) if light else None
+        if st is None:
+            st = _push(False, now, m)
+        else:
+            origin = "battito"
     finally:
         try:
             fcntl.flock(lock, fcntl.LOCK_UN)
@@ -783,10 +787,81 @@ def push(dry_run=False, now=None, origin="diretta", requested=None, stamp=None):
     return st
 
 
+BEAT_FULL_IDLE_S = 300   # 08/10 (battito leggero): una raccolta completa almeno ogni 5 minuti a sessioni ferme,
+BEAT_FULL_BUSY_S = 120   # ogni 2 se una lavora (la nota dello strumento in corso e il contesto cambiano senza hook)
+
+
+_TASKS_DB = None
+
+
+def sources_print():
+    """L'impronta delle sorgenti dello stato che cambiano senza un hook che chieda la push: date e dimensioni di
+    attese, registro delle sessioni, coda della notte, compiti, rapporti della notte e file del relay. Il ledger no:
+    cambia di continuo (ogni lettura della chat ci scrive una riga, 08/10: nessun battito leggero dal vivo), e ogni
+    sua riga che cambia lo stato (start, prompt, waiting, stop, end, un comando che non e' una lettura) arriva con
+    un hook o un comando che chiede gia' la push completa."""
+    sd = Path(cm.expand(CFG["state_dir"]))
+    reg = CFG.get("registry") or {}
+    paths = [sd / "waiting", Path(cm.expand(reg.get("file") or "~/.claude/sessions.json")),
+             Path(cm.expand(reg.get("good_file") or "~/.claude/sessions-good.json")),
+             Path(cm.expand((CFG.get("night") or {}).get("queue_file") or "~/.claude/night-queue.jsonl")), night_report_dir(),
+             rdir() / "follow.json", rdir() / "awaiting.json", rdir() / "devices.json"]
+    global _TASKS_DB
+    if _TASKS_DB is None:   # un caricamento solo: _load riesegue il modulo a ogni chiamata
+        _TASKS_DB = _load("cm-tasks").db_path()
+    paths += [_TASKS_DB, _TASKS_DB.with_name(_TASKS_DB.name + "-wal")]
+    out = []
+    for p in paths:
+        try:
+            st = p.stat()
+            out.append(f"{p.name}:{st.st_size}:{st.st_mtime_ns}")
+        except OSError:
+            out.append(f"{p.name}:-")
+    try:   # le attese: la cartella cambia data quando un file entra o esce, non quando cambia
+        out += sorted(f"{e.name}:{e.stat().st_mtime_ns}" for e in os.scandir(sd / "waiting"))
+    except OSError:
+        pass
+    return ";".join(out)
+
+
+def beat_path():
+    return rdir() / "beat.json"
+
+
+def _light(m):
+    """08/10 (chiesto dal maintainer: 681 push del cron su 689 senza eventi, ~6,5 s di CPU ciascuna). Il battito del cron
+    ripubblica lo stato gia' pronto, con il solo published_at nuovo, se le sorgenti non sono cambiate dall'ultima raccolta
+    e quella raccolta e' abbastanza recente; altrimenti None e si fa la push completa. Dentro il lock della push."""
+    b = read_json(beat_path(), {})
+    last = read_json(rdir() / "last-state.json", {})
+    state, full = last.get("state"), last.get("full")
+    if not isinstance(state, dict) or not isinstance(full, dict) or not b.get("fp"):
+        return None
+    busy = any(s_.get("state") in ("busy", "waiting") for s_ in state.get("sessions") or [])
+    if time.time() - float(b.get("full_at") or 0) > (BEAT_FULL_BUSY_S if busy else BEAT_FULL_IDLE_S) or sources_print() != b["fp"]:
+        return None
+    m["ts"] = float(state.get("ts") or time.time())
+    m["collected"] = time.time()
+    m["put_at"] = time.time()
+    state["published_at"] = full["published_at"] = round(m["put_at"], 3)
+    try:
+        local_state_write(full)
+    except OSError as ex:
+        log(f"stato locale non scritto: {ex}")
+    rtdb("PUT", "state", C.encrypt(state, key()), {"print": "silent"})
+    m["published"] = time.time()
+    m["events"] = 0
+    pub_history_add(m["put_at"])
+    last.update(state=state, full=full)
+    write_json(rdir() / "last-state.json", last)
+    return state
+
+
 def _push(dry_run=False, now=None, m=None):
     m = {} if m is None else m
     now = now or time.time()
     m["ts"] = now
+    fp = None if dry_run else sources_print()   # prima della raccolta: un cambiamento durante la raccolta non si perde
     src = collect_sources(now)
     # gli eventi si calcolano sullo stato INTERO; il taglio per la dimensione tocca solo cio' che si pubblica (23/09:
     # una sessione viva tolta da fit_state diventava «gone» e il polso diceva «Session closed»)
@@ -827,6 +902,7 @@ def _push(dry_run=False, now=None, m=None):
     m["events"] = len(events)
     pub_history_add(m["put_at"])
     write_json(last_p, {"state": state, "full": full, "seq": seq - 1, "pushed_at": now, "names": names})
+    write_json(beat_path(), {"fp": fp, "full_at": now})
 
     def post():
         # 08/10 (fase 1): fuori dal lock della push. Le pulizie una volta ogni PRUNE_EVERY_S, non a ogni push
@@ -967,22 +1043,25 @@ class PushWorker(threading.Thread):
         super().__init__(name="relay-push", daemon=True)
         self.stop = threading.Event()
 
-    def pending(self):
-        newest, origin = 0.0, ""
+    def pending(self, after=0.0):
+        """(la richiesta piu' recente, la sua origine, le origini arrivate dopo `after`)."""
+        newest, origin, since = 0.0, "", set()
         try:
             for e in os.scandir(push_req_dir()):
                 t = e.stat().st_mtime
+                if t > after:
+                    since.add(e.name)
                 if t > newest:
                     newest, origin = t, e.name
         except OSError:
             pass
-        return newest, origin
+        return newest, origin, since
 
     def run(self):
         handled, first, fails = 0.0, None, 0
         debounce = float(R.get("debounce_s") or 2)
         while not self.stop.wait(0.25):
-            newest, origin = self.pending()
+            newest, origin, since = self.pending(handled)
             if newest <= handled:
                 continue
             now = time.time()
@@ -991,7 +1070,9 @@ class PushWorker(threading.Thread):
                 continue
             start = time.time()
             try:
-                push(origin=origin or "?", requested=min(first, newest))
+                # 08/10 (battito leggero): se nel frattempo ha chiesto solo il cron, la push prova prima a ripubblicare
+                # lo stato gia' pronto
+                push(origin=origin or "?", requested=min(first, newest), light=since <= {"cron"})
             except Exception as e:   # noqa: BLE001 — il worker non deve morire: la richiesta resta, si riprova
                 log(f"push (worker) FAILED: {str(e)[:200]}")
                 self.stop.wait(PUSH_RETRY_S[min(fails, len(PUSH_RETRY_S) - 1)])
@@ -2671,7 +2752,8 @@ def serve():
     worker.start()
     web_srv = web_start()   # 1.35: la web app e l'API locale, se relay.web.enabled
     done = list(read_json(rdir() / "done-cmds.json", []))
-    st_ = {"pid": os.getpid(), "started": started, "last_cmd_ts": None, "last_cmd": "", "served": 0, "reconnects": 0}
+    st_ = {"pid": os.getpid(), "started": started, "last_cmd_ts": None, "last_cmd": "", "served": 0, "reconnects": 0,
+           "code": code_print()}   # 08/10: l'impronta del codice con cui gira, per `ensure`
     # subito su file: finche' lo stream regge il ciclo non torna qui, e `relay status` mostrerebbe i numeri del
     # processo precedente (visto dal vivo il 14/09: «46 riconnessioni» su un daemon appena avviato)
     try:
@@ -2727,12 +2809,107 @@ def serve():
     return 0
 
 
+CODE_FILES = ("cm-relay.py", "cm-relay-state.py", "cm-relay-crypto.py", "cm-relay-web.py", "cm-core.py")
+STALE_S = 180
+
+
+def code_print():
+    """L'impronta del codice del relay su disco (dimensione e data dei file che il demone carica): se il demone vivo ne
+    ha una diversa, gira con codice vecchio (08/10: 62 minuti di stato fermo, cron e hook gia' col codice nuovo)."""
+    out = []
+    for n in CODE_FILES:
+        try:
+            st = (HERE / n).stat()
+            out.append(f"{n}:{st.st_size}:{st.st_mtime_ns}")
+        except OSError:
+            pass
+    return ";".join(out)
+
+
+def guard_path():
+    return rdir() / "guard.json"
+
+
+def _hm(t):
+    return time.strftime("%H:%M", time.localtime(t))
+
+
+def guard(now=None):
+    """08/10 (chiesto dal maintainer dopo lo stato fermo dalle 10:47 alle 11:49): la guardia che `ensure` fa ogni minuto.
+    Se l'ultimo stato pubblicato ha piu' di STALE_S, push diretta con origine «guardia»; se il lock delle push e' preso
+    da piu' di STALE_S, non aspetta e lo dice. Un guasto si avvisa una volta su Telegram appena visto e, quando lo stato
+    riparte, con l'evento `relay_stale` (1.45) che dice da quando, perche' e come si e' sbloccato."""
+    now = now or time.time()
+    g = read_json(guard_path(), {})
+    last = read_json(rdir() / "last-state.json", {})
+    pub = float((last.get("state") or {}).get("published_at") or last.get("pushed_at") or 0)
+    if not pub:
+        return
+    if now - pub <= STALE_S:
+        if g.get("since"):
+            cause = g.get("cause") or "push"
+            body = M(f"relay.stale_{cause}", since=_hm(g["since"]), at=_hm(g.get("fixed_at") or pub),
+                     lock=int((now - float(g.get("lock_since") or now)) // 60)) + " " + M("relay.stale_ok")
+            try:
+                emit("relay_stale", M("relay.stale_title", min=max(1, int((pub - g["since"]) // 60))), body)
+            except Exception as e:   # noqa: BLE001 — l'avviso in piu' non deve far cadere la guardia
+                log(f"guardia: evento relay_stale non mandato ({str(e)[:120]})")
+            guard_path().unlink(missing_ok=True)
+        elif g and now - float(g.get("restarted_at") or 0) > 600:
+            guard_path().unlink(missing_ok=True)
+        return
+    g.setdefault("since", pub)
+    g.setdefault("cause", "push")
+    lock = open(str(rdir() / "push.lock"), "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        busy = False
+        fcntl.flock(lock, fcntl.LOCK_UN)
+    except OSError:
+        busy = True
+    finally:
+        lock.close()
+    if busy:
+        g.setdefault("lock_since", now)
+        if now - float(g["lock_since"]) > STALE_S:
+            g["cause"] = "lock"
+            log(f"guardia: stato fermo da {int(now - pub)} s, lock delle push occupato da {int(now - g['lock_since'])} s")
+    else:
+        g.pop("lock_since", None)
+        log(f"guardia: stato fermo da {int(now - pub)} s, push diretta")
+        try:
+            push(origin="guardia")
+            g["fixed_at"] = time.time()
+        except Exception as e:   # noqa: BLE001
+            log(f"push (guardia) FAILED: {str(e)[:200]}")
+    if not g.get("told") and (g["cause"] != "lock" or now - float(g.get("lock_since") or now) > STALE_S):
+        text = M("relay.stale_title", min=max(1, int((now - g["since"]) // 60))) + "\n" + M(
+            f"relay.stale_{g['cause']}", since=_hm(g["since"]), at=_hm(g.get("fixed_at") or now),
+            lock=int((now - float(g.get("lock_since") or now)) // 60))
+        try:
+            _load("cm-bot").send(text, watch_quiet=False)
+        except Exception as e:   # noqa: BLE001 — senza bot resta il log e, alla ripresa, l'evento
+            log(f"guardia: avviso Telegram non mandato ({str(e)[:120]})")
+        g["told"] = True
+    write_json(guard_path(), g)
+
+
 def ensure():
     if not R.get("enabled"):
         return 0
     pid = serve_alive()
     if pid:
-        print(M("relay.serve_alive", pid=pid)); return 0
+        code = read_json(serve_status_path(), {}).get("code")
+        if not code or code == code_print():
+            print(M("relay.serve_alive", pid=pid))
+            guard()
+            return 0
+        # il demone gira con il codice di prima: cron e hook usano gia' quello nuovo (08/10, 62 minuti di stato fermo)
+        log(f"serve: riavviato, codice cambiato (pid {pid})")
+        g = read_json(guard_path(), {})
+        g.update(cause="code", restarted_at=time.time())
+        write_json(guard_path(), g)
+        serve_stop()
     lp = rdir() / "relay.log"
     with open(lp, "a") as out:
         subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "serve"], stdin=subprocess.DEVNULL, stdout=out, stderr=out,
