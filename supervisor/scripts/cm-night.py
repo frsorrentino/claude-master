@@ -12,7 +12,8 @@ stato del relay, che sta in 8 KB). `run` le prende in ordine, al massimo
 (`night.min_free_mb`, da /proc/meminfo) e la quota delle cinque ore dell'account
 (`night.max_quota_pct`, dai file di fable-director letti da cm-quota): sotto soglia la voce resta in
 coda con il motivo nel log. Il lavoro gira in `claude -p` nella cartella, con `--permission-mode`
-e `--max-turns` da config, `CLAUDE_CODE_TOOL_MEMORY_LIMIT` contro le build impazzite e un tetto di
+e `--max-turns` da config, `CLAUDE_CODE_TOOL_MEMORY_LIMIT` contro le build impazzite, il retry watchdog sui 429/529
+(`night.retry_watchdog_max_wait_ms`, 0 = spento) e un tetto di
 tempo (`night.item_timeout_s`). L'esito va in `<cartella>/<night.out_subdir>/<data>-<id>.md`
 (prompt, argomenti, durata, output) e la voce passa in `night-done.jsonl`. Con --send il riassunto
 del giro va su Telegram (stesso bot del plugin, sendMessage).
@@ -247,6 +248,11 @@ def account_env(account):
         env.pop("CLAUDE_CONFIG_DIR", None)
     if N["tool_memory_limit"]:
         env["CLAUDE_CODE_TOOL_MEMORY_LIMIT"] = str(N["tool_memory_limit"])
+    # 09/10/2026 (Claude Code 2.1.295): on 429/529 the CLI keeps retrying instead of giving up after a few tries,
+    # up to a total wait; below item_timeout_s, so an overloaded API at 3 a.m. delays an item instead of failing it
+    if N.get("retry_watchdog_max_wait_ms"):
+        env["CLAUDE_CODE_RETRY_WATCHDOG"] = "1"
+        env["CLAUDE_CODE_RETRY_WATCHDOG_MAX_WAIT_MS"] = str(int(N["retry_watchdog_max_wait_ms"]))
     return env
 
 

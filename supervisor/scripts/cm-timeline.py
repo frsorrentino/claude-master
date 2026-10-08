@@ -38,6 +38,7 @@ TEST_RE = re.compile(r"(?:^|[\s;&|(/])(?:python3?\s+(?:-\S+\s+)*\S*-verify\.py|p
                      r"|go\s+test\b|cargo\s+test\b|make\s+(?:test|check)\b|\S*release\.sh\s+\S+\s+--check\b|for\s+t\s+in\s+tests/)")
 OUTCOME_RE = re.compile(r"^\s*(?:Esito|Outcome)\s*:\s*(.+)$", re.M)
 TEXT_MAX = 160
+FULL_PROMPTS = False   # cm-night-report sets it on its own copy: prompt events then carry the uncut text in "full"
 WINDOWS = (4 * 1024 * 1024, 32 * 1024 * 1024, None)
 
 
@@ -86,7 +87,8 @@ def human_prompt(out, at, content):
     t, _ = core._clean(content)
     t, origin = core._origin_of(t)
     if t and not any(e["kind"] == "prompt" and e["text"] == one_line(t) for e in out[-20:]):
-        out.append({"at": at, "kind": "prompt", "text": one_line(t), "ok": None, "ref": None if origin == "pc" else origin})
+        out.append({"at": at, "kind": "prompt", "text": one_line(t), "ok": None, "ref": None if origin == "pc" else origin,
+                    **({"full": t} if FULL_PROMPTS else {})})
 
 
 def transcript_events(path, since):
@@ -142,7 +144,8 @@ def transcript_events(path, since):
             t, origin = core._origin_of(str(o.get("body") or "").strip())
             if origin != "pc" and t:
                 peers.add(o.get("msg_id"))
-                out.append({"at": at, "kind": "prompt", "text": one_line(t), "ok": None, "ref": origin})
+                out.append({"at": at, "kind": "prompt", "text": one_line(t), "ok": None, "ref": origin,
+                            **({"full": t} if FULL_PROMPTS else {})})
             continue
         if d.get("type") == "user":
             if isinstance(content, list):

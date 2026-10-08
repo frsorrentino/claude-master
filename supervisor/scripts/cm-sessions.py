@@ -64,6 +64,9 @@ CFG = cm.load(warn=False)
 TMUX = ["tmux"] + (os.environ.get("CM_TMUX_ARGS", "").split()
                    or (["-L", CFG["tmux"]["socket"]] if CFG["tmux"].get("socket") else []))
 CLAUDE_CMD = re.compile(r"(^|/)claude( |$)")
+# Claude Code 2.1.295 (08/10/2026): each --bg session's terminal lives in a helper «claude bg-pty-host …», and the
+# background manager is «claude daemon …»; neither is a session (the session itself is listed from the registry)
+CLAUDE_HELPER = re.compile(r"(^|/)claude (.* )?--bg-pty-host( |$)|(^|/)claude daemon( |$)")
 CODEX_CMD = re.compile(r"(^|/)codex( |$)")   # S09: prova, solo con experimental.codex
 VERSION = re.compile(r"\d+(?:\.\d+)+")
 
@@ -531,7 +534,7 @@ def collect(read_screen=True):
                          "session_id": "", "link": "", "started_at": None, "socket": "", "registry": "", "agent": "codex",
                          "attached": attached.get(tm), "waiting": False, "channel": "tmux"})
             continue
-        if not CLAUDE_CMD.search(cmd) or is_tmux(pid, cmd) or "shell-snapshots" in cmd or (" -c " in cmd and "pwd -P" in cmd):
+        if not CLAUDE_CMD.search(cmd) or CLAUDE_HELPER.search(cmd) or is_tmux(pid, cmd) or "shell-snapshots" in cmd or (" -c " in cmd and "pwd -P" in cmd):
             continue
         tm = panes.get(pid) or panes.get(proc_ppid(pid) or -1) or ""
         seen_pids.add(pid)

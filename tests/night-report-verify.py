@@ -127,10 +127,10 @@ rep.write_text("# Turno di notte\n\n- id: `n1`\n\n## Prompt\n\nrifai il README\n
 done = [
     {"id": "n0", "dir": str(nova), "prompt": "ieri", "rc": 0, "seconds": 60, "started": EVE - 5 * H, "finished": local_iso(EVE - 5 * H + 60), "report": ""},
     {"id": "n1", "dir": str(nova), "prompt": "rifai il README <b>bold</b>", "rc": 0, "seconds": 600, "started": EVE + 6 * H, "finished": local_iso(EVE + 6 * H + 600), "report": str(rep)},
-    {"id": "n2", "dir": str(vega), "prompt": "aggiorna le dipendenze", "rc": 1, "seconds": 300, "finished": local_iso(EVE + 6 * H + 1500), "report": str(tmp / "missing.md")},
+    {"id": "n2", "dir": str(vega), "prompt": "## Dipendenze\n**aggiorna** le `dipendenze`, vedi [il piano](docs/p.md)\n" + "controlla ogni pacchetto " * 30, "rc": 1, "seconds": 300, "finished": local_iso(EVE + 6 * H + 1500), "report": str(tmp / "missing.md")},
 ]
 (state / "night-done.jsonl").write_text("".join(json.dumps(r) + "\n" for r in done))
-(state / "night-queue.jsonl").write_text(json.dumps({"id": "n3", "dir": str(vega), "prompt": "pulisci i log", "started": EVE + 6 * H + 1600}) + "\n"
+(state / "night-queue.jsonl").write_text(json.dumps({"id": "n3", "dir": str(vega), "prompt": "", "started": EVE + 6 * H + 1600}) + "\n"
                                          + json.dumps({"id": "n4", "dir": str(nova), "prompt": "traduci il sito", "added": "2026-10-06T23:00:00"}) + "\n")
 
 # registro: vega ha un compito fatto, uno in corso e uno in attesa di ok (wait-ok)
@@ -207,6 +207,12 @@ a, o = byid.get("atlas", {}), byid.get("orbit", {})
 T.check("NR10 sessions: atlas ok with its «Esito:», live, counts; orbit failed on its red test",
         a.get("outcome") == "ok" and a.get("detail") == "checkout pronto, suite verde" and a.get("live") is True
         and a.get("counts") == {"prompts": 1, "tests": 1, "commits": 1} and o.get("outcome") == "failed" and o.get("live") is False, json.dumps([a, o]))
+_p2 = n2.get("prompt") or ""
+T.check("NR26 (1.46) timeline[].prompt: a night job's queue text without markdown, on one line, cut at a whole word within 400; a session's first prompt of the night; null when missing",
+        n1.get("prompt") == "rifai il README <b>bold</b>"
+        and _p2.startswith("Dipendenze aggiorna le dipendenze, vedi il piano controlla ogni pacchetto") and len(_p2) <= 400 and _p2.endswith("pacchetto")
+        and n3.get("prompt") is None and a.get("prompt") == "vai avanti stanotte, io dormo" and o.get("prompt") == "lavoro notturno della master"
+        and byid.get("lyra", {}).get("prompt") == "segui le sessioni", json.dumps({k: byid.get(k, {}).get("prompt") for k in byid}, ensure_ascii=False))
 T.check("NR11 the queue still to run: one item, not started", [q["id"] for q in r.get("queue", [])] == ["n4"], json.dumps(r.get("queue")))
 cards = {c["name"]: c for c in r.get("projects", [])}
 ca, co, cn, cv = (cards.get(k, {}) for k in ("atlas", "orbit", "nova", "vega"))

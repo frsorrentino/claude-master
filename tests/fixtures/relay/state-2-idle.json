@@ -134,7 +134,8 @@
     "approve",
     "decision",
     "unpair",
-    "night"
+    "night",
+    "agenda"
   ],
   "slash": [
     "compact",

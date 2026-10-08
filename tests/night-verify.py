@@ -80,7 +80,7 @@ fake_report.write_text(f"import sys\nopen({str(report_marker)!r}, 'a').write(' '
 def night(*args, free_mb="4000", claude=FAKE):
     env = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CC_SUPERVISOR_CONFIG": str(cfg),
            "CM_CRONTAB_CMD": str(fake_crontab), "CM_CLAUDE_BIN": str(claude), "FAKE_CLAUDE_ARGS_LOG": str(argslog),
-           "FAKE_CLAUDE_ECHO_ENV": "CLAUDE_CONFIG_DIR", "CM_NIGHT_FREE_MB": free_mb, "CM_NIGHT_REPORT_BIN": str(fake_report)}
+           "FAKE_CLAUDE_ECHO_ENV": "CLAUDE_CODE_RETRY_WATCHDOG,CLAUDE_CODE_RETRY_WATCHDOG_MAX_WAIT_MS,CLAUDE_CONFIG_DIR", "CM_NIGHT_FREE_MB": free_mb, "CM_NIGHT_REPORT_BIN": str(fake_report)}
     return subprocess.run([sys.executable, str(T.SCRIPTS / "cm-night.py"), *args], capture_output=True, text=True, env=env, timeout=120)
 
 
@@ -111,6 +111,7 @@ r = night("run", "--send")
 args = argslog.read_text().splitlines() if argslog.exists() else []
 T.check("NI3 run: claude -p with permission-mode and max-turns, twice", r.returncode == 0 and len(args) == 2 and "-p sistema i test rossi --permission-mode acceptEdits --max-turns 12" in args[0] and "--max-turns 5 --model sonnet --effort low" in args[1], r.stdout + r.stderr + str(args))
 T.check("NI3 CLAUDE_CONFIG_DIR only for the second account (T68)", "CLAUDE_CONFIG_DIR=" in args[0] and args[0].rstrip().endswith("CLAUDE_CONFIG_DIR=") and str(home / ".claude-pixel") in args[1], str(args))
+T.check("NI3b retry watchdog on for every item, capped at night.retry_watchdog_max_wait_ms (default 15 min)", len(args) == 2 and all("ENV CLAUDE_CODE_RETRY_WATCHDOG=1 " in a and "ENV CLAUDE_CODE_RETRY_WATCHDOG_MAX_WAIT_MS=900000 " in a for a in args), str(args))
 reports = sorted((ws / "personali" / "alfa" / "docs" / "notte").glob("*.md")) + sorted((ws / "agenzia" / "clienti" / "sito.com" / "docs" / "notte").glob("*.md"))
 T.check("NI3 a report per item in docs/notte with prompt and output", len(reports) == 2 and "sistema i test rossi" in reports[0].read_text() and "Sent to cloud session (fake)" in reports[0].read_text(), str(reports))
 T.check("NI3 queue emptied, done has both with rc", queue.read_text().strip() == "" and len((state / "night-done.jsonl").read_text().splitlines()) == 2 and '"rc": 0' in (state / "night-done.jsonl").read_text(), (state / "night-done.jsonl").read_text()[:300])

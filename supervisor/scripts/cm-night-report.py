@@ -63,12 +63,24 @@ def tl_mod():
     global _TL
     if _TL is None:
         _TL = _load("cm-timeline")
+        _TL.FULL_PROMPTS = True   # timeline[].prompt wants up to PROMPT_MAX characters, the events stop at 160
     return _TL
 
 
 def one_line(t, n=TEXT_MAX):
     t = " ".join(str(t or "").split())
     return t if len(t) <= n else t[:n - 1].rstrip() + "…"
+
+
+PROMPT_MAX = 400   # timeline[].prompt (1.46): what the item was asked to do, before its outcome
+
+
+def prompt_of(text):
+    """The prompt as the app shows it: markdown removed line by line, on one line, cut at a whole word within
+    PROMPT_MAX characters; None when there is none."""
+    RS = _load("cm-relay-state")
+    lines = [RS.strip_markdown(re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", l)) for l in str(text or "").splitlines()]
+    return RS.cut_words(" ".join(lines), PROMPT_MAX) or None
 
 
 def real(p):
@@ -180,7 +192,7 @@ def night_jobs(start, now, sources):
             jobs.append({"kind": "night_job", "id": r.get("id"), "title": one_line(f"{os.path.basename(r.get('dir') or '')} — {r.get('prompt') or ''}"),
                          "project": real(r.get("dir")), "start": begin, "end": end, "outcome": outcome,
                          "detail": detail, "report": rep if rep and os.path.isfile(rep) else None,
-                         "rc": r.get("rc")})
+                         "rc": r.get("rc"), "prompt": prompt_of(r.get("prompt"))})
         sources["night_done"] = "ok"
     else:
         sources["night_done"] = "missing"
@@ -189,7 +201,7 @@ def night_jobs(start, now, sources):
             if r.get("started"):
                 jobs.append({"kind": "night_job", "id": r.get("id"), "title": one_line(f"{os.path.basename(r.get('dir') or '')} — {r.get('prompt') or ''}"),
                              "project": real(r.get("dir")), "start": int(r["started"]), "end": None, "outcome": "running",
-                             "detail": None, "report": None, "rc": None})
+                             "detail": None, "report": None, "rc": None, "prompt": prompt_of(r.get("prompt"))})
             else:
                 queue.append({"id": r.get("id"), "project": real(r.get("dir")), "prompt": one_line(r.get("prompt")), "added": r.get("added")})
         sources["night_queue"] = "ok"
@@ -374,6 +386,7 @@ def session_items(tl, jobs):
                       "end": None if session_outcome(ev, r["live"]) == "running" else end,
                       "outcome": session_outcome(ev, r["live"]), "detail": outs[-1] if outs else one_line(ev[-1]["text"]),
                       "report": None, "live": bool(r["live"]),
+                      "prompt": prompt_of(next((e.get("full") or e["text"] for e in ev if e["kind"] == "prompt"), None)),
                       "counts": {k: sum(1 for e in ev if e["kind"] == k[:-1]) for k in ("prompts", "tests", "commits")}})
     return items
 

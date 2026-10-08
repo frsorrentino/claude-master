@@ -2,6 +2,12 @@
 
 ## 0.3.x
 
+- **0.8.1 — 2026-10-09: the night report says what each item was asked, the agenda for the phone, and Claude Code 2.1.295.**
+  - Night report: `timeline[].prompt` (contract 1.46, additive) — for a night job the text of its queue item, for a session its first prompt of the night; markdown removed, cut at a whole word within 400 characters, null when missing. The app shows what was asked before the outcome.
+  - Op `agenda` (contract 1.46): the open decisions and work of `relay.agenda_file`, a TSV with the columns state, scope, blocks, title, ref (lines starting with `#` are comments), as `{rows, more}`. A read on request like `projects`, never in `/state`; without the file, «no agenda file».
+  - Night items run with Claude Code's retry watchdog: on 429/529 the CLI keeps retrying up to `night.retry_watchdog_max_wait_ms` (15 minutes; 0 turns it off) instead of failing the item.
+  - `sessions` no longer lists Claude Code 2.1.295's helpers for background sessions (`claude bg-pty-host`, `claude daemon`) as sessions: a `--bg` session showed up twice.
+  - Kernel rule 10: the «Prossimi» line carries only follow-ups of the current reply; a proposal from an earlier reply that was not chosen does not come back, and «!» marks only the ok or the choice that stalls work now.
 - **0.8.0 — 2026-10-09: team-supervisor is now supervisor — Supervisor for Claude Code.**
   - Renamed from team-supervisor (and, before that, claude-master): plugin, marketplace (`supervisor-dev`), command `supervisor`, skill namespace `/supervisor:…`, GitHub repo `frsorrentino/supervisor` (GitHub redirects the old names). State folders move to `~/.config/cc-supervisor`, `~/.cc-supervisor`, `~/.local/state/cc-supervisor`, `~/.cache/cc-supervisor`; variables take the `CC_SUPERVISOR_` prefix, never `SUPERVISOR_` (supervisord sets those in every process it starts). The old `TEAM_SUPERVISOR_*` and `CLAUDE_MASTER_*` variables are still read. `doctor` says when another `supervisor` executable (for example node-supervisor) comes first in the PATH. The relay contract keeps its shape; prompt prefixes with the old names are still recognized.
   - Stop from the phone works again with Claude Code 2.1.294: a turn is running also when the status line shows the spinner alone (the CLI no longer writes «esc to interrupt»); the same check in `talk`, `tune` and `sessions`.

@@ -134,6 +134,10 @@ with T.PrivateTmux() as tm:
     p_tmux = subprocess.Popen(["bash", "-c", "exec -a tmux python3 -c 'import time; time.sleep(300)' new-session -d -s master env /home/demo/.local/bin/claude --x"],
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     procs.append(p_tmux)
+    # S20b: Claude Code 2.1.295 keeps each --bg session's terminal in a helper «claude bg-pty-host …» (seen 08/10)
+    p_pty = subprocess.Popen(["bash", "-c", "exec -a claude python3 -c 'import time; time.sleep(300)' bg-pty-host --bg-pty-host /tmp/x.sock 200 50"],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    procs.append(p_pty)
     time.sleep(0.3)
     # S10: questo processo di test come antenato
     entry(home / ".claude" / "sessions", os.getpid(), "questa-prova", str(home), "gamma")
@@ -149,6 +153,7 @@ with T.PrivateTmux() as tm:
     T.check("S3 reused pid excluded", "riusata" not in by, str(list(by)))
     T.check("S4 unregistered claude process from /proc with status ?", by.get(f"pid{p4}", {}).get("status") == "?", str(list(by)))
     T.check("S20 the tmux server (argv0 tmux, …/claude in its command line) is not listed; the real claude process of S4 is", f"pid{p_tmux.pid}" not in by and f"pid{p4}" in by, str(list(by)))
+    T.check("S20b the --bg terminal helper (claude bg-pty-host) is not a session", f"pid{p_pty.pid}" not in by, str(list(by)))
     T.check("S5 alfa attached (client on pty)", by.get("alfa", {}).get("attached") is True, str(by.get("alfa")))
     T.check("S5 pix-beta detached", by.get("pix-beta", {}).get("attached") is False, str(by.get("pix-beta")))
     T.check("S8 professionale in separate dir → talk", by.get("pix-beta", {}).get("channel") == "talk", str(by.get("pix-beta")))

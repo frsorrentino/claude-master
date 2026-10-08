@@ -28,12 +28,12 @@ SCEN=",${SCEN},"
 DELAY="${FAKE_CLAUDE_DELAY:-4}"
 case "${1:-}" in agents|attach|logs|stop) exit 1 ;; esac
 case " $* " in *" --cloud "*|*" -p "*)
-  ev=""; [ -n "${FAKE_CLAUDE_ECHO_ENV:-}" ] && ev=" ENV $FAKE_CLAUDE_ECHO_ENV=${!FAKE_CLAUDE_ECHO_ENV:-}"
+  ev=""; IFS=, read -ra _evs <<< "${FAKE_CLAUDE_ECHO_ENV:-}"; for _e in "${_evs[@]}"; do ev="$ev ENV $_e=${!_e:-}"; done
   [ -n "${FAKE_CLAUDE_ARGS_LOG:-}" ] && printf '%s%s\n' "$*" "$ev" >> "$FAKE_CLAUDE_ARGS_LOG"; echo "Sent to cloud session (fake)"; exit 0 ;;
 esac
 if [ "${1:-}" = remote-control ]; then [ -n "${FAKE_CLAUDE_ARGS_LOG:-}" ] && printf '%s\n' "$*" >> "$FAKE_CLAUDE_ARGS_LOG"; echo "Remote Control server (fake) https://claude.ai/code/session_01FAKEDESK"; sleep 600; exit 0; fi
 if [ -n "${FAKE_CLAUDE_ARGS_LOG:-}" ]; then
-  ev=""; [ -n "${FAKE_CLAUDE_ECHO_ENV:-}" ] && ev=" ENV $FAKE_CLAUDE_ECHO_ENV=${!FAKE_CLAUDE_ECHO_ENV:-}"
+  ev=""; IFS=, read -ra _evs <<< "${FAKE_CLAUDE_ECHO_ENV:-}"; for _e in "${_evs[@]}"; do ev="$ev ENV $_e=${!_e:-}"; done
   printf '%s%s\n' "$*" "$ev" >> "$FAKE_CLAUDE_ARGS_LOG"
 fi
 NAME=""; RC=""; BG=no; args=("$@")

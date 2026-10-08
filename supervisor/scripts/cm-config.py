@@ -150,7 +150,7 @@ DEFAULTS = {
     "night": {"cron_time": "02:00", "min_free_mb": 1500, "max_quota_pct": 80, "item_timeout_s": 3600,
               # 06/10/2026: "default" (nessun permesso allargato); per i lavori che scrivono file serve "acceptEdits",
               # scelto dall'utente nella sua config
-              "max_turns": 40, "permission_mode": "default", "tool_memory_limit": "2g",
+              "max_turns": 40, "permission_mode": "default", "tool_memory_limit": "2g", "retry_watchdog_max_wait_ms": 900000,
               "out_subdir": "docs/notte", "max_items_per_run": 3, "max_queued": 8, "queue_file": "", "done_file": "", "log": ""},
     # relay per l'app Wear OS (0.4.0): Firebase RTDB + FCM dietro cm-relay.py; service account e chiave in relay.dir
     "relay": {"enabled": False, "firebase_url": "", "service_account": "~/.cc-supervisor/relay/service-account.json",
@@ -158,7 +158,7 @@ DEFAULTS = {
               "state_max_kb": 8, "events_days": 7, "dir": "~/.cc-supervisor/relay", "heartbeat_s": 60, "debounce_s": 2,
               "token_url": "https://oauth2.googleapis.com/token", "fcm_url": "https://fcm.googleapis.com", "host": "",
               "log": "", "command_timeout_s": 120, "pair_ttl_s": 300, "pair_attempts": 5, "serve_timeout_s": 50,
-              "colors": {}, "awaiting_max_s": 1800,
+              "colors": {}, "awaiting_max_s": 1800, "agenda_file": "",
               # scorta su Telegram quando il polso non riceve da tanto (0 = mai): 10 minuti
               "telegram_fallback_after_s": 600,
               # contesto di una sessione (1.13.1): dove una statusline salva la finestra dichiarata da Claude Code, e i

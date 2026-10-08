@@ -2163,4 +2163,31 @@ finally:
     for _n, _v in _save39.items():
         setattr(RL, _n, _v)
 
+# R40 (1.46, 08/10): op agenda, the open decisions and work of relay.agenda_file (TSV), on request, never in /state
+_ag40 = tmp / "agenda40.tsv"
+_ag40.write_text("# Decisions and open work\n#\n# state\tscope\tblocks\ttitle\tref\n"
+                 "aperto\tagenzia\towner\tConfirm the 6 client ids with a candidate\t.claude/to-decide-client-id.md\n\n"
+                 "aperto\tpersonale\tclaude\tMove the docs site to the new host\torbit-docs\n"
+                 "  # an indented comment\n"
+                 "sospeso\tagenzia\tterzi\tStaging of atlas-shop not reachable from the CLI\n"
+                 "fatto\tpostazione\tnessuno\tBackups of the workstation every night\tcrontab\n")
+_rel40 = RL.CFG.setdefault("relay", {})
+_saved40 = _rel40.get("agenda_file")
+try:
+    _rel40["agenda_file"] = str(_ag40)
+    _ok40 = RL.agenda_list()
+    _rel40["agenda_file"] = ""
+    _none40 = RL.agenda_list()
+    _rel40["agenda_file"] = str(tmp / "missing-agenda.tsv")
+    _gone40 = RL.agenda_list()
+finally:
+    _rel40["agenda_file"] = _saved40
+_res40 = {r["id"]: r for r in json.loads((FIX / "cmd-result-sample.json").read_text())["result"] if isinstance(r, dict)}
+T.check("R40 (1.46) agenda → {rows: [{state, scope, blocks, title, ref}], more} in file order, comments and blank lines out, a missing ref empty; the fixture's …0386 result",
+        _ok40[0] is True and json.loads(_ok40[1]) == json.loads(_res40["6f1c2d3e-0386-4000-8000-000000000386"]["text"]), str(_ok40)[:300])
+T.check("R40 (1.46) no agenda_file, or a file that is not there → «no agenda file», as the fixture's …0387",
+        _none40 == _gone40 == (False, _res40["6f1c2d3e-0387-4000-8000-000000000387"]["text"]), str((_none40, _gone40)))
+T.check("R40 (1.46) agenda is a passive read in ops, and /state does not carry it", "agenda" in RL.PASSIVE_OPS and "agenda" in RL.OPS
+        and "agenda" not in json.loads(relay("push", "--dry-run").stdout), "")
+
 T.finish()

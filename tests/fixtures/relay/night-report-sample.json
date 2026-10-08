@@ -67,6 +67,7 @@
       "detail": "vado a dormire, prosegui tu e segui le sessioni",
       "report": null,
       "live": true,
+      "prompt": "vado a dormire, prosegui tu e segui le sessioni",
       "counts": {
         "prompts": 1,
         "tests": 0,
@@ -84,6 +85,7 @@
       "detail": "Migrazione del registro committata in locale, nessuna release",
       "report": null,
       "live": true,
+      "prompt": "Porta a termine la migrazione del registro: committala in locale e non fare release finché non torno.",
       "counts": {
         "prompts": 0,
         "tests": 4,
@@ -101,6 +103,7 @@
       "detail": "Checkout rifatto, test verdi",
       "report": null,
       "live": false,
+      "prompt": null,
       "counts": {
         "prompts": 0,
         "tests": 2,
@@ -117,7 +120,8 @@
       "outcome": "stopped",
       "detail": "fermo prima del piano: la specifica non si legge.",
       "report": "/w/atlas-shop-notte/docs/notte/2026-10-07-a1b2c3d4.md",
-      "rc": 0
+      "rc": 0,
+      "prompt": "Prima esecuzione del lavoro notturno sul checkout: rifare il carrello e i test di integrazione senza toccare la produzione. Stanotte nessuno risponde alle domande: le scelte che non puoi prendere da solo scrivile in docs/notte/domande.md e fermati prima di qualunque passo che le richieda. Leggi la specifica in docs/spec/checkout.md, rifai il carrello secondo la specifica, poi i test di"
     },
     {
       "kind": "night_job",
@@ -129,7 +133,8 @@
       "outcome": "ok",
       "detail": "dati fatti e verificati, 3 commit sul ramo notte/registro.",
       "report": "/w/ledger-api-notte/docs/notte/2026-10-07-e5f6a7b8.md",
-      "rc": 0
+      "rc": 0,
+      "prompt": "Dati del registro dei pagamenti per la pagina mensile."
     },
     {
       "kind": "night_job",
@@ -141,7 +146,8 @@
       "outcome": "running",
       "detail": null,
       "report": null,
-      "rc": null
+      "rc": null,
+      "prompt": "Riordino delle note di campo per cartella e data, con un indice in testa."
     }
   ],
   "queue": [],

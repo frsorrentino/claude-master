@@ -68,7 +68,7 @@ M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
 R = CFG["relay"]
 CM_BIN = os.environ.get("CM_RELAY_CM") or str(HERE / "supervisor")
 BACKOFF = [1, 2, 5, 15, 30]
-OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report", "interrupt", "transcript", "file", "slash", "projects", "search", "timeline", "pair_add", "approve", "decision", "unpair", "night")
+OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report", "interrupt", "transcript", "file", "slash", "projects", "search", "timeline", "pair_add", "approve", "decision", "unpair", "night", "agenda")
 LAST_MAX = 4000   # 1.4: l'ultimo messaggio per la lettura vocale — oltre, l'ascolto non regge
 
 
@@ -1878,6 +1878,32 @@ def night_report(arg):
         return False, f"no night report for {day or p.stem}"
 
 
+AGENDA_FIELDS = ("state", "scope", "blocks", "title", "ref")
+
+
+def agenda_list():
+    """1.46 (08/10, asked by the app for its Recap, approved by the maintainer at 20:41): the open decisions and work of
+    relay.agenda_file, a TSV with the columns state, scope, blocks, title, ref; lines starting with «#» and blank lines
+    are comments. A read on request like `projects`, never in /state. text = JSON {rows, more}, in file order; past
+    TRANSCRIPT_MAX_BYTES the last rows are dropped and more = true."""
+    f = (CFG.get("relay") or {}).get("agenda_file") or ""
+    p = Path(cm.expand(f)) if f else None
+    if not p or not p.is_file():
+        return False, "no agenda file"
+    rows = []
+    for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        cells = [c.strip() for c in line.split("\t")]
+        cells += [""] * (len(AGENDA_FIELDS) - len(cells))
+        rows.append(dict(zip(AGENDA_FIELDS, cells[:len(AGENDA_FIELDS) - 1] + [" ".join(c for c in cells[len(AGENDA_FIELDS) - 1:] if c)])))
+    more = False
+    while rows and len(json.dumps({"rows": rows, "more": True}, ensure_ascii=False).encode()) > TRANSCRIPT_MAX_BYTES:
+        rows.pop()
+        more = True
+    return True, json.dumps({"rows": rows, "more": more}, ensure_ascii=False)
+
+
 def projects_list():
     """1.26 (02/10, chiesto dalla sessione dell'app, approvato dal maintainer alle 17:15): l'elenco completo dei progetti
     per «Lancia». /state li taglia a 10 e poi a 5 per stare negli 8 KB; qui ci sono tutti, di tutti gli account, con i
@@ -2377,6 +2403,8 @@ def execute(cmd):
             return projects_list()
         if op == "night":
             return night_report(arg)
+        if op == "agenda":
+            return agenda_list()
         if op == "search":
             return search(arg)
         if op == "timeline":
@@ -2495,7 +2523,7 @@ def commands_from(ev, payload):
     return {}
 
 
-PASSIVE_OPS = ("transcript", "screen", "last", "file", "projects", "search", "timeline", "pair_add", "night")   # letture: non cambiano lo stato, vengono dopo i comandi dell'utente
+PASSIVE_OPS = ("transcript", "screen", "last", "file", "projects", "search", "timeline", "pair_add", "night", "agenda")   # letture: non cambiano lo stato, vengono dopo i comandi dell'utente
 
 
 def in_order(cmds):
