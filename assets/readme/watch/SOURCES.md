@@ -1,6 +1,6 @@
 # Watch screenshots
 
-Rendered from the real code of the team-supervisor Wear OS app with Paparazzi (JVM snapshot tests, no device), on the
+Rendered from the real code of the supervisor Wear OS app with Paparazzi (JVM snapshot tests, no device), on the
 README's demo set (the relay contract fixtures): no real project, path or account. Round, 456×456.
 
 - `sessions.png`

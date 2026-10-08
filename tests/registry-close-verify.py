@@ -35,7 +35,7 @@ FAKE = T.ROOT / "tests" / "lib" / "fake-claude.sh"
 
 
 def env(**extra):
-    e = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg),
+    e = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CC_SUPERVISOR_CONFIG": str(cfg),
          "CM_TMUX_ARGS": tm.env["CM_TMUX_ARGS"], "CLAUDE_CONFIG_DIR": str(home / ".claude")}
     e.update(extra)
     return e
@@ -70,8 +70,8 @@ with T.PrivateTmux() as tm:
     bstate = tmp / "bridge.json"
     URL5 = "chrome-untrusted://terminal/html/terminal.html"
     bstate.write_text(json.dumps({"windows": [{"id": 1, "left": 0, "top": 0, "width": 1536, "height": 864, "state": "normal"}],
-                                  "tabs": [{"id": 11, "windowId": 1, "url": URL5 + "?command=vmshell&args[]=--&args[]=team-supervisor&args[]=attach&args[]=alfa", "title": "🟢 alfa", "client_pid": client.pid},
-                                           {"id": 12, "windowId": 1, "url": URL5 + "?command=vmshell&args[]=--&args[]=team-supervisor&args[]=attach&args[]=alfa-2", "title": "🟡 alfa-2"}],
+                                  "tabs": [{"id": 11, "windowId": 1, "url": URL5 + "?command=vmshell&args[]=--&args[]=supervisor&args[]=attach&args[]=alfa", "title": "🟢 alfa", "client_pid": client.pid},
+                                           {"id": 12, "windowId": 1, "url": URL5 + "?command=vmshell&args[]=--&args[]=supervisor&args[]=attach&args[]=alfa-2", "title": "🟡 alfa-2"}],
                                   "monitors": [{"left": 0, "top": 0, "width": 1536, "height": 864}], "calls": []}))
     cfg5 = tmp / "config-c5.json"
     c5 = json.loads(cfg.read_text())
@@ -81,7 +81,7 @@ with T.PrivateTmux() as tm:
 
     def run5(*args, **extra):
         return subprocess.run([str(T.SCRIPTS / "cm-close.sh")] + list(args), capture_output=True, text=True, timeout=90,
-                              env=env(TEAM_SUPERVISOR_CONFIG=str(cfg5), FAKE_BRIDGE_STATE=str(bstate), WAYLAND_DISPLAY="wl-0", **extra))
+                              env=env(CC_SUPERVISOR_CONFIG=str(cfg5), FAKE_BRIDGE_STATE=str(bstate), WAYLAND_DISPLAY="wl-0", **extra))
     tm("set-option", "-t", "alfa", "destroy-unattached", "on")   # nome nudo: set-option non accetta «=» (T1)
     m2, s2 = pty.openpty()
     client_g = subprocess.Popen(["tmux", "-L", tm.socket, "attach", "-t", "=gamma"], stdin=s2, stdout=s2, stderr=s2, start_new_session=True)

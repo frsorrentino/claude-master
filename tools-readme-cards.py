@@ -118,7 +118,7 @@ def screen_round(c):
 def screen_rect(c, w=235, h=280):
     """Lo stesso contenuto nell'Apple Watch: solo testo, stesso corpo del tondo — le tastiere inline su
     watchOS non sono verificate, le opzioni sono righe; l'altezza in piu' vale una o due righe."""
-    o = label(w / 2, 24, "Team Supervisor", 12, DIM, anchor="middle")
+    o = label(w / 2, 24, "Supervisor", 12, DIM, anchor="middle")
     y = 50
     if c.get("title"):
         o += label(16, y, c["title"], 14, INK, "800"); y += 26
@@ -241,8 +241,8 @@ CURRENT[0] = "card0-hero"
 s = head("#151a33", "#0a0e1c") + title("One master runs all the others.", "Parallel sessions, one per project — terminal and wrist")
 s += panel(70, 200, 420, 330, "#3b4d78", "#101733") + icon(108, 232, "circle", "#ff4d4d", 11) + label(130, 240, "master", 26, "#ffffff", "800")
 s += label(96, 272, "the session of the root folder:", 18, DIM) + label(96, 296, "launches, watches, answers,", 18, DIM) + label(96, 320, "closes the rest", 18, DIM)
-s += label(96, 372, "$ team-supervisor sessions", 17, "#9ad1ff", "700", True) + label(96, 400, '$ team-supervisor talk ledger-api "…"', 17, "#9ad1ff", "700", True)
-s += label(96, 428, "$ team-supervisor answer ledger-api 1", 17, "#9ad1ff", "700", True) + label(96, 456, "$ team-supervisor restore", 17, "#9ad1ff", "700", True)
+s += label(96, 372, "$ supervisor sessions", 17, "#9ad1ff", "700", True) + label(96, 400, '$ supervisor talk ledger-api "…"', 17, "#9ad1ff", "700", True)
+s += label(96, 428, "$ supervisor answer ledger-api 1", 17, "#9ad1ff", "700", True) + label(96, 456, "$ supervisor restore", 17, "#9ad1ff", "700", True)
 s += label(96, 500, "your phone talks to it, too", 18, DIM)
 for i, (n, sh, col, st) in enumerate(DEMO[1:]):
     y = 218 + i * 80
@@ -257,7 +257,7 @@ cards["card0-hero"] = s + "</svg>"
 CURRENT[0] = "card1-sessions"
 s = head("#151a33", "#0d1120") + title("Sessions at a glance.", "Every account: state, who waits for you, how to reach it")
 s += panel(70, 190, 1060, 262)
-s += label(96, 232, "$ team-supervisor sessions", 22, "#9ad1ff", "700", True)
+s += label(96, 232, "$ supervisor sessions", 22, "#9ad1ff", "700", True)
 TABLE = (OUT / "demo-sessions.txt").read_text().splitlines()   # la tabella vera: tools-demo-sessions.py
 rows_real = [l for l in TABLE[2:] if l.strip() and l[:1].isdigit()]
 CW, FS = 8.73, 14.5   # DejaVu Sans Mono: 0,602 em
@@ -279,7 +279,7 @@ cards["card1-sessions"] = s + "</svg>"
 # ---------------------------------------------------------------- 2 launch
 CURRENT[0] = "card2-launch"
 s = head("#0f2a2a", "#08161a") + title("Launch by a piece of a name.", "Folder resolved, account deduced, a tab in your Terminal")
-s += label(70, 220, '$ team-supervisor launch atlas', 26, "#9ad1ff", "700", True)
+s += label(70, 220, '$ supervisor launch atlas', 26, "#9ad1ff", "700", True)
 steps = [("atlas", "→ ~/work/clients/atlas-shop  (one match under the root)"), ("account", "→ work  (deduced from the folder, a warning never a refusal)"),
          ("window", "→ a tab in the open Terminal window, no start tab left beside it"), ("link", "→ https://claude.ai/code/session_…  (the same session on your phone)")]
 for i, (k, v) in enumerate(steps):
@@ -292,11 +292,11 @@ cards["card2-launch"] = s + "</svg>"
 # ---------------------------------------------------------------- 3 talk & answer
 CURRENT[0] = "card3-talk"
 s = head("#0f2a2a", "#08161a") + title("Talk. Answer its question.", "From another session, from your phone, on either account")
-s += panel(70, 200, 580, 160, "#2f6b55") + label(96, 240, '$ team-supervisor talk ledger-api "deploy done?"', 19, "#9ad1ff", "700", True)
+s += panel(70, 200, 580, 160, "#2f6b55") + label(96, 240, '$ supervisor talk ledger-api "deploy done?"', 19, "#9ad1ff", "700", True)
 s += label(96, 280, "delivered to ledger-api's own inbox; the answer is read", 19, INK) + label(96, 306, "back from its transcript", 19, INK) + label(96, 340, "→ «yes, live since 14:02, cache purged»", 19, GREEN, "600")
-s += panel(70, 376, 580, 184, "#2f6b55") + label(96, 414, "$ team-supervisor answer ledger-api --show", 19, "#9ad1ff", "700", True)
+s += panel(70, 376, 580, 184, "#2f6b55") + label(96, 414, "$ supervisor answer ledger-api --show", 19, "#9ad1ff", "700", True)
 s += label(96, 446, "«ledger-api» asks — Deploy: deploy now?", 19, INK) + label(96, 472, "  ❯ 1. yes", 19, INK, "500", True) + label(96, 496, "    2. no", 19, INK, "500", True)
-s += label(96, 524, "$ team-supervisor answer ledger-api 1", 19, "#9ad1ff", "700", True) + label(96, 548, "  → answered 1. yes", 18, GREEN, "600", True)
+s += label(96, 524, "$ supervisor answer ledger-api 1", 19, "#9ad1ff", "700", True) + label(96, 548, "  → answered 1. yes", 18, GREEN, "600", True)
 s += watch_shot(900, 318, 118, "question.png", "the same question on the watch")
 s += label(900, 530, "an inbox message never unblocks a dialog:", 16, DIM, anchor="middle") + label(900, 552, "answer does", 16, DIM, anchor="middle")
 s += foot("same registry → native channel; otherwise the tmux pane, after checking for typed text")
@@ -321,10 +321,10 @@ cards["card4-reboot"] = s + "</svg>"
 # ---------------------------------------------------------------- 5 restart
 CURRENT[0] = "card5-restart"
 s = head("#1a1033", "#0c0818") + title("Restart in place, keep talking.", "Hooks and plugins load at startup: arm, finish, come back")
-s += panel(70, 200, 500, 330, "#4b3a7a") + label(96, 240, "$ team-supervisor restart arm", 22, "#9ad1ff", "700", True)
+s += panel(70, 200, 500, 330, "#4b3a7a") + label(96, 240, "$ supervisor restart arm", 22, "#9ad1ff", "700", True)
 s += label(96, 280, "restart armed: tmux «atlas-shop» (pid 4812)", 18, INK, "500", True) + label(96, 306, "  fires at the end of this turn", 18, DIM, "500", True)
 s += label(96, 350, "one flag per session: eight sessions", 18, INK) + label(96, 374, "can arm in the same minute", 18, INK)
-s += label(96, 418, "$ team-supervisor restart list", 22, "#9ad1ff", "700", True)
+s += label(96, 418, "$ supervisor restart list", 22, "#9ad1ff", "700", True)
 for i, (n, t) in enumerate([("atlas-shop", "13:10 --clean"), ("ledger-api", "13:10"), ("field-notes", "13:11 --switch-account work")]):
     s += label(96, 452 + i * 26, f"{n:<12} {t}", 17, INK, "500", True)
 s += panel(630, 200, 500, 330, "#4b3a7a") + label(656, 240, "the Stop hook, at the end of the turn", 20, "#c9b8ff", "700")
@@ -342,7 +342,7 @@ s += '<rect x="80" y="210" width="360" height="310" rx="6" fill="#141c30" stroke
 for i, (n, sh, col, st) in enumerate(DEMO[1:]):
     y = 210 + i * 78
     s += f'<rect x="450" y="{y}" width="230" height="70" rx="6" fill="#141c30" stroke="#324472"/>' + icon(468, y + 16, sh, col, 6) + label(480, y + 21, n, 14, INK, "700")
-s += label(70, 555, "$ team-supervisor tile   → 5 windows: master 60 % left, four stacked right", 18, "#9ad1ff", "700", True)
+s += label(70, 555, "$ supervisor tile   → 5 windows: master 60 % left, four stacked right", 18, "#9ad1ff", "700", True)
 s += panel(720, 200, 410, 330, LINE) + label(746, 240, "tile / merge / move / layout", 20, "#ffffff", "700")
 for i, t in enumerate(["tile: one app window per session", "merge: all of them as tabs of one window", "move destra: to another monitor", "layout save|restore mattina", "no start tab beside a session", "odd count + master: master-primary"]):
     s += label(746, 282 + i * 34, t, 18)
@@ -356,7 +356,7 @@ for i, t in enumerate(["the list: every session, its state and its icon", "tap o
     s += label(70, 220 + i * 40, "•  " + t, 20, INK)
 s += label(94, 446, "and sessions that end", 20, INK)
 s += watch_shot(679, 350, 74, "card.png", "a session's card") + watch_shot(884, 350, 74, "question.png", "a question") + watch_shot(1089, 350, 74, "quota.png", "the quota")   # passo 205: la corona non tocca il cerchio accanto
-s += f'<rect x="690" y="158" width="410" height="50" rx="18" fill="#3b2a0a" stroke="#ffd43b"/>' + label(895, 179, "beta · github.com/frsorrentino/team-supervisor-app", 13, "#ffd43b", "700", anchor="middle") + label(895, 199, "build it with your own Firebase: the relay runs on your PC", 13, "#f5dfa0", anchor="middle")
+s += f'<rect x="690" y="158" width="410" height="50" rx="18" fill="#3b2a0a" stroke="#ffd43b"/>' + label(895, 179, "beta · github.com/frsorrentino/supervisor-app", 13, "#ffd43b", "700", anchor="middle") + label(895, 199, "build it with your own Firebase: the relay runs on your PC", 13, "#f5dfa0", anchor="middle")
 s += foot("the native Wear OS app, screens drawn from its real code on the demo set")
 cards["card7-wrist"] = s + "</svg>"
 
@@ -375,7 +375,7 @@ s += label(426, 330, "one warning per window; «resume where you were» to those
 s += panel(400, 370, 355, 175, "#4a3320") + label(426, 408, "Telegram, one way", 20, "#ffb27a", "700")
 s += label(426, 444, "long texts and the wrist's backup:", 16, INK) + label(426, 472, "the diary, the night report,", 16, INK, "500", True) + label(426, 496, "a question the watch missed", 16, INK, "500", True)
 s += panel(775, 370, 355, 175, "#4a3320") + label(801, 408, "02:00 night shift", 20, "#ffb27a", "700")
-s += label(801, 444, '$ team-supervisor night add atlas-shop \\', 13, "#9ad1ff", "500", True) + label(801, 466, '    "update the changelog, run the tests"', 13, "#9ad1ff", "500", True)
+s += label(801, 444, '$ supervisor night add atlas-shop \\', 13, "#9ad1ff", "500", True) + label(801, 466, '    "update the changelog, run the tests"', 13, "#9ad1ff", "500", True)
 s += label(801, 496, "one job at a time, while RAM and quota allow", 14, INK) + label(801, 522, "OK atlas-shop (412 s): tests green", 13, GREEN, "500", True)
 s += foot("the 20:00 recap on your phone, one sentence per project; the same line lands in docs/recap.md")
 cards["card8-guard"] = s + "</svg>"
@@ -383,8 +383,8 @@ cards["card8-guard"] = s + "</svg>"
 # ---------------------------------------------------------------- 9 doctor
 CURRENT[0] = "card9-doctor"
 s = head("#1a1033", "#0c0818") + title("Doctor, for both accounts.", "Cache, hooks, relay, cron: each line says what to do")
-s += panel(70, 200, 1060, 330, "#4b3a7a") + label(96, 240, "$ team-supervisor doctor", 22, "#9ad1ff", "700", True)
-rows = [("PASS", "plugin_ok — account «personal»: team-supervisor 0.3.8 in the cache", GREEN), ("PASS", "plugin_ok — account «work»: team-supervisor 0.3.8 in the cache", GREEN),
+s += panel(70, 200, 1060, 330, "#4b3a7a") + label(96, 240, "$ supervisor doctor", 22, "#9ad1ff", "700", True)
+rows = [("PASS", "plugin_ok — account «personal»: supervisor 0.3.8 in the cache", GREEN), ("PASS", "plugin_ok — account «work»: supervisor 0.3.8 in the cache", GREEN),
         ("PASS", "hooks — SessionStart, Stop, PermissionRequest wired in both settings", GREEN), ("PASS", "relay — serve alive (pid 7737), last push 19:20, 0 reconnections", GREEN),
         ("WARN", "cron — registry, guard present; night 02:00 missing → night install", YEL),
         ("PASS", "shell — wrappers for both accounts, no helper needed (T76)", GREEN)]

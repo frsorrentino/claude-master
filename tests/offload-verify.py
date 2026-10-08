@@ -46,7 +46,7 @@ def write_cfg():
 
 
 write_cfg()
-ENV = dict(os.environ, HOME=str(home), CM_HOME=str(home), TEAM_SUPERVISOR_CONFIG=str(cfgf),
+ENV = dict(os.environ, HOME=str(home), CM_HOME=str(home), CC_SUPERVISOR_CONFIG=str(cfgf),
            CM_SSH_BIN=str(LIB / "fake-ssh.py"), CM_SCP_BIN=str(LIB / "fake-scp.py"), FAKE_SSH_HOME=str(rh),
            CM_HOSTS_TTY="0", CM_FAKE_LOAD_PCT="10", CM_FAKE_RAM_KB="16777216 8388608", CM_NIGHT_FREE_MB="4000", CM_FAKE_LOCAL_STATUS=json.dumps({"load_pct": 10, "ram_free_gb": 3, "threads": 8}),
            FAKE_SCP_LOG=str(tmp / "scp.log"), GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",

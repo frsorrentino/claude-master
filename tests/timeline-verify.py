@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Cronologia delle sessioni (fase 2, 03/10/2026): prompt, test, commit, esiti e compiti in ordine di tempo, dal
-codice. Trascrizioni sintetiche in una HOME finta, un repo git vero, `sessions` dalla team-supervisor finta."""
+codice. Trascrizioni sintetiche in una HOME finta, un repo git vero, `sessions` dalla supervisor finta."""
 import json
 import os
 import re
@@ -24,7 +24,7 @@ cfg = tmp / "config.json"
 cfg.write_text(json.dumps({"language": "it", "default_account": "personal", "accounts": {"personal": {"config_dir": str(conf), "tmux_prefix": "w-"}}}))
 fake = tmp / "fake"
 fake.mkdir()
-ENV = dict(os.environ, TEAM_SUPERVISOR_CONFIG=str(cfg), CM_BIN=str(Path(__file__).resolve().parent / "lib" / "fake-cm-plan.py"),
+ENV = dict(os.environ, CC_SUPERVISOR_CONFIG=str(cfg), CM_BIN=str(Path(__file__).resolve().parent / "lib" / "fake-cm-plan.py"),
            FAKE_CM_DIR=str(fake), CM_TASKS_DB=str(tmp / "tasks.db"), GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
 NOW = int(time.time())
 PFX = json.loads((T.PLUGIN / "messages" / "it.json").read_text())["relay.prompt_prefix_phone"]
@@ -74,7 +74,7 @@ L = [
     line("user", "p3", NOW - 2100, "x", proj, origin={"kind": "peer", "body": "another session talking", "msg_id": "m2"}),
     line("user", "p4", NOW - 2050, "x", proj, origin={"kind": "peer", "body": PFX_WEB + " rifai il totale", "msg_id": "m3"}),
     # un prompt dal telefono arrivato prima del rinomino (07/10): il prefisso diceva «claude-master»
-    line("user", "p5", NOW - 2020, "x", proj, origin={"kind": "peer", "body": PFX.replace("team-supervisor", "claude-master") + " chiudo ora", "msg_id": "m4"}),
+    line("user", "p5", NOW - 2020, "x", proj, origin={"kind": "peer", "body": PFX.replace("supervisor", "claude-master") + " chiudo ora", "msg_id": "m4"}),
     # 1.42: un prompt a voce dalla modalità live, con le istruzioni vocali dopo il prefisso
     line("user", "p6", NOW - 2010, "x", proj, origin={"kind": "peer", "body": PFX + " " + VOICE + " quale sessione è vicina al rilascio?", "msg_id": "m5"}),
     # il riassunto di una compattazione: riga `user` senza origin, come nelle trascrizioni vere (07/10)
@@ -103,12 +103,12 @@ g("checkout", "-q", "main")
 task = {"schema_version": 1, "task": {"id": "vat", "title": "IVA nel checkout", "plan": None, "where": {"project": str(proj), "session": None, "host": "local", "account": None},
         "check": {"cmd": "true", "cwd": None, "timeout_s": 10}, "perimeter": [], "lane": "open", "depends_on": [], "route": "session", "hold": False,
         "attempts_max": 3, "data_class": "internal", "requested_by": "test"}}
-subprocess.run([str(T.SCRIPTS / "team-supervisor"), "task", "add", "-"], input=json.dumps(task), capture_output=True, text=True, env=ENV)
-subprocess.run([str(T.SCRIPTS / "team-supervisor"), "task", "done", "vat"], capture_output=True, text=True, env=ENV)
+subprocess.run([str(T.SCRIPTS / "supervisor"), "task", "add", "-"], input=json.dumps(task), capture_output=True, text=True, env=ENV)
+subprocess.run([str(T.SCRIPTS / "supervisor"), "task", "done", "vat"], capture_output=True, text=True, env=ENV)
 
 
 def tl(*a):
-    p = subprocess.run([str(T.SCRIPTS / "team-supervisor"), "timeline", *a], capture_output=True, text=True, env=ENV, timeout=120)
+    p = subprocess.run([str(T.SCRIPTS / "supervisor"), "timeline", *a], capture_output=True, text=True, env=ENV, timeout=120)
     return p.returncode, p.stdout, p.stderr
 
 
@@ -142,7 +142,7 @@ rc, txt, _ = tl("atlas", "--since", "6h")
 T.check("TL9 as text, one session by name: a header, then «HH:MM kind ✓/✗ text», the summary after the test, the hash after the commit",
         txt.startswith("atlas — ") and "orbit" not in txt and re.search(r"\d\d:\d\d test    ✗ cart-verify\.py — 3/4 OK, FAIL: C2 rounding", txt)
         and re.search(r"commit    feat: VAT field \[[0-9a-f]+\]", txt), txt)
-p = subprocess.run([str(T.SCRIPTS / "team-supervisor"), "task", "board", "--timeline", "--since", "6h", "--json"], capture_output=True, text=True, env=ENV)
+p = subprocess.run([str(T.SCRIPTS / "supervisor"), "task", "board", "--timeline", "--since", "6h", "--json"], capture_output=True, text=True, env=ENV)
 b = json.loads(p.stdout) if p.returncode == 0 else {}
 T.check("TL10 task board --timeline carries the same timeline under the counts", b.get("counts", {}).get("done") == 1 and {s["session"] for s in b.get("timeline", {}).get("sessions", [])} == {"atlas", "orbit"}, p.stdout[:300] + p.stderr)
 T.check("TL11 a bad --since → a plain error", tl("--since", "yesterday")[0] != 0, "")

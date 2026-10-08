@@ -8,6 +8,6 @@ PID      ACCOUNT       NAME                   STATE  FOLDER                   WI
   1 stuck on a question with nobody attached: closing it interrupts no work in progress, only work already stopped.
 
   native channel:  SendMessage (or @name in the prompt) — same peer registry; notify_when_idle tells you when that session is done
-  talk channel:    team-supervisor talk <name> "the prompt" — for sessions outside the registry
-  open one:        team-supervisor launch <path> [--account NAME]
-  attach:          team-supervisor attach <name>   ·   tmux attach -t =<name>
+  talk channel:    supervisor talk <name> "the prompt" — for sessions outside the registry
+  open one:        supervisor launch <path> [--account NAME]
+  attach:          supervisor attach <name>   ·   tmux attach -t =<name>

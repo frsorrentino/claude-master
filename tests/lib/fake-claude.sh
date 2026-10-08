@@ -224,6 +224,8 @@ effort_picker() {
   done
 }
 case "$SCEN" in *,busy,*) echo "✻ Working… (esc to interrupt)";; esac
+# Claude Code 2.1.294: la riga del turno senza «esc to interrupt» (08/10)
+case "$SCEN" in *,busy294,*) echo "● Slithering… (1m 9s · ↓ 2.7k tokens)";; esac
 printf '❯ '   # senza newline: il testo digitato resta sulla riga del prompt, come in Claude Code
 # resta vivo finche' non riceve /exit (o un segnale)
 while IFS= read -r line; do

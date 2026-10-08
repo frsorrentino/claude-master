@@ -34,9 +34,9 @@ cfg.write_text(json.dumps({"language": "it", "default_account": "personal", "sta
                            "relay": {"dir": str(relay)}, "accounts": {"personal": {"config_dir": str(conf), "tmux_prefix": "w-"}}}))
 fake = tmp / "fake"
 fake.mkdir()
-ENV = dict(os.environ, TEAM_SUPERVISOR_CONFIG=str(cfg), CM_BIN=str(Path(__file__).resolve().parent / "lib" / "fake-cm-plan.py"),
+ENV = dict(os.environ, CC_SUPERVISOR_CONFIG=str(cfg), CM_BIN=str(Path(__file__).resolve().parent / "lib" / "fake-cm-plan.py"),
            FAKE_CM_DIR=str(fake), CM_TASKS_DB=str(tmp / "tasks.db"), GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
-os.environ.update({k: ENV[k] for k in ("TEAM_SUPERVISOR_CONFIG", "CM_BIN", "FAKE_CM_DIR", "CM_TASKS_DB")})
+os.environ.update({k: ENV[k] for k in ("CC_SUPERVISOR_CONFIG", "CM_BIN", "FAKE_CM_DIR", "CM_TASKS_DB")})
 
 # la notte di prova: «adesso» sono le 03:00 di oggi; la sera e' cominciata alle 20:00 di ieri (7 ore fa)
 NOW = int(dt.datetime.now().replace(hour=3, minute=0, second=0, microsecond=0).timestamp())
@@ -134,7 +134,7 @@ done = [
                                          + json.dumps({"id": "n4", "dir": str(nova), "prompt": "traduci il sito", "added": "2026-10-06T23:00:00"}) + "\n")
 
 # registro: vega ha un compito fatto, uno in corso e uno in attesa di ok (wait-ok)
-CM = str(T.SCRIPTS / "team-supervisor")
+CM = str(T.SCRIPTS / "supervisor")
 for tid, title in (("v1", "schema"), ("v2", "migrazione"), ("v3", "deploy")):
     task = {"schema_version": 1, "task": {"id": tid, "title": title, "plan": None, "where": {"project": str(vega), "session": None, "host": "local", "account": None},
             "check": {"cmd": "true", "cwd": None, "timeout_s": 10}, "perimeter": [], "lane": "open", "depends_on": [], "route": "session", "hold": False,
@@ -245,7 +245,7 @@ ENV2 = dict(ENV, CM_TASKS_DB=str(tmp / "none.db"))
 cfg2 = tmp / "config2.json"
 cfg2.write_text(json.dumps({"language": "it", "default_account": "personal", "state_dir": str(tmp / "empty"), "workspace": {"root": str(ws)},
                             "relay": {"dir": str(tmp / "norelay")}, "accounts": {"personal": {"config_dir": str(conf), "tmux_prefix": "w-"}}}))
-ENV2["TEAM_SUPERVISOR_CONFIG"] = str(cfg2)
+ENV2["CC_SUPERVISOR_CONFIG"] = str(cfg2)
 p = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-night-report.py"), "--now", str(NOW), "--print"], capture_output=True, text=True, env=ENV2, timeout=120)
 r2 = json.loads(p.stdout) if p.returncode == 0 else {}
 T.check("NR21 missing sources are named in `sources` and the report is still built", p.returncode == 0
@@ -264,7 +264,7 @@ for d in (conf3, helio, st3, fk3):
 cfg3 = tmp / "config3.json"
 cfg3.write_text(json.dumps({"language": "it", "default_account": "personal", "state_dir": str(st3), "workspace": {"root": str(ws3)},
                             "relay": {"dir": str(tmp / "norelay3")}, "accounts": {"personal": {"config_dir": str(conf3), "tmux_prefix": "w-"}}}))
-ENV3 = dict(ENV, TEAM_SUPERVISOR_CONFIG=str(cfg3), FAKE_CM_DIR=str(fk3), CM_TASKS_DB=str(tmp / "none3.db"))
+ENV3 = dict(ENV, CC_SUPERVISOR_CONFIG=str(cfg3), FAKE_CM_DIR=str(fk3), CM_TASKS_DB=str(tmp / "none3.db"))
 g3 = lambda d, *a, t=None: subprocess.run(["git", "-C", str(d), *a], capture_output=True, text=True, env=dict(ENV3, **({"GIT_COMMITTER_DATE": f"@{t}", "GIT_AUTHOR_DATE": f"@{t}"} if t else {})))  # noqa: E731
 g3(helio, "init", "-q", "-b", "main")
 (helio / "h.txt").write_text("0"); g3(helio, "add", "h.txt"); g3(helio, "commit", "-qm", "base", t=EVE - 30 * H)

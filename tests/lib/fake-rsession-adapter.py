@@ -12,7 +12,7 @@ import subprocess
 import time
 from pathlib import Path
 
-_spec = importlib.util.spec_from_file_location("cm_adapters", Path(__file__).resolve().parents[2] / "team-supervisor" / "scripts" / "cm-adapters.py")
+_spec = importlib.util.spec_from_file_location("cm_adapters", Path(__file__).resolve().parents[2] / "supervisor" / "scripts" / "cm-adapters.py")
 _ad = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_ad)
 
@@ -61,12 +61,12 @@ class FakeWin:
         g("init", "-q")
         for k, v in _ad.WindowsNative.SEED_GIT_CONFIG.items():   # la stessa config del seme vero
             g("config", k, v)
-        g("config", "user.name", who[0] or "team-supervisor")
-        g("config", "user.email", who[1] or "team-supervisor@localhost")
+        g("config", "user.name", who[0] or "supervisor")
+        g("config", "user.email", who[1] or "supervisor@localhost")
         with open(d / ".git" / "info" / "exclude", "a") as f:
             f.write(".cm-session.json\n")
         g("add", "-A")
-        g("commit", "-q", "-m", f"team-supervisor: base {sha}")
+        g("commit", "-q", "-m", f"supervisor: base {sha}")
         root = g("rev-parse", "HEAD").strip()
         (d / ".cm-session.json").write_text(json.dumps({"base": sha, "root": root}))
         return {"ok": True, "root": root}

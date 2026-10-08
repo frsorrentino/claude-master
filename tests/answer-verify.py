@@ -41,7 +41,7 @@ FAKE = T.ROOT / "tests" / "lib" / "fake-claude.sh"
 
 
 def env(tm):
-    return {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg), "CM_TMUX_ARGS": tm.env["CM_TMUX_ARGS"]}
+    return {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CC_SUPERVISOR_CONFIG": str(cfg), "CM_TMUX_ARGS": tm.env["CM_TMUX_ARGS"]}
 
 
 def answer(tm, *args):
@@ -49,7 +49,7 @@ def answer(tm, *args):
 
 
 def notify(tm, payload, **extra):
-    e = env(tm) if tm else {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg)}
+    e = env(tm) if tm else {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CC_SUPERVISOR_CONFIG": str(cfg)}
     e.update(extra)
     return subprocess.run([sys.executable, str(T.SCRIPTS / "cm-answer.py"), "--notify"], input=json.dumps(payload), capture_output=True, text=True, env=e, timeout=60)
 
@@ -120,7 +120,7 @@ with T.PrivateTmux() as tm:
 # COMPLETA e di senso compiuto — l'ultima frase interrogativa se sta in synth_max_chars, altrimenti sintesi col
 # modello (synth_model, `claude -p`), altrimenti il testo a capo. Il parser dello schermo unisce le righe della domanda.
 import importlib.util as _ilu
-os.environ.update({"TEAM_SUPERVISOR_CONFIG": str(cfg), "HOME": str(home)})
+os.environ.update({"CC_SUPERVISOR_CONFIG": str(cfg), "HOME": str(home)})
 _spec = _ilu.spec_from_file_location("cm_answer", T.SCRIPTS / "cm-answer.py"); ans = _ilu.module_from_spec(_spec); _spec.loader.exec_module(ans)
 scr7 = " ☐ Trasporto\n\n│ Il PC (Crostini) non accetta connessioni in entrata. Da dove possono passare\n│ stato e comandi fra PC e orologio?\n\n❯ 1. Firebase RTDB + FCM (Recommended)\n     Zero infrastruttura, sveglia push vera.\n  2. Relay sul tuo hosting + FCM\n  3. Type something.\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n"
 d7 = ans.parse(scr7)

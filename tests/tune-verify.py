@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifica cm-tune.py (team-supervisor model / effort, contratto 1.12) con il claude finto e un tmux privato.
+"""Verifica cm-tune.py (supervisor model / effort, contratto 1.12) con il claude finto e un tmux privato.
 
 TU1  model: dal selettore di /model, «s» → «Set model to Sonnet 5 for this session only», uscita 0
 TU2  model per id, spostandosi verso l'alto (Sonnet → Fable); Opus 5.5 per id sulla voce «Opus 5.5» (2.1.283, prima
@@ -45,7 +45,7 @@ DEFAULT_LOG = tmp / "default.log"
 
 
 def env(tm):
-    return {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg),
+    return {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CC_SUPERVISOR_CONFIG": str(cfg),
             "CM_TMUX_ARGS": tm.env["CM_TMUX_ARGS"]}
 
 
@@ -98,6 +98,9 @@ with T.PrivateTmux() as tm:
     start(tm, "beta", "busy")
     r = tune(tm, "effort", "beta", "low")
     T.check("TU5 a session at work («esc to interrupt») → exit 3, no picker opened", r.returncode == 3 and "sta lavorando" in r.stdout and "to adjust" not in pane(tm, "beta"), r.stdout + pane(tm, "beta"))
+    start(tm, "busy294", "busy294")
+    r = tune(tm, "effort", "busy294", "low")
+    T.check("TU5b a session at work with the 2.1.294 status line (no «esc to interrupt») → exit 3, no picker opened", r.returncode == 3 and "sta lavorando" in r.stdout and "to adjust" not in pane(tm, "busy294"), r.stdout + pane(tm, "busy294"))
 
     start(tm, "gamma", "question")
     r = tune(tm, "model", "gamma", "claude-sonnet-5")

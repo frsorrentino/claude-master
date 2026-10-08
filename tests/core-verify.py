@@ -207,7 +207,7 @@ T.check("CO12 scope local (a subagent, /btw, a fork) → the session model is un
         fb(turno("claude-opus-5-5"), ripiego(scope="local", fallbackModel="claude-opus-5"), turno("claude-opus-5-5")) is None, "")
 T.check("CO12 a local fallback after a session one does not hide it",
         fb(ripiego(), ripiego(scope="local", ts="2026-09-22T20:01:00.000Z"), turno("claude-opus-5")) is not None, "")
-T.check("CO12 back on the original model (/model or team-supervisor model) → None", fb(ripiego(), turno("claude-opus-5"), turno("claude-opus-5-5")) is None, "")
+T.check("CO12 back on the original model (/model or supervisor model) → None", fb(ripiego(), turno("claude-opus-5"), turno("claude-opus-5-5")) is None, "")
 T.check("CO12 direction revert → None", fb(ripiego(direction="revert"), turno("claude-opus-5")) is None, "")
 T.check("CO12 a trailing «<synthetic>» turn is skipped", fb(ripiego(), turno("claude-opus-5"), turno("<synthetic>")) is not None, "")
 riempi9 = json.dumps({"type": "user", "message": {"content": "x" * 900}})
@@ -219,7 +219,7 @@ T.check("CO12 no fallback line, empty transcript, no transcript → None",
 tuned9 = proj / "tuned9.json"
 tuned9.write_text(json.dumps({"S-9": {"at": 1790107200, "model": {"id": "claude-opus-5-5[1m]", "label": "Opus 5.5"}}}))
 core._CFG["tune"]["file"] = str(tuned9)
-T.check("CO12 team-supervisor model back after the fallback, no new turn yet → None", fb(ripiego(), turno("claude-opus-5")) is None, "")
+T.check("CO12 supervisor model back after the fallback, no new turn yet → None", fb(ripiego(), turno("claude-opus-5")) is None, "")
 core._CFG["tune"]["file"] = ""
 T.check("CO7 no transcript → the three fields are absent, without an error",
         core.session_runtime({"session_id": "nope", "cwd": str(cwd), "account": "personal"}) == {"model": None, "effort": None, "context": None}, "")

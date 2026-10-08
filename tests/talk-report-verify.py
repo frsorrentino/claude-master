@@ -51,7 +51,7 @@ def proc_start(pid):
 
 
 def env(**extra):
-    e = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg),
+    e = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CC_SUPERVISOR_CONFIG": str(cfg),
          "CM_TMUX_ARGS": tm.env["CM_TMUX_ARGS"], "CM_CLAUDE_BIN": str(FAKE), "CM_PROC_SCAN_PIDS": ""}
     e.update(extra)
     return e
@@ -224,6 +224,15 @@ print(repr(filt("❯ \\x1b[2msolo suggerimento fino a fine riga")))        # non
     ri = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-talk.py"), "interrupt", "nessuna-tale"], capture_output=True, text=True, env=env(), timeout=60)
     T.check("I1 a session that does not exist → exit 3", ri.returncode == 3, ri.stderr)
     tm("kill-session", "-t", "=busyone")
+    # I1b (08/10, dal telefono: «nothing to stop» a turno in corso): Claude Code 2.1.294 non scrive piu' «esc to interrupt»
+    tm("new-session", "-d", "-s", "busynew", "-x", "120", "-y", "20",
+       "bash -c 'printf \"● Slithering… (1m 9s · ↓ 2.7k tokens)\\n────\\n❯\\n────\\n⏵⏵ bypass permissions on (shift+tab to cycle) · ← 1 agent\\n\"; read -rsn1; clear; echo idle; sleep 300'")
+    time.sleep(0.8)
+    ri = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-talk.py"), "interrupt", "busynew"], capture_output=True, text=True, env=env(), timeout=60)
+    time.sleep(0.8)
+    T.check("I1b the 2.1.294 status line («● Slithering… (1m 9s · ↓ 2.7k tokens)», no «esc to interrupt») is a turn running → one Esc, exit 0",
+            ri.returncode == 0 and "fermata" in ri.stdout and "idle" in tm("capture-pane", "-p", "-t", "busynew").stdout, ri.stdout + ri.stderr)
+    tm("kill-session", "-t", "=busynew")
     # R4 (contratto 1.19 del relay, «Condividi» dal telefono): la cartella come percorso assoluto e la sessione per nome
     shop = home / "ws" / "personali" / "shopfront"
     r = subprocess.run([str(T.SCRIPTS / "cm-report.sh"), str(shop), "-", "nessuna sessione", "--session", "inesistente"], capture_output=True, text=True, env=env(), timeout=60)

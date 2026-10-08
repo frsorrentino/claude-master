@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# team-supervisor — cut-over from the legacy scripts of THIS workstation (author tooling, not
+# supervisor — cut-over from the legacy scripts of THIS workstation (author tooling, not
 # shipped): plan §9.2. Every file touched is copied first into
-#   ~/.claude/team-supervisor-legacy-<date>/   with a generated rollback.sh that puts it all back.
+#   ~/.claude/supervisor-legacy-<date>/   with a generated rollback.sh that puts it all back.
 #
 #   bash cutover.sh              prints the plan (dry-run, default)
 #   bash cutover.sh --yes        does it
@@ -10,8 +10,8 @@
 # config, crontab, legacy_away, sessions_link. Values like ~/.claude-pixel or the script names
 # are THIS machine's legacy: they are allowed here and nowhere in the plugin (D3).
 #
-# Test hooks: CM_HOME (fake home), CM_BIN (team-supervisor dispatcher), CM_CRONTAB_CMD,
-# CM_SKIP_DOCTOR=1, TEAM_SUPERVISOR_CONFIG.
+# Test hooks: CM_HOME (fake home), CM_BIN (supervisor dispatcher), CM_CRONTAB_CMD,
+# CM_SKIP_DOCTOR=1, CC_SUPERVISOR_CONFIG.
 set -euo pipefail
 if [ -n "${CM_TRACE:-}" ]; then set -x; fi
 
@@ -24,11 +24,11 @@ for a in "$@"; do
   esac
 done
 H="${CM_HOME:-$HOME}"
-CM="${CM_BIN:-$H/.local/bin/team-supervisor}"
+CM="${CM_BIN:-$H/.local/bin/supervisor}"
 CRONTAB="${CM_CRONTAB_CMD:-crontab}"
-CFG="${TEAM_SUPERVISOR_CONFIG:-$H/.config/team-supervisor/config.json}"
+CFG="${CC_SUPERVISOR_CONFIG:-$H/.config/cc-supervisor/config.json}"
 STAMP="$(date +%Y%m%d-%H%M)"
-BK="$H/.claude/team-supervisor-legacy-$STAMP"
+BK="$H/.claude/supervisor-legacy-$STAMP"
 LEGACY_SKILL="$H/.claude/skills/nuova-sessione"
 LEGACY_BIN=(affianca attacca colore-sessione unisci sposta riaffianca)
 SETTINGS=("$H/.claude/settings.json" "$H/.claude-pixel/settings.json")
@@ -44,16 +44,16 @@ do_or_plan() { # step, description, command...
 
 preflight() {
   say "== preflight"
-  [ -x "$CM" ] || { say "FAIL: $CM missing or not executable (run: team-supervisor init --shim)"; exit 1; }
-  [ -f "$CFG" ] || { say "FAIL: config $CFG missing (run: team-supervisor init --yes)"; exit 1; }
+  [ -x "$CM" ] || { say "FAIL: $CM missing or not executable (run: supervisor init --shim)"; exit 1; }
+  [ -f "$CFG" ] || { say "FAIL: config $CFG missing (run: supervisor init --yes)"; exit 1; }
   if [ "${CM_SKIP_DOCTOR:-0}" != 1 ]; then
     "$CM" doctor >/tmp/cm-cutover-doctor.$$ 2>&1 || { cat /tmp/cm-cutover-doctor.$$; say "FAIL: doctor has a FAIL line"; exit 1; }
     rm -f /tmp/cm-cutover-doctor.$$
   fi
   grep -q "$BASHRC_START" "$H/.bashrc" && grep -q "$BASHRC_END" "$H/.bashrc" \
     || { say "FAIL: .bashrc anchors not found ($BASHRC_START … $BASHRC_END): nothing touched"; exit 1; }
-  grep -q 'team-supervisor/shell.sh' "$H/.bashrc" \
-    || { say "FAIL: .bashrc has no 'source ~/.config/team-supervisor/shell.sh' line (team-supervisor init --shell)"; exit 1; }
+  grep -q 'supervisor/shell.sh' "$H/.bashrc" \
+    || { say "FAIL: .bashrc has no 'source ~/.config/cc-supervisor/shell.sh' line (supervisor init --shell)"; exit 1; }
   [ -d "$BK" ] && { say "FAIL: $BK already exists"; exit 1; }
   say "  ok: shim, config, .bashrc anchors, backup folder free"
 }
@@ -96,7 +96,7 @@ EOF
 }
 
 bashrc() {
-  say "== .bashrc: remove the legacy segment ($BASHRC_START … $BASHRC_END), keep the team-supervisor block"
+  say "== .bashrc: remove the legacy segment ($BASHRC_START … $BASHRC_END), keep the supervisor block"
   [ "$YES" = 1 ] || { plan bashrc "rewrite $H/.bashrc"; return; }
   python3 - "$H/.bashrc" "$BASHRC_START" "$BASHRC_END" <<'PY'
 import re, sys
@@ -114,7 +114,7 @@ PY
 }
 
 tmuxconf() {
-  say "== .tmux.conf: mouse + status off + the team-supervisor block (init --tmux)"
+  say "== .tmux.conf: mouse + status off + the supervisor block (init --tmux)"
   [ "$YES" = 1 ] || { plan tmuxconf "rewrite $H/.tmux.conf"; return; }
   {
     echo "set -g mouse on"
@@ -173,8 +173,8 @@ PY
 }
 
 crontab_step() {
-  say "== crontab: registro.sh out, team-supervisor registry in"
-  [ "$YES" = 1 ] || { plan crontab "remove the nuova-sessione/registro.sh line; team-supervisor init --cron --yes"; return; }
+  say "== crontab: registro.sh out, supervisor registry in"
+  [ "$YES" = 1 ] || { plan crontab "remove the nuova-sessione/registro.sh line; supervisor init --cron --yes"; return; }
   # read first, write after: a `crontab -l | … | crontab -` pipeline races on the spool file
   # (the fake crontab of the tests lost that race once, 09/09 22:55); an empty result is fine
   current="$("$CRONTAB" -l 2>/dev/null || true)"
@@ -211,7 +211,7 @@ legacy_away
 sessions_link
 echo
 if [ "$YES" = 1 ]; then
-  say "CUT-OVER DONE. Now: open a NEW shell, tmux source-file ~/.tmux.conf, one session per account with team-supervisor launch, then checklist §9.1."
+  say "CUT-OVER DONE. Now: open a NEW shell, tmux source-file ~/.tmux.conf, one session per account with supervisor launch, then checklist §9.1."
   say "Anything red → bash $BK/rollback.sh"
 else
   say "dry-run: nothing touched. Run with --yes to execute (backup + rollback.sh in $BK)."

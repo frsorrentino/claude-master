@@ -21,7 +21,7 @@ other = tmp / "other"
 other.mkdir()
 cfg = tmp / "config.json"
 DB = tmp / "tasks.db"
-ENV = dict(os.environ, CM_TASKS_DB=str(DB), TEAM_SUPERVISOR_CONFIG=str(cfg))
+ENV = dict(os.environ, CM_TASKS_DB=str(DB), CC_SUPERVISOR_CONFIG=str(cfg))
 
 
 def config(guard):
@@ -40,7 +40,7 @@ def hook(cmd, cwd=proj):
 
 
 def cm(*args, stdin=None):
-    return subprocess.run([str(T.SCRIPTS / "team-supervisor"), *args], input=stdin, capture_output=True, text=True, env=ENV, timeout=60)
+    return subprocess.run([str(T.SCRIPTS / "supervisor"), *args], input=stdin, capture_output=True, text=True, env=ENV, timeout=60)
 
 
 def node(nid, plan, project=proj, hold=False, lane="closed"):

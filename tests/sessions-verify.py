@@ -97,7 +97,7 @@ def entry(reg_dir, pid, name, cwd, tmux_name, status="idle", proc_start_v=None, 
 
 
 def run(*args, extra=None):
-    env = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg),
+    env = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CC_SUPERVISOR_CONFIG": str(cfg),
            "CM_TMUX_ARGS": tm.env["CM_TMUX_ARGS"], "CM_PROC_SCAN_PIDS": " ".join(str(p.pid) for p in procs)}
     env.pop("CLAUDE_CONFIG_DIR", None)
     if extra:
@@ -237,7 +237,7 @@ with T.PrivateTmux() as tm:
     acct = by.get("questa-prova", {}).get("account") or "personale"
     conf_dir = {"personale": str(home / ".claude"), "professionale": str(home / ".claude-pixel")}[acct]
     (qsrc / f"quota-{hashlib.sha256(conf_dir.encode()).hexdigest()[:8]}.json").write_text(json.dumps({"five_hour_used_pct": 10, "weekly_used_pct": 91, "weekly_resets_at": time.time() + 86400}))
-    env_q = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg), "CM_TMUX_ARGS": tm.env["CM_TMUX_ARGS"], "CM_PROC_SCAN_PIDS": " ".join(str(p.pid) for p in procs)}
+    env_q = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CC_SUPERVISOR_CONFIG": str(cfg), "CM_TMUX_ARGS": tm.env["CM_TMUX_ARGS"], "CM_PROC_SCAN_PIDS": " ".join(str(p.pid) for p in procs)}
     env_q.pop("CLAUDE_CONFIG_DIR", None)
     rq = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-quota.py")], capture_output=True, text=True, env=env_q, timeout=60)
     T.check("S21 quota: «N sessione/i in modalità a bassa priorità» for that account; nothing with --no-screen", rq.returncode == 0 and f"«{acct}»: 1 sessione/i in modalità a bassa priorità" in rq.stdout
@@ -250,7 +250,7 @@ with T.PrivateTmux() as tm:
     e["status"] = "idle"; e["statusUpdatedAt"] = int(time.time() * 1000) - 3 * 3600_000
     (home / ".claude-pixel" / "sessions" / f"{p2}.json").write_text(json.dumps(e))
     table = run("--no-screen").stdout
-    T.check("S23 idle for 3 h → «idle da 3 h: se non serve, team-supervisor close pix-beta»", "idle da 3 h: se non serve, team-supervisor close pix-beta" in table, table)
+    T.check("S23 idle for 3 h → «idle da 3 h: se non serve, supervisor close pix-beta»", "idle da 3 h: se non serve, supervisor close pix-beta" in table, table)
     rows = json.loads(run("--json", "--no-screen").stdout)
     by = {x["name"]: x for x in rows if x["name"]}
     T.check("S23 json: status_age_min", by.get("pix-beta", {}).get("status_age_min") == 180, str(by.get("pix-beta")))
@@ -281,10 +281,10 @@ with T.PrivateTmux() as tm:
     def head(res):
         return (res.stdout.splitlines() or [""])[0]
     en_cfg, it_cfg, auto_cfg = cfg_lang("cm-en.json", "en"), cfg_lang("cm-it.json", "it"), cfg_lang("cm-auto.json", None)
-    r = run(extra={"TEAM_SUPERVISOR_CONFIG": en_cfg})
+    r = run(extra={"CC_SUPERVISOR_CONFIG": en_cfg})
     T.check("S14 English (explicit): header NAME and STATE, none of NOME STATO CARTELLA ATTIVA-DA; no questa|nativo|aspetta anywhere",
             "NAME" in head(r) and "STATE" in head(r) and not any(w in head(r) for w in ("NOME", "STATO", "CARTELLA", "ATTIVA-DA")) and not _re.search(r"\(questa\)|\bnativo\b|aspetta", r.stdout), r.stdout[:900])
-    r = run(extra={"TEAM_SUPERVISOR_CONFIG": it_cfg})
+    r = run(extra={"CC_SUPERVISOR_CONFIG": it_cfg})
     T.check("S15 Italian (explicit): header NOME and STATO", "NOME" in head(r) and "STATO" in head(r), head(r))
     alfa_line = next((l for l in r.stdout.splitlines() if l.split()[2:3] == ["alfa"]), "")
     T.check("S16 a session waiting for an answer shows one state («attesa»), not busy next to «aspetta una risposta»", "attesa" in alfa_line and "busy" not in alfa_line, alfa_line or r.stdout[:600])
@@ -293,11 +293,11 @@ with T.PrivateTmux() as tm:
     st_json = home / ".claude" / "settings.json"
     saved_st = st_json.read_text() if st_json.exists() else None
     st_json.unlink(missing_ok=True)
-    r_it = run(extra={"TEAM_SUPERVISOR_CONFIG": auto_cfg, "LANG": "it_IT.UTF-8"})
-    r_en = run(extra={"TEAM_SUPERVISOR_CONFIG": auto_cfg, "LANG": "en_US.UTF-8"})
+    r_it = run(extra={"CC_SUPERVISOR_CONFIG": auto_cfg, "LANG": "it_IT.UTF-8"})
+    r_en = run(extra={"CC_SUPERVISOR_CONFIG": auto_cfg, "LANG": "en_US.UTF-8"})
     st_json.write_text(json.dumps({"language": "italiano"}))
-    r_set = run(extra={"TEAM_SUPERVISOR_CONFIG": auto_cfg, "LANG": "en_US.UTF-8"})
-    r_win = run(extra={"TEAM_SUPERVISOR_CONFIG": en_cfg, "LANG": "it_IT.UTF-8"})
+    r_set = run(extra={"CC_SUPERVISOR_CONFIG": auto_cfg, "LANG": "en_US.UTF-8"})
+    r_win = run(extra={"CC_SUPERVISOR_CONFIG": en_cfg, "LANG": "it_IT.UTF-8"})
     st_json.write_text(saved_st) if saved_st is not None else st_json.unlink()
     T.check("S18 no language in the config: LANG it → Italian, LANG en → English, settings.json «italiano» → Italian even with LANG en",
             "NOME" in head(r_it) and "NAME" in head(r_en) and "NOME" in head(r_set), f"{head(r_it)} | {head(r_en)} | {head(r_set)}")
@@ -319,14 +319,14 @@ with T.PrivateTmux() as tm:
     scan = " ".join(str(p.pid) for p in procs) + f" {cx_pid}"
 
     def codex_rows(conf):
-        return [x for x in json.loads(run("--json", "--no-screen", extra={"TEAM_SUPERVISOR_CONFIG": conf, "CM_PROC_SCAN_PIDS": scan}).stdout) if x.get("agent") == "codex"]
+        return [x for x in json.loads(run("--json", "--no-screen", extra={"CC_SUPERVISOR_CONFIG": conf, "CM_PROC_SCAN_PIDS": scan}).stdout) if x.get("agent") == "codex"]
     cx = codex_rows(cx_cfg)
     T.check("S21 experimental.codex on: the Codex pane is listed with its tmux name, folder and the rollout's state (task_started → busy)",
             len(cx) == 1 and cx[0]["name"] == "cxs" and os.path.realpath(cx[0]["cwd"]) == os.path.realpath(str(home / "ws" / "cx")) and cx[0]["status"] == "busy", str(cx))
     with open(rf, "a") as f:
         f.write(json.dumps({"type": "event_msg", "payload": {"type": "task_complete"}}) + "\n")
     cx = codex_rows(cx_cfg)
-    table = run("--no-screen", extra={"TEAM_SUPERVISOR_CONFIG": cx_cfg, "CM_PROC_SCAN_PIDS": scan}).stdout
+    table = run("--no-screen", extra={"CC_SUPERVISOR_CONFIG": cx_cfg, "CM_PROC_SCAN_PIDS": scan}).stdout
     T.check("S21 task_complete → idle; the table shows it by name, not as «(unregistered)»", cx and cx[0]["status"] == "idle" and any(l.split()[2:3] == ["cxs"] and "idle" in l for l in table.splitlines()), str(cx) + table[:600])
     T.check("S21 experimental.codex off (default): no Codex row", codex_rows(en_cfg) == [], "")
 
@@ -346,8 +346,8 @@ with T.PrivateTmux() as tm:
             and by.get("pix-beta", {}).get("fallback") is None, str(by.get("alfa", {}).get("fallback")))
     table = run("--no-screen").stdout
     line = next((l for l in table.splitlines() if l.split()[2:3] == ["alfa"]), "")
-    T.check("S23 the table: the note names both models and how to go back (/model, team-supervisor model alfa <id of Opus 5.5>)",
-            "ripiegata su claude-sonnet-5 al posto di claude-opus-5-5" in line and "team-supervisor model alfa claude-opus-5-5[1m]" in line, line or table[:900])
+    T.check("S23 the table: the note names both models and how to go back (/model, supervisor model alfa <id of Opus 5.5>)",
+            "ripiegata su claude-sonnet-5 al posto di claude-opus-5-5" in line and "supervisor model alfa claude-opus-5-5[1m]" in line, line or table[:900])
     t9.write_text("\n".join([turn("claude-opus-5-5"), rip, turn("claude-sonnet-5"), turn("claude-opus-5-5")]) + "\n")
     by = {x["name"]: x for x in json.loads(run("--json", "--no-screen").stdout)}
     T.check("S23 back on the model it had: no fallback", by.get("alfa", {}).get("fallback") is None, str(by.get("alfa")))

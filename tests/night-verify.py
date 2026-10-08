@@ -78,7 +78,7 @@ fake_report.write_text(f"import sys\nopen({str(report_marker)!r}, 'a').write(' '
 
 
 def night(*args, free_mb="4000", claude=FAKE):
-    env = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg),
+    env = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CC_SUPERVISOR_CONFIG": str(cfg),
            "CM_CRONTAB_CMD": str(fake_crontab), "CM_CLAUDE_BIN": str(claude), "FAKE_CLAUDE_ARGS_LOG": str(argslog),
            "FAKE_CLAUDE_ECHO_ENV": "CLAUDE_CONFIG_DIR", "CM_NIGHT_FREE_MB": free_mb, "CM_NIGHT_REPORT_BIN": str(fake_report)}
     return subprocess.run([sys.executable, str(T.SCRIPTS / "cm-night.py"), *args], capture_output=True, text=True, env=env, timeout=120)

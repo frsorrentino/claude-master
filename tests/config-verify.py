@@ -85,14 +85,14 @@ T.check("C4 list space-joined", "CM_TABS_COLORS_CIRCLE='🔴 🟠 🟡 🟢 🔵
 T.check("C4 bool as true/false", "CM_SESSION_REMOTE_CONTROL='true'" in sh, sh[:3000])
 b = subprocess.run(["bash", "-c", f'eval "$(python3 {T.SCRIPTS}/cm-config.py --sh)"; echo "$CM_LANGUAGE|$CM_ACCOUNTS_PERSONALE_TMUX_PREFIX|$CM_TALK_QUIET_S"'],
                    capture_output=True, text=True,
-                   env={"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg)})
+                   env={"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CC_SUPERVISOR_CONFIG": str(cfg)})
 T.check("C4 eval in bash", b.stdout.strip() == "it||6", b.stdout + b.stderr)
 
 # C5
 r = T.run_config(["--dump-defaults"], home, cfg_missing)
 example = (T.PLUGIN / "config.example.json").read_text() if (T.PLUGIN / "config.example.json").exists() else ""
 T.check("C5 config.example.json in sync with defaults", r.stdout.strip() == example.strip(),
-        "run: cm-config.py --dump-defaults > team-supervisor/config.example.json")
+        "run: cm-config.py --dump-defaults > supervisor/config.example.json")
 
 # C6
 bad = Path(tmp) / "bad.json"
@@ -160,8 +160,8 @@ try:
 except Exception:  # noqa: BLE001
     d2 = {}
     T.check("C10 clean init parses", False, r2.stdout[:300] + r2.stderr[-300:])
-T.check("C10 clean: state_dir default", d2.get("state_dir") == "~/.local/state/team-supervisor", str(d2.get("state_dir")))
-T.check("C10 clean: registry under state_dir", d2.get("registry", {}).get("file") == "~/.local/state/team-supervisor/sessions.json", str(d2.get("registry")))
+T.check("C10 clean: state_dir default", d2.get("state_dir") == "~/.local/state/cc-supervisor", str(d2.get("state_dir")))
+T.check("C10 clean: registry under state_dir", d2.get("registry", {}).get("file") == "~/.local/state/cc-supervisor/sessions.json", str(d2.get("registry")))
 T.check("C10 clean: backend gnome (gnome-terminal in PATH)", d2.get("terminal", {}).get("backend") == "gnome", str(d2.get("terminal")))
 T.check("C10 clean: one account named personal (lang en)", list(d2.get("accounts", {})) == ["personal"], str(d2.get("accounts")))
 T.check("C10 clean: root = ~", d2.get("workspace", {}).get("root") == "~", str(d2.get("workspace")))
@@ -206,13 +206,13 @@ T.check("C13 WARN no config → suggests init", r.returncode == 0 and "init" in 
 VER_CHECKOUT = json.loads((T.PLUGIN / ".claude-plugin" / "plugin.json").read_text())["version"]
 # C13b doctor: plugin nella cache via `claude plugin list --json` (finto: CM_FAKE_PLUGIN_LIST)
 pl = Path(tmp) / "plugins.json"
-pl.write_text(json.dumps([{"id": "team-supervisor@team-supervisor-dev", "version": "0.0.1", "enabled": True}]))
+pl.write_text(json.dumps([{"id": "supervisor@supervisor-dev", "version": "0.0.1", "enabled": True}]))
 r = T.run_config(["doctor"], home, target, machine, extra_env={"CM_FAKE_PLUGIN_LIST": str(pl)})
-T.check("C13b cache older than the checkout → WARN with both versions and the update command", "WARN" in r.stdout and "0.0.1" in r.stdout and "claude plugin update team-supervisor" in r.stdout, r.stdout)
-pl.write_text(json.dumps([{"id": "team-supervisor@team-supervisor-dev", "version": VER_CHECKOUT, "enabled": True, "noteDetails": "auto-update on"}]))
+T.check("C13b cache older than the checkout → WARN with both versions and the update command", "WARN" in r.stdout and "0.0.1" in r.stdout and "claude plugin update supervisor" in r.stdout, r.stdout)
+pl.write_text(json.dumps([{"id": "supervisor@supervisor-dev", "version": VER_CHECKOUT, "enabled": True, "noteDetails": "auto-update on"}]))
 r = T.run_config(["doctor"], home, target, machine, extra_env={"CM_FAKE_PLUGIN_LIST": str(pl)})
 T.check("C13b same version → PASS with the note", "PASS plugin_ok" in r.stdout and "auto-update on" in r.stdout, r.stdout)
-pl.write_text(json.dumps([{"id": "team-supervisor@team-supervisor-dev", "version": VER_CHECKOUT, "enabled": True, "errorDetails": "hooks.json invalid"}]))
+pl.write_text(json.dumps([{"id": "supervisor@supervisor-dev", "version": VER_CHECKOUT, "enabled": True, "errorDetails": "hooks.json invalid"}]))
 r = T.run_config(["doctor"], home, target, machine, extra_env={"CM_FAKE_PLUGIN_LIST": str(pl)})
 T.check("C13b errorDetails → WARN quoting it", "WARN plugin_error" in r.stdout and "hooks.json invalid" in r.stdout, r.stdout)
 pl.write_text("[]")
@@ -221,7 +221,7 @@ T.check("C13b not installed → WARN with the install command", "WARN plugin_mis
 
 # C13c (S01, 14/09): lo shim c'e' ma ~/.local/bin non e' nel PATH → WARN con il rimedio; nel PATH → nessuna riga.
 # Un file macchina a parte: fake_machine riscriverebbe quello condiviso.
-shim13 = home / ".local" / "bin" / "team-supervisor"
+shim13 = home / ".local" / "bin" / "supervisor"
 shim13.parent.mkdir(parents=True, exist_ok=True)
 shim13.write_text("#!/bin/sh\n")
 m13 = json.loads(Path(machine).read_text())
@@ -291,30 +291,30 @@ T.check("C13e a google-services.json without any Android client → WARN (file b
 
 # C14 shim
 r = T.run_config(["init", "--shim", "--yes"], home, target, machine)
-shim = home / ".local" / "bin" / "team-supervisor"
-T.check("C14 --shim installs ~/.local/bin/team-supervisor", shim.exists() and os.access(shim, os.X_OK), r.stdout + r.stderr)
+shim = home / ".local" / "bin" / "supervisor"
+T.check("C14 --shim installs ~/.local/bin/supervisor", shim.exists() and os.access(shim, os.X_OK), r.stdout + r.stderr)
 conf_dir = Path(tmp) / "confdir"
 (conf_dir / "plugins").mkdir(parents=True)
 (conf_dir / "plugins" / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": {
-    "team-supervisor@team-supervisor-dev": [{"scope": "user", "installPath": str(T.PLUGIN), "version": "0.1.0"}]}}))
+    "supervisor@supervisor-dev": [{"scope": "user", "installPath": str(T.PLUGIN), "version": "0.1.0"}]}}))
 env = {"PATH": os.environ["PATH"], "HOME": str(home), "CLAUDE_CONFIG_DIR": str(conf_dir)}
 VER = json.loads((T.PLUGIN / ".claude-plugin" / "plugin.json").read_text())["version"]
 b = subprocess.run([str(shim), "version"], capture_output=True, text=True, env=env)
 T.check("C14 shim resolves root via installed_plugins.json", b.returncode == 0 and VER in b.stdout, b.stdout + b.stderr)
-env2 = {"PATH": os.environ["PATH"], "HOME": str(home), "TEAM_SUPERVISOR_ROOT": str(T.PLUGIN)}
+env2 = {"PATH": os.environ["PATH"], "HOME": str(home), "CC_SUPERVISOR_ROOT": str(T.PLUGIN)}
 b = subprocess.run([str(shim), "version"], capture_output=True, text=True, env=env2)
-T.check("C14 shim honours TEAM_SUPERVISOR_ROOT", b.returncode == 0 and VER in b.stdout, b.stdout + b.stderr)
+T.check("C14 shim honours CC_SUPERVISOR_ROOT", b.returncode == 0 and VER in b.stdout, b.stdout + b.stderr)
 env3 = {"PATH": os.environ["PATH"], "HOME": str(home), "CLAUDE_CONFIG_DIR": str(Path(tmp) / "empty")}
 b = subprocess.run([str(shim), "version"], capture_output=True, text=True, env=env3)
-T.check("C14 shim fails loudly when unresolved", b.returncode != 0 and "team-supervisor" in b.stderr, b.stdout + b.stderr)
-b = subprocess.run([str(T.SCRIPTS / "team-supervisor"), "boh"], capture_output=True, text=True, env=env2)
+T.check("C14 shim fails loudly when unresolved", b.returncode != 0 and "supervisor" in b.stderr, b.stdout + b.stderr)
+b = subprocess.run([str(T.SCRIPTS / "supervisor"), "boh"], capture_output=True, text=True, env=env2)
 T.check("C14 dispatcher: unknown subcommand → exit 2 with usage", b.returncode == 2 and "uso" in b.stderr.lower() or "usage" in b.stderr.lower(), b.stdout + b.stderr)
 
 # C15 init --tmux
 r = T.run_config(["init", "--tmux"], home, target, machine)
-T.check("C15 --tmux prints tile/merge binds with the shim", r.returncode == 0 and "bind a run-shell -b \"$HOME/.local/bin/team-supervisor tile" in r.stdout and "bind u run-shell -b \"$HOME/.local/bin/team-supervisor merge" in r.stdout, r.stdout + r.stderr)
+T.check("C15 --tmux prints tile/merge binds with the shim", r.returncode == 0 and "bind a run-shell -b \"$HOME/.local/bin/supervisor tile" in r.stdout and "bind u run-shell -b \"$HOME/.local/bin/supervisor merge" in r.stdout, r.stdout + r.stderr)
 T.check("C15 --tmux prints the four arrows guarded by window_panes", r.stdout.count("if -F '#{==:#{window_panes},1}'") == 4 and "move left" in r.stdout and "select-pane -D" in r.stdout, r.stdout)
-T.check("C15 --tmux prints, does not write", "team-supervisor" not in ((home / ".tmux.conf").read_text() if (home / ".tmux.conf").is_file() else ""), "")
+T.check("C15 --tmux prints, does not write", "supervisor" not in ((home / ".tmux.conf").read_text() if (home / ".tmux.conf").is_file() else ""), "")
 noarrows = json.loads(target.read_text())
 noarrows["tmux"]["keybindings"] = {"tile": "x", "merge": "", "move_arrows": False}
 (Path(tmp) / "noarrows.json").write_text(json.dumps(noarrows))
@@ -322,9 +322,9 @@ r = T.run_config(["init", "--tmux"], home, Path(tmp) / "noarrows.json", machine)
 T.check("C15 keybindings honoured (tile x, no merge, no arrows)", "bind x run-shell" in r.stdout and "merge" not in r.stdout and "select-pane" not in r.stdout, r.stdout)
 r = T.run_config(["init", "--tmux", "--yes"], home, target, machine)
 tc = (home / ".tmux.conf").read_text() if (home / ".tmux.conf").is_file() else ""
-T.check("C15 --yes appends the block after the legacy one", r.returncode == 0 and tc.count("team-supervisor init --tmux") == 1 and tc.index("affianca") < tc.index("team-supervisor init --tmux"), r.stdout + r.stderr)
+T.check("C15 --yes appends the block after the legacy one", r.returncode == 0 and tc.count("supervisor init --tmux") == 1 and tc.index("affianca") < tc.index("supervisor init --tmux"), r.stdout + r.stderr)
 r = T.run_config(["init", "--tmux", "--yes"], home, target, machine)
-T.check("C15 second --yes leaves one block", (home / ".tmux.conf").read_text().count("team-supervisor init --tmux") == 1 and r.returncode == 0, r.stdout)
+T.check("C15 second --yes leaves one block", (home / ".tmux.conf").read_text().count("supervisor init --tmux") == 1 and r.returncode == 0, r.stdout)
 
 T.rm(tmp)
 T.rm(tmp2)

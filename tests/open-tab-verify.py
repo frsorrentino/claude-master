@@ -60,7 +60,7 @@ FAKE = T.ROOT / "tests" / "lib" / "fake-claude.sh"
 
 
 def env(**extra):
-    e = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg),
+    e = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CC_SUPERVISOR_CONFIG": str(cfg),
          "CM_TMUX_ARGS": tm.env["CM_TMUX_ARGS"], "FAKE_BRIDGE_STATE": str(bridge_state), "FAKE_BRIDGE_PLACEHOLDER": str(state / "next-session"),
          "FAKE_BRIDGE_TMUX_ARGS": tm.env["CM_TMUX_ARGS"], "FAKE_GARCON_LOG": str(garcon_log), "WAYLAND_DISPLAY": "wl-0", "CM_PROC_SCAN_PIDS": "", "CM_CLAUDE_BIN": str(FAKE)}
     e.update(extra)

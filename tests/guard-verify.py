@@ -52,7 +52,7 @@ class Handler(BaseHTTPRequestHandler):
 srv = HTTPServer(("127.0.0.1", 0), Handler)
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 argslog = tmp / "cm-args.log"
-fake_cm = tmp / "team-supervisor"
+fake_cm = tmp / "supervisor"
 fake_cm.write_text(f'#!/bin/sh\nprintf \'%s\\n\' "$*" >> "{argslog}"\n')
 fake_cm.chmod(0o755)
 cron = tmp / "crontab"
@@ -87,7 +87,7 @@ def write_quota(pct_personal, pct_pro=10.0):
 
 
 def guard(*args, now=NOW):
-    env = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg),
+    env = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CC_SUPERVISOR_CONFIG": str(cfg),
            "CM_CRONTAB_CMD": str(fake_crontab), "CM_GUARD_CM": str(fake_cm), "CM_GUARD_NOW": str(now), "CM_GUARD_FAKE_PROC": "1"}
     return subprocess.run([sys.executable, str(T.SCRIPTS / "cm-guard.py"), *args], capture_output=True, text=True, env=env, timeout=60)
 

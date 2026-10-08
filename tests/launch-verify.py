@@ -69,7 +69,7 @@ scenfile = tmp / "scenario"
 
 def env_base(scenario="plain"):
     scenfile.write_text(scenario)
-    return {"FAKE_CLAUDE_SCENARIO_FILE": str(scenfile),"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "TEAM_SUPERVISOR_CONFIG": str(cfg),
+    return {"FAKE_CLAUDE_SCENARIO_FILE": str(scenfile),"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CC_SUPERVISOR_CONFIG": str(cfg),
            "CM_TMUX_ARGS": tm.env["CM_TMUX_ARGS"], "CM_CLAUDE_BIN": str(FAKE), "FAKE_CLAUDE_SCENARIO": scenario,
            "FAKE_CLAUDE_ARGS_LOG": str(argslog), "CM_TERMINAL_FAKE_LOG": str(fakelog), "CM_TERMINAL_FAKE_ATTACH": "1",
            "WAYLAND_DISPLAY": "fake-0", "FAKE_CLAUDE_ECHO_ENV": "CLAUDE_CODE_TOOL_MEMORY_LIMIT", "FAKE_CLAUDE_DELAY": "3"}
@@ -110,14 +110,14 @@ with T.PrivateTmux() as tm:
         st = Path(f"/proc/{pr.pid}/stat").read_text(); st = st[st.rindex(")") + 2:].split()[19]
         (home / ".claude" / "sessions" / f"{pr.pid}.json").write_text(json.dumps({"pid": pr.pid, "name": f"finta{i}", "cwd": str(home), "status": "idle", "tmux": f"finta{i}:@0.%0",
                                                                                   "startedAt": int(time.time() * 1000), "procStart": st, "sessionId": f"sid-finta{i}"}))
-    r = run(str(home / "ws" / "personali" / "sesta"), "--no-window", "--create", extra={"CM_LAUNCH_NO_TTY": "1", "TEAM_SUPERVISOR_CONFIG": str(cfg_cap)})
+    r = run(str(home / "ws" / "personali" / "sesta"), "--no-window", "--create", extra={"CM_LAUNCH_NO_TTY": "1", "CC_SUPERVISOR_CONFIG": str(cfg_cap)})
     T.check("L14 5 sessions at work, no terminal → exit 7, the count, the cap and the free memory in the message, nothing launched",
             r.returncode == 7 and (lambda m: bool(m) and int(m.group(1)) >= 5)(re.search(r"(\d+) sessioni già al lavoro", r.stderr)) and "tetto sessions.max_sessions = 5" in r.stderr and "memoria libera" in r.stderr and "--force" in r.stderr
             and not tm("has-session", "-t", "=sesta").returncode == 0, r.stdout + r.stderr)
-    r = run(str(home / "ws"), "--no-window", extra={"CM_LAUNCH_NO_TTY": "1", "TEAM_SUPERVISOR_CONFIG": str(cfg_cap)})
+    r = run(str(home / "ws"), "--no-window", extra={"CM_LAUNCH_NO_TTY": "1", "CC_SUPERVISOR_CONFIG": str(cfg_cap)})
     T.check("L14 the master (workspace root) is not held by the cap, even with 5 at work and no terminal (the app's Reopen)",
             r.returncode == 0 and "sessioni già al lavoro" not in r.stderr, r.stdout + r.stderr)
-    r = run(str(home / "ws" / "personali" / "sesta"), "--no-window", "--create", "--force", extra={"CM_LAUNCH_NO_TTY": "1", "TEAM_SUPERVISOR_CONFIG": str(cfg_cap)})
+    r = run(str(home / "ws" / "personali" / "sesta"), "--no-window", "--create", "--force", extra={"CM_LAUNCH_NO_TTY": "1", "CC_SUPERVISOR_CONFIG": str(cfg_cap)})
     T.check("L14 --force → launched", r.returncode == 0 and tm("has-session", "-t", "=sesta").returncode == 0, r.stdout + r.stderr)
     for pr in keep:
         pr.kill(); (home / ".claude" / "sessions" / f"{pr.pid}.json").unlink(missing_ok=True)
@@ -189,17 +189,17 @@ with T.PrivateTmux() as tm:
     base15 = json.loads(cfg.read_text())
     c15 = dict(base15, accounts={"personale": base15["accounts"]["personale"], "professionale": dict(base15["accounts"]["professionale"], remote_control=False)})
     cfg15 = tmp / "config-rc.json"; cfg15.write_text(json.dumps(c15))
-    r = run(str(home / "ws" / "pro" / "rc-off"), "--create", "--no-window", extra={"TEAM_SUPERVISOR_CONFIG": str(cfg15)})
+    r = run(str(home / "ws" / "pro" / "rc-off"), "--create", "--no-window", extra={"CC_SUPERVISOR_CONFIG": str(cfg15)})
     a_off = last_args()
-    r2 = run(str(home / "ws" / "personali" / "rc-on"), "--create", "--no-window", extra={"TEAM_SUPERVISOR_CONFIG": str(cfg15)})
+    r2 = run(str(home / "ws" / "personali" / "rc-on"), "--create", "--no-window", extra={"CC_SUPERVISOR_CONFIG": str(cfg15)})
     T.check("L15 accounts.professionale.remote_control false → no --remote-control for that account; personale keeps the global true",
             r.returncode == 0 and "--remote-control" not in a_off and "-n pix-rc-off" in a_off and r2.returncode == 0 and "--remote-control rc-on" in last_args(), a_off + " | " + last_args() + r.stderr[-200:])
     c15b = dict(base15, session=dict(base15["session"], remote_control=False),
                 accounts={"personale": base15["accounts"]["personale"], "professionale": dict(base15["accounts"]["professionale"], remote_control=True)})
     cfg15.write_text(json.dumps(c15b))
-    r = run(str(home / "ws" / "pro" / "rc-on2"), "--create", "--no-window", extra={"TEAM_SUPERVISOR_CONFIG": str(cfg15)})
+    r = run(str(home / "ws" / "pro" / "rc-on2"), "--create", "--no-window", extra={"CC_SUPERVISOR_CONFIG": str(cfg15)})
     a_on = last_args()
-    r2 = run(str(home / "ws" / "personali" / "rc-off2"), "--create", "--no-window", extra={"TEAM_SUPERVISOR_CONFIG": str(cfg15)})
+    r2 = run(str(home / "ws" / "personali" / "rc-off2"), "--create", "--no-window", extra={"CC_SUPERVISOR_CONFIG": str(cfg15)})
     T.check("L15 session.remote_control false, accounts.professionale.remote_control true → only professionale gets --remote-control",
             r.returncode == 0 and "--remote-control pix-rc-on2" in a_on and r2.returncode == 0 and "--remote-control" not in last_args(), a_on + " | " + last_args())
 
@@ -232,7 +232,7 @@ with T.PrivateTmux() as tm:
     def run13(folder, under_tmux, *extra):
         (home / "ws" / "personali" / folder).mkdir(exist_ok=True)
         e = {k: v for k, v in env_base("plain").items() if k not in ("WAYLAND_DISPLAY", "CM_TERMINAL_FAKE_ATTACH", "TMUX")}
-        e.update(TEAM_SUPERVISOR_CONFIG=str(cfg13), CM_TERMINAL_DRY_RUN="1", XDG_RUNTIME_DIR=str(rt13), CM_X11_SOCKET_DIR=str(x13))
+        e.update(CC_SUPERVISOR_CONFIG=str(cfg13), CM_TERMINAL_DRY_RUN="1", XDG_RUNTIME_DIR=str(rt13), CM_X11_SOCKET_DIR=str(x13))
         if under_tmux:
             e["TMUX"] = "/tmp/tmux-fake/default,1,0"
         return subprocess.run([str(T.SCRIPTS / "cm-launch.sh"), str(home / "ws" / "personali" / folder), *extra], capture_output=True, text=True, env=e, timeout=90)
@@ -259,7 +259,7 @@ with T.PrivateTmux() as tm:
     c14 = json.loads(cfg.read_text()); c14["experimental"] = {"codex": True}
     cfg14.write_text(json.dumps(c14))
     (home / "ws" / "personali" / "cxdemo").mkdir(exist_ok=True)
-    r = run(str(home / "ws" / "personali" / "cxdemo"), "--agent", "codex", "--no-window", extra={"TEAM_SUPERVISOR_CONFIG": str(cfg14), "CM_CODEX_BIN": str(fake_codex)})
+    r = run(str(home / "ws" / "personali" / "cxdemo"), "--agent", "codex", "--no-window", extra={"CC_SUPERVISOR_CONFIG": str(cfg14), "CM_CODEX_BIN": str(fake_codex)})
     T.check("L14 experimental.codex on → Codex CLI in tmux under the folder's name, without Claude's arguments (no -n, no remote control)",
             r.returncode == 0 and "cxdemo" in r.stdout and tm("has-session", "-t", "=cxdemo").returncode == 0 and (tmp / "codex-args.log").read_text().strip() == "", r.stdout + r.stderr)
     # L14b (dal vivo 14/09): Codex scrive «> You are in …» e il dialogo di fiducia anche 4 s dopo (macchina carica); launch
@@ -270,10 +270,10 @@ with T.PrivateTmux() as tm:
                           'echo "› 1. Yes, continue"\necho "  2. No, quit"\nread ans\necho yes > "%s"\nclear\necho "› Ask Codex to do anything"\nexec sleep 300\n' % trusted)
     fake_trust.chmod(0o755)
     (home / "ws" / "personali" / "cxtrust").mkdir(exist_ok=True)
-    r = run(str(home / "ws" / "personali" / "cxtrust"), "--agent", "codex", "--no-window", extra={"TEAM_SUPERVISOR_CONFIG": str(cfg14), "CM_CODEX_BIN": str(fake_trust)})
+    r = run(str(home / "ws" / "personali" / "cxtrust"), "--agent", "codex", "--no-window", extra={"CC_SUPERVISOR_CONFIG": str(cfg14), "CM_CODEX_BIN": str(fake_trust)})
     T.check("L14b the trust dialog drawn a moment after the first line is answered (one Enter) before the session is declared ready",
             r.returncode == 0 and trusted.is_file() and "Ask Codex to do anything" in (tm("capture-pane", "-p", "-t", "cxtrust").stdout or ""), r.stdout + r.stderr + (tm("capture-pane", "-p", "-t", "cxtrust").stdout or ""))
-    r = run(str(home / "ws" / "personali" / "alfa"), "--agent", "gemini", "--no-window", extra={"TEAM_SUPERVISOR_CONFIG": str(cfg14)})
+    r = run(str(home / "ws" / "personali" / "alfa"), "--agent", "gemini", "--no-window", extra={"CC_SUPERVISOR_CONFIG": str(cfg14)})
     T.check("L14 unknown agent → exit 2 naming it", r.returncode == 2 and "gemini" in r.stderr, r.stderr)
 
 T.rm(str(tmp))

@@ -2,9 +2,9 @@
 """Verifica il comportamento su Windows nativo (test del 27/09/2026): py.sh, il silenzio degli hook, la riga della CLI.
 
 P1  py.sh: python3 e' l'alias dello Store (esce 9009) → salta a `python`, esporta PYTHONUTF8/PYTHONIOENCODING
-P2  py.sh: la scelta resta in cache (~/.cache/team-supervisor/python) e vale al giro dopo, senza sonde
+P2  py.sh: la scelta resta in cache (~/.cache/cc-supervisor/python) e vale al giro dopo, senza sonde
 P3  py.sh: nessun Python (python3, python, py tutti rotti) → UNA riga su stderr, niente stdout, uscita 0
-P4  py.sh: TEAM_SUPERVISOR_PY vince su cache e sonde
+P4  py.sh: CC_SUPERVISOR_PY vince su cache e sonde
 P5  hooks.json: ogni hook di cm-hook.py passa da scripts/py.sh (SessionEnd da detach.sh, che usa py.sh), nessun `python3` nudo
 H1  cm-hook.py con os.name == "nt": il primo SessionStart stampa una riga (WSL2) ed esce 0, senza caricare la config
 H2  cm-hook.py su Windows: il secondo SessionStart e Stop/UserPromptSubmit/PostToolUse/SessionEnd tacciono, uscita 0
@@ -47,7 +47,7 @@ stub(b1, "py", "exit 127")
 os.symlink(sys.executable, b1 / "python")
 r = run_py(b1, home1)
 T.check("P1 Store alias skipped, `python` used, UTF-8 exported", r.returncode == 0 and r.stdout.strip() == "1 utf-8", f"{r.returncode} {r.stdout!r} {r.stderr!r}")
-cache = home1 / ".cache" / "team-supervisor" / "python"
+cache = home1 / ".cache" / "cc-supervisor" / "python"
 cached = cache.read_text().strip() if cache.exists() else ""
 # poison the probe: if the cache is honoured, python3 is never run again
 stub(b1, "python3", f"touch {tmp}/probed; exit 9009")
@@ -66,11 +66,11 @@ stub(b3, "py", "exit 127")
 r = run_py(b3, home3)
 T.check("P3 no Python: one stderr line, no stdout, exit 0",
         r.returncode == 0 and r.stdout == "" and len(r.stderr.strip().splitlines()) == 1 and "Python 3.8+" in r.stderr, f"{r.returncode} {r.stdout!r} {r.stderr!r}")
-T.check("P3b no Python: nothing cached", not (home3 / ".cache" / "team-supervisor" / "python").exists())
+T.check("P3b no Python: nothing cached", not (home3 / ".cache" / "cc-supervisor" / "python").exists())
 
 # --- P4: override
-r = run_py(b3, home3, {"TEAM_SUPERVISOR_PY": sys.executable}, code="print('over')")
-T.check("P4 TEAM_SUPERVISOR_PY wins", r.returncode == 0 and r.stdout.strip() == "over", f"{r.returncode} {r.stdout!r} {r.stderr!r}")
+r = run_py(b3, home3, {"CC_SUPERVISOR_PY": sys.executable}, code="print('over')")
+T.check("P4 CC_SUPERVISOR_PY wins", r.returncode == 0 and r.stdout.strip() == "over", f"{r.returncode} {r.stdout!r} {r.stderr!r}")
 
 # --- P5: hooks.json
 hooks = json.loads((T.PLUGIN / "hooks" / "hooks.json").read_text())["hooks"]
@@ -95,17 +95,17 @@ cfgw.write_text(json.dumps({"state_dir": str(state)}))
 
 
 def hook(ev):
-    env = {"PATH": os.environ["PATH"], "HOME": str(homew), "PYTHONPATH": str(site), "TEAM_SUPERVISOR_CONFIG": str(cfgw)}
+    env = {"PATH": os.environ["PATH"], "HOME": str(homew), "PYTHONPATH": str(site), "CC_SUPERVISOR_CONFIG": str(cfgw)}
     return subprocess.run([sys.executable, str(T.SCRIPTS / "cm-hook.py"), ev], input=json.dumps({"session_id": "S", "cwd": str(tmp)}),
                           capture_output=True, text=True, env=env, timeout=30)
 
 
 r = hook("SessionStart")
-mark = homew / ".local" / "state" / "team-supervisor" / "windows-notice-shown"
+mark = homew / ".local" / "state" / "cc-supervisor" / "windows-notice-shown"
 T.check("H1 first SessionStart on Windows: one line about WSL2, exit 0, marker written",
         r.returncode == 0 and len(r.stdout.strip().splitlines()) == 1 and "WSL2" in r.stdout and r.stderr == "" and mark.exists(),
         f"{r.returncode} {r.stdout!r} {r.stderr!r}")
-T.check("H1b no kernel injected, no state written", "TEAM-SUPERVISOR" not in r.stdout and not state.exists())
+T.check("H1b no kernel injected, no state written", "SUPERVISOR" not in r.stdout and not state.exists())
 rs = [(ev, hook(ev)) for ev in ("SessionStart", "UserPromptSubmit", "PostToolUse", "PermissionRequest", "Stop", "StopFailure", "SessionEnd")]
 T.check("H2 every later event on Windows is silent, exit 0",
         all(x.returncode == 0 and x.stdout == "" and x.stderr == "" for _, x in rs) and not state.exists(),
@@ -116,7 +116,7 @@ bw = tmp / "binw"
 bw.mkdir()
 stub(bw, "uname", "echo MINGW64_NT-10.0-19045")
 stub(bw, "python3", f"touch {tmp}/python-ran; exit 9009")
-CLI = T.PLUGIN / "bin" / "team-supervisor"
+CLI = T.PLUGIN / "bin" / "supervisor"
 
 
 def cli(*args, lang="C.UTF-8"):

@@ -119,7 +119,7 @@ def main():
                 os.remove(ph)
                 # il titolo della nuova scheda diventa quello della sessione (come farebbe attach)
                 tab["title"] = "🔴 " + name
-                tab["url"] += f"?command=team-supervisor&args[]=attach&args[]={name}&args[]=ephemeral"
+                tab["url"] += f"?command=supervisor&args[]=attach&args[]={name}&args[]=ephemeral"
                 # un aiutante STACCATO tiene aperto il master dello pty finche' il client vive:
                 # se il master si chiude, il client tmux riceve hangup ed esce subito
                 helper = (

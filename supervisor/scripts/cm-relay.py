@@ -1,0 +1,3129 @@
+#!/usr/bin/env python3
+"""supervisor relay — il PC sul bus dell'app Wear OS (fase 1 del design docs/plans/2026-09-12-app-polso-design.md).
+
+  supervisor relay push [--dry-run|--async]   costruisce /state dalle sorgenti esistenti (sessioni, ledger, domande,
+                                                  quota, recap, notte, inventario), lo cifra e lo scrive su Firebase RTDB;
+                                                  scrive /events (dal diff con la push precedente) e sveglia l'orologio
+                                                  con FCM; --dry-run stampa il JSON in chiaro e non tocca la rete;
+                                                  --async torna subito e pusha entro relay.debounce_s (piu' richieste
+                                                  ravvicinate = una push)
+  supervisor relay pair [--timeout S] [--text] QR per il telefono (1.15) e codice a 6 cifre per l'orologio, X25519 su
+                                                  /pair/<id> e /pair/<code>, chiave in <relay.dir>/key, uid accettati in
+                                                  /allowed e devices.json; --text stampa il JSON del QR invece di disegnarlo
+  supervisor relay serve                       il daemon: stream SSE su /cmd, esegue (allow-list), /result, ripubblica
+  supervisor relay ensure|status|install|uninstall|off
+  supervisor relay setup [--project ID] [--dry-run] [--yes]   il progetto Firebase, guidato e idempotente (cm-relay-setup)
+  supervisor relay stats [--since T] [--until T]   p50/p95/max delle misure del log: durata, CPU e lock delle push,
+                                                  eta' dello stato, fila ed esito dei comandi (T = HH:MM di oggi o ISO)
+
+Ogni documento sul bus e' {"v":1,"enc":…} (cm-relay-crypto); la forma di /state e' il contratto v1 dell'app
+(tests/fixtures/relay/state-*.json, costruito da cm-relay-state). Niente SDK Firebase: REST + SSE con urllib, token
+OAuth2 dal service account (<relay.dir>/service-account.json, 0600, mai nel repo).
+
+Prove: CM_RELAY_CM (dispatcher da usare per sessions/registry/quota/answer/talk/launch/screen), relay.firebase_url,
+relay.token_url e relay.fcm_url sul Firebase finto (tests/lib/cm_test.fake_rtdb).
+Prove isolate (1.15): con CC_SUPERVISOR_CONFIG che punta a una configurazione di prova (relay.dir, service_account e
+firebase_url suoi) pair, push e serve lavorano solo li' — chiave, devices.json, /allowed e crontab della configurazione
+principale non si toccano (test R5c); cosi' le prove dell'app non scollegano l'orologio vero.
+"""
+import base64
+import binascii
+import fcntl
+import copy
+import importlib.util
+import json
+import mimetypes
+import os
+import re
+import resource
+import shutil
+import socket
+import subprocess
+import sys
+import threading
+import time
+import unicodedata
+import uuid
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+
+
+def _load(name):
+    spec = importlib.util.spec_from_file_location(name.replace("-", "_"), HERE / f"{name}.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+cm = _load("cm-config")
+S = _load("cm-relay-state")
+C = _load("cm-relay-crypto")
+core = _load("cm-core")   # il cuore condiviso (16/09): ledger, transcript, icona, reopen — niente Telegram
+CFG = cm.load(warn=False)
+M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
+R = CFG["relay"]
+CM_BIN = os.environ.get("CM_RELAY_CM") or str(HERE / "supervisor")
+BACKOFF = [1, 2, 5, 15, 30]
+OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report", "interrupt", "transcript", "file", "slash", "projects", "search", "timeline", "pair_add", "approve", "decision", "unpair", "night")
+LAST_MAX = 4000   # 1.4: l'ultimo messaggio per la lettura vocale — oltre, l'ascolto non regge
+
+
+class RelayError(Exception):
+    pass
+
+
+# ------------------------------------------------------------------ file e log
+def rdir():
+    p = Path(cm.expand(R.get("dir") or "~/.cc-supervisor/relay"))
+    p.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(p, 0o700)
+    except OSError:
+        pass
+    return p
+
+
+def local_dir(sub=""):
+    """1.35: la copia locale per l'API su 127.0.0.1 (cm-relay-web) — state.json, events.json, file/, share/."""
+    p = rdir() / "local" / sub if sub else rdir() / "local"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def local_state_write(state):
+    """Lo stato pubblicato, in chiaro, per /api/state e lo stream: scritto prima del bus, cosi' la web app locale
+    resta aggiornata anche quando Firebase non risponde."""
+    p = local_dir() / "state.json"
+    tmp = p.with_suffix(".tmp")
+    write_json(tmp, state)
+    os.replace(tmp, p)
+
+
+def local_events_add(events, now):
+    """Gli eventi andati sul bus, anche in chiaro per /api/events; via quelli oltre relay.events_days."""
+    p = local_dir() / "events.json"
+    cur = read_json(p, {})
+    cur.update({e["key"]: e for e in events})
+    limit = now - float(R.get("events_days") or 7) * 86400
+    cur = {k: e for k, e in cur.items() if float(e.get("ts") or 0) >= limit}
+    tmp = p.with_suffix(".tmp")
+    write_json(tmp, cur)
+    os.replace(tmp, p)
+
+
+def prune_local(now):
+    """I file chiesti e gli allegati locali che nessuno ha usato entro SHARE_TTL_S, come /share e /file sul bus."""
+    for sub in ("file", "share"):
+        d = rdir() / "local" / sub
+        for f in (d.iterdir() if d.is_dir() else []):
+            try:
+                if now - f.stat().st_mtime > SHARE_TTL_S:
+                    f.unlink()
+            except OSError:
+                pass
+
+
+def fallback_path():
+    return rdir() / "fallback.json"
+
+
+def fallback_mark(now):
+    """Segna da quando il polso non riceve piu' (push o sveglia FCM fallite) e torna da quanti secondi dura."""
+    d = read_json(fallback_path(), {})
+    since = float(d.get("since") or 0)
+    if not since:
+        since = now
+        write_json(fallback_path(), {"since": since})
+    return max(0.0, now - since)
+
+
+def fallback_clear():
+    """Il polso riceve di nuovo: la scorta si spegne."""
+    try:
+        fallback_path().unlink()
+    except OSError:
+        pass
+
+
+SEEN_SKEW_S = 60   # 1.20: /seen porta l'ora del server Firebase, gli eventi quella del PC: un minuto di tolleranza
+
+
+def seen_devices():
+    """1.20: {uid: epoch s} dell'ultima lettura di ogni dispositivo accoppiato (/seen/<uid>, scritto da orologio e
+    telefono con l'ora del server). None se il bus non risponde."""
+    try:
+        raw = rtdb("GET", "seen") or {}
+    except (urllib.error.URLError, OSError, ValueError, RelayError):
+        return None
+    devs = read_json(rdir() / "devices.json", {})
+    out = {}
+    for u, v in (raw.items() if isinstance(raw, dict) else []):
+        if devs and u not in devs:
+            continue   # un uid revocato da un pairing nuovo non conta
+        if isinstance(v, (int, float)) and v > 0:
+            out[u] = v / 1000 if v > 1e11 else float(v)
+    return out
+
+
+SEEN_CACHE_S = 60
+
+
+def seen_cached(now):
+    """1.32: /seen per state.devices senza una lettura del bus a ogni push: la si rifa' al massimo una volta al minuto
+    (seen-cache.json); se il bus non risponde, l'ultima letta."""
+    p = rdir() / "seen-cache.json"
+    c = read_json(p, {})
+    if now - float(c.get("at") or 0) < SEEN_CACHE_S and isinstance(c.get("seen"), dict):
+        return c["seen"]
+    got = seen_devices()
+    if got is None:
+        return c.get("seen") if isinstance(c.get("seen"), dict) else {}
+    write_json(p, {"at": now, "seen": got})
+    arrival_log(c.get("seen") if isinstance(c.get("seen"), dict) else {}, got)
+    return got
+
+
+def arrival_log(old, new):
+    """Fase 0 (07/10): per ogni dispositivo con una ricevuta nuova, quanto dopo l'ultima PUT di /state precedente.
+    E' una stima: /seen porta l'ora del server Firebase, le PUT quella del PC."""
+    pubs = sorted(x for x in read_json(rdir() / "pub-history.json", []) if isinstance(x, (int, float)))
+    for uid, at in sorted(new.items()):
+        if old.get(uid) == at:
+            continue
+        before = [x for x in pubs if x <= at + 2]
+        if before and at - before[-1] < SEEN_SKEW_S * 10:
+            log(f"arrivo: {uid[:6]} {_s(max(0.0, at - before[-1]))} s dopo la push")
+
+
+def unseen_notice(events, now):
+    """1.20 (29/09): il ripiego su Telegram quando il bus funziona ma NESSUN dispositivo legge. Gli eventi aspettano in
+    pending.json; uno e' visto se un dispositivo ha scritto /seen dopo la sua ora; se nessuno l'ha visto entro
+    relay.telegram_fallback_after_s va su Telegram, una volta. Finche' nessun dispositivo scrive /seen (un'app che non
+    lo conosce) resta il solo ripiego sul bus che non prende: mai un doppione per chi non sa dire di aver letto."""
+    pend_p = rdir() / "pending.json"
+    pend = read_json(pend_p, []) + [{"key": e["key"], "ts": e["ts"], "title": e.get("title"), "body": e.get("body")} for e in events]
+    after = float(R.get("telegram_fallback_after_s") or 0)
+    seen = seen_devices()
+    if seen is None:
+        write_json(pend_p, pend)
+        return 0
+    if not seen or not after:
+        pend_p.unlink(missing_ok=True)
+        return 0
+    last = max(seen.values())
+    pend = [x for x in pend if last + SEEN_SKEW_S < float(x["ts"])]
+    late = [x for x in pend if now - float(x["ts"]) >= after]
+    write_json(pend_p, [x for x in pend if x not in late])
+    if not late:
+        return 0
+    lines = [M("relay.fallback_unseen", min=int((now - last) // 60))]
+    lines += [" ".join(str(x) for x in (e.get("title"), (e.get("body") or "").split("\n")[0]) if x) for e in late]
+    log(f"nessun dispositivo ha letto {len(late)} eventi: ripiego su Telegram")
+    try:
+        return _load("cm-bot").send("\n".join(lines), watch_quiet=False)
+    except Exception as ex:   # noqa: BLE001 — la scorta non deve mai far fallire una push
+        log(f"fallback FAILED: {ex}")
+        return 0
+
+
+def fallback_notice(events, down_s):
+    """Su Telegram quello che il polso non ha ricevuto, ma solo se il guasto dura da piu' di
+    relay.telegram_fallback_after_s (0 = mai): un errore di rete di un minuto si recupera da solo, e un doppione
+    per ogni singhiozzo era il difetto che il ritiro del bot doveva togliere. Torna le chat raggiunte."""
+    after = float(R.get("telegram_fallback_after_s") or 0)
+    if not after or down_s < after or not events:
+        return 0
+    lines = [M("relay.fallback_notice", min=int(down_s // 60))]
+    lines += [" ".join(str(x) for x in (e.get("title"), e.get("body")) if x) for e in events]
+    try:
+        return _load("cm-bot").send("\n".join(lines), watch_quiet=False)
+    except Exception as ex:   # noqa: BLE001 — la scorta non deve mai far fallire una push
+        log(f"fallback FAILED: {ex}")
+        return 0
+
+
+LOG_MAX_BYTES = 5 * 1024 * 1024   # 07/10: il log arrivava a 7,7 MB; a 5 MB diventa relay.log.1 (uno solo)
+
+
+def log_path():
+    return Path(cm.expand(R.get("log") or "")) if R.get("log") else rdir() / "relay.log"
+
+
+def log(line):
+    p = log_path()
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            if p.stat().st_size > LOG_MAX_BYTES:
+                os.replace(p, p.with_name(p.name + ".1"))
+        except OSError:
+            pass
+        with open(p, "a") as f:
+            f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {line}\n")
+    except OSError:
+        pass
+
+
+def read_json(p, default):
+    try:
+        return json.loads(Path(p).read_text())
+    except (OSError, ValueError):
+        return default
+
+
+def write_json(p, obj, mode=0o600):
+    p = Path(p)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    with os.fdopen(fd, "w") as f:
+        json.dump(obj, f, ensure_ascii=False)
+    os.replace(tmp, p)
+
+
+def run_cm(*args, timeout=None):
+    p = subprocess.run([CM_BIN, *args], capture_output=True, text=True, timeout=int(timeout or R.get("command_timeout_s") or 120))
+    out = (p.stdout + ("\n" + p.stderr if p.stderr.strip() else "")).strip()
+    return p.returncode, out
+
+
+# ------------------------------------------------------------------ Firebase: REST, SSE, FCM
+def sa_path():
+    return Path(cm.expand(R.get("service_account") or "")) if R.get("service_account") else rdir() / "service-account.json"
+
+
+def sa_project():
+    return str(read_json(sa_path(), {}).get("project_id") or "")
+
+
+def token():
+    p = sa_path()
+    if not p.is_file():
+        raise RelayError(M("relay.no_sa", path=str(p)))
+    return C.sa_token(p, R.get("token_url") or "https://oauth2.googleapis.com/token", rdir() / "token.json")
+
+
+def base_url():
+    u = str(R.get("firebase_url") or "").rstrip("/")
+    if not u:
+        raise RelayError(M("relay.no_url"))
+    return u
+
+
+def rtdb(method, path, obj=None, query=None, timeout=20):
+    """Una chiamata REST a RTDB: GET/PUT/PATCH/DELETE su /<path>.json?access_token=… Torna il JSON (o None)."""
+    q = {"access_token": token()}
+    q.update(query or {})
+    url = f"{base_url()}/{path.strip('/')}.json?{urllib.parse.urlencode(q)}"
+    data = json.dumps(obj, ensure_ascii=False).encode() if obj is not None or method in ("PUT", "PATCH") else None
+    req = urllib.request.Request(url, data=data, method=method, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        raw = r.read().decode()
+        return json.loads(raw) if raw else None
+
+
+def key():
+    k = C.load_key(rdir())
+    if not k:
+        raise RelayError(M("relay.no_key"))
+    return k
+
+
+def put_encrypted(path, obj):
+    return rtdb("PUT", path, C.encrypt(obj, key()), {"print": "silent"})
+
+
+def fcm_send(data):
+    """Un messaggio dati FCM sul topic (HTTP v1): sveglia l'orologio, che poi fa una GET di /state."""
+    proj = sa_project()
+    if not proj:
+        return False
+    url = f"{(R.get('fcm_url') or 'https://fcm.googleapis.com').rstrip('/')}/v1/projects/{proj}/messages:send"
+    body = {"message": {"topic": str(R.get("fcm_topic") or "watch"), "data": {k: str(v) for k, v in data.items() if v is not None},
+                        "android": {"priority": "high"}}}
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "Authorization": f"Bearer {token()}"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        r.read()
+    return True
+
+
+# ------------------------------------------------------------------ sorgenti di /state
+def prefixes():
+    return [a.get("tmux_prefix") or "" for a in CFG["accounts"].values()]
+
+
+def account_for_path(path):
+    """L'account dedotto dalla cartella come cm-launch.sh: cm-config.account_for, altrimenti il default."""
+    return cm.account_for(CFG, path)[0]
+
+
+def inventory():
+    """Le cartelle lanciabili (come la skill e il bot): <radice>/<project_dir>/* e, per «.», anche il livello sotto."""
+    ws = CFG["workspace"]
+    root = Path(cm.expand(ws["root"]))
+    excluded = set(ws.get("excluded_dirs") or [])
+    out = []
+    for pd in (ws.get("project_dirs") or ["."]):
+        base = root if pd in (".", "") else root / pd
+        if not base.is_dir():
+            continue
+        for d in sorted(base.iterdir()):
+            if not d.is_dir() or d.name in excluded or d.name.startswith("."):
+                continue
+            out.append({"path": str(d), "name": d.name, "account": account_for_path(d), "last_used": last_used_of(d, account_for_path(d))})
+            if pd in (".", ""):
+                for dd in sorted(d.iterdir()):
+                    if dd.is_dir() and dd.name not in excluded and not dd.name.startswith("."):
+                        out.append({"path": str(dd), "name": dd.name, "account": account_for_path(dd), "last_used": last_used_of(dd, account_for_path(dd))})
+    return out
+
+
+def last_used_of(path, account):
+    """(1.13) Quando la cartella e' stata usata l'ultima volta: la trascrizione piu' recente di Claude Code per quel
+    percorso, nel config dell'account (epoch s), o None. Una lettura di cartella per progetto: l'app ordina i progetti
+    dal piu' recente invece che per nome."""
+    acc = (CFG.get("accounts") or {}).get(account or "") or {}
+    d = Path(cm.expand(acc.get("config_dir") or "~/.claude")) / "projects" / re.sub(r"[^A-Za-z0-9]", "-", os.path.realpath(str(path)))
+    try:
+        times = [f.stat().st_mtime for f in d.iterdir() if f.suffix == ".jsonl"]
+    except OSError:
+        return None
+    return int(max(times)) if times else None
+
+
+def _json_cmd(*args, expect="["):
+    try:
+        rc, out = run_cm(*args)
+        return json.loads(out) if rc == 0 and out.strip().startswith(expect) else None
+    except (ValueError, subprocess.TimeoutExpired):
+        return None
+
+
+def waiting_info(session_id):
+    """Il file waiting/<sid> dell'hook: JSON {tool, input} (dal 0.4.0) o il solo nome del tool."""
+    if not session_id:
+        return {}
+    p = Path(cm.expand(CFG["state_dir"])) / "waiting" / session_id
+    try:
+        raw = p.read_text().strip()
+    except OSError:
+        return {}
+    try:
+        d = json.loads(raw)
+        return d if isinstance(d, dict) else {"tool": str(d)}
+    except ValueError:
+        return {"tool": raw}
+
+
+def clear_waiting(session_id):
+    """Via il flag dell'hook dopo una risposta andata a buon fine: l'hook lo toglie solo al prompt dopo (o allo Stop),
+    e fino ad allora la sessione restava «waiting» con la domanda gia' risposta (14/09: answered e outcome partiti
+    3 minuti dopo la risposta dal polso)."""
+    if session_id:
+        (Path(cm.expand(CFG["state_dir"])) / "waiting" / session_id).unlink(missing_ok=True)
+
+
+def question_of(name, tool):
+    """(testo intero, [etichette]) dallo schermo via `answer NAME --show` (cm-answer: piè di pagina esclusi)."""
+    try:
+        rc, out = run_cm("answer", name, "--show")
+    except subprocess.TimeoutExpired:
+        return "", []
+    if rc != 0:
+        return "", []
+    q, opts = "", []
+    for l in out.splitlines():
+        m = re.match(r"^\s*(?:❯)?\s*(\d+)\.\s+(.*\S)\s*$", l)
+        if m:
+            opts.append(m.group(2).strip())
+        elif " — " in l and not q:
+            q = l.split(" — ", 1)[1].strip()
+            head, sep, rest = q.partition(": ")
+            if sep and (tool == "AskUserQuestion" or head == "-"):
+                q = rest.strip()
+    # «-» e' il segnaposto di --show per un pezzo che manca: mai come testo (07/10, «-: -» sul polso)
+    return ("" if q == "-" else q), opts
+
+
+def followed():
+    return set(read_json(rdir() / "follow.json", []))
+
+
+def awaiting(ledger=None, rows=None):
+    """I nomi in attesa di risposta a un prompt dal polso. Una voce SCADE quando la sessione ha finito un turno
+    dopo il prompt (uno stop nel ledger con ts successivo) o dopo relay.awaiting_max_s (30 min): senza questo
+    una sessione restava «awaiting» per sempre, con il turno e il tool di ore prima (dal vivo, 14/09 08:22)."""
+    p = rdir() / "awaiting.json"
+    aw = read_json(p, {})
+    if aw:
+        led = ledger if ledger is not None else core.ledger_rows()
+        ids = {(r.get("tmux") or r.get("name")): (r.get("session_id") or "") for r in (rows or [])}
+        cap = float(R.get("awaiting_max_s") or 1800)
+        now = time.time()
+        keep = {}
+        for name, since in aw.items():
+            since = float(since or 0)
+            if now - since > cap:
+                continue
+            sid = ids.get(name) or ""
+            stops = [S.epoch(r.get("ts")) for r in led if r.get("session_id") == sid and r.get("event") == "stop"] if sid else []
+            if any(t > since for t in stops):
+                continue   # il turno e' finito: la risposta e' arrivata (o l'ha chiusa un altro canale)
+            keep[name] = since
+        if keep != aw:
+            write_json(p, keep)
+        aw = keep
+    return set(aw)
+
+
+def next_dated(cwd):
+    """(«prossimo» del progetto, epoch della sua riga di recap) da docs/recap.md: la riga e' «- AAAA-MM-GG: …»,
+    quindi la data c'e' sempre; senza data, None."""
+    rel = str((CFG.get("recap") or {}).get("project_log") or "").strip()
+    if not rel or not cwd:
+        return "", None
+    try:
+        rows = [l for l in (Path(cwd) / rel).read_text().splitlines() if l.startswith("- ")]
+    except OSError:
+        return "", None
+    if not rows:
+        return "", None
+    last = rows[-1]
+    m = re.search(r"(?:prossimo|next): (.+)$", last)
+    text = m.group(1).strip() if m else re.sub(r"^- \d{4}-\d{2}-\d{2}: ", "", last).strip()
+    md = re.match(r"^- (\d{4})-(\d{2})-(\d{2}):", last)
+    at = None
+    if md:
+        import datetime as _dt
+        at = int(_dt.datetime(int(md.group(1)), int(md.group(2)), int(md.group(3))).timestamp())
+    return text, at
+
+
+def recap_today(now):
+    label = time.strftime("%d_%m_%Y", time.localtime(now))
+    cache = read_json(Path(cm.expand(CFG["state_dir"])) / "recap-summaries" / f"{label}.json", {})
+    best = {}
+    for k, v in (cache or {}).items():
+        proj = str(k).split("|")[0]
+        n = int(str(k).split("|")[-1]) if str(k).split("|")[-1].isdigit() else 0
+        done, nxt = (v.get("fatto", ""), v.get("prossimo", "")) if isinstance(v, dict) else (str(v or ""), "")
+        if done and (proj not in best or n > best[proj][0]):
+            best[proj] = (n, done, nxt)
+    items = [{"project": p, "done": d, "next": nx} for p, (_, d, nx) in sorted(best.items())]
+    return {"date": time.strftime("%Y-%m-%d", time.localtime(now)), "items": items}
+
+
+def night_max():
+    return int((CFG.get("night") or {}).get("max_queued") or 8)
+
+
+def night_queue():
+    try:
+        p = Path(cm.expand(CFG["night"]["queue_file"]))
+        rows = [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
+    except (OSError, ValueError, KeyError):
+        rows = []
+    running = next((os.path.basename(r.get("dir") or "") or "job" for r in rows if r.get("started")), None)
+    # 1.17: la coda intera, nell'ordine di esecuzione; il prompt ridotto (S.night_items) per stare negli 8 KB
+    return {"queued": len(rows), "running": running, "items": rows}
+
+
+def tool_of(row):
+    """(tool in corso, nota) dall'ultimo tool_use nella coda del transcript. La nota e' la `description` che
+    Claude scrive per un comando Bash: dice l'intento dove il comando dice «cd …» (1.5). I percorsi di
+    Read/Edit/Write si rendono assoluti rispetto alla cartella della sessione, cosi' chi legge sa quale progetto
+    viene toccato."""
+    try:
+        path = core.transcript_of(row)
+        if not path:
+            return None, ""
+        size = os.path.getsize(path)
+        events, _ = core.transcript_events(path, max(0, size - 65536))
+        tools = [e for e in events if e[0] == "tool"]
+        if not tools:
+            return None, ""
+        name, inp = tools[-1][1], tools[-1][2]
+        if isinstance(inp, dict):
+            for k in ("file_path", "path"):
+                v = str(inp.get(k) or "")
+                if v and not v.startswith("/") and row.get("cwd"):
+                    inp = dict(inp); inp[k] = os.path.normpath(os.path.join(row["cwd"], v))
+        return core.tool_line(name, inp), core.tool_note(inp)
+    except Exception:   # il transcript e' un extra: mai bloccare la push
+        return None, ""
+
+
+def collect_sources(now=None):
+    now = now or time.time()
+    # senza nome ne' tmux e' un processo claude fuori registro (un `claude -p`, il recap): non e' una sessione da polso
+    live = [r for r in (_json_cmd("sessions", "--json") or []) if (r.get("tmux") or r.get("name"))]
+    good = _json_cmd("registry", "--good", expect="{") or {}
+    alive_names = {r.get("tmux") for r in live}
+    # 30/09: una sessione chiusa con lo stesso nome corto di una viva (stessa cartella, l'altro account: «x» e
+    # «pix-x») non entra — sul polso sarebbero due «x», e il nome del contratto portava alla tmux sbagliata
+    alive_short = {S.short_name(r.get("tmux") or r.get("name") or "", prefixes()) for r in live}
+    rows = list(live)
+    for s in good.get("sessioni", []):
+        if s.get("nome") and s["nome"] not in alive_names and os.path.isdir(s.get("cartella") or "") \
+                and S.short_name(s["nome"], prefixes()) not in alive_short:
+            rows.append({"tmux": s["nome"], "name": s["nome"], "status": "dead", "cwd": s.get("cartella", ""), "account": s.get("account", ""),
+                         "waiting": False, "session_id": s.get("session_id") or "", "link": "", "attached": False,
+                         "visto_ts": S.epoch(s.get("visto", "")) if s.get("visto") else 0})
+    ledger = core.ledger_rows()
+    aw = awaiting(ledger, rows)
+    # 1.1: l'icona della scheda per ogni sessione viva (cm-color: registro stabile), per le sparite l'ultima nota
+    _last = read_json(rdir() / "last-state.json", {})
+    last_icons = {s_.get("name"): s_.get("icon") for s_ in (_last.get("full") or _last.get("state") or {}).get("sessions", []) if s_.get("icon")}
+    # il primo avvistamento di una domanda senza evento waiting nel ledger: l'asked_at della push precedente
+    last_asked = {n: (s_.get("question") or {}).get("asked_at") for n, s_ in last_sessions().items() if s_.get("question")}
+    icons = {}
+    questions, nexts, nexts_at, tools, notes = {}, {}, {}, {}, {}
+    for r in rows:
+        tm = r.get("tmux") or r.get("name") or ""
+        if r.get("status") == "dead":
+            ic = last_icons.get(S.short_name(r.get("name") or tm, prefixes()))
+        else:
+            ic = core.icon_of(tm)
+        if ic:
+            icons[tm] = ic
+        # il flag dell'hook vale anche se `sessions --json` non l'ha ancora visto (stessa regola di cm-sessions)
+        if r.get("status") != "dead" and not r.get("waiting") and waiting_info(r.get("session_id") or ""):
+            r["waiting"] = True
+        nx, nx_at = next_dated(r.get("cwd")) if r.get("cwd") else ("", None)
+        if nx:
+            nexts[tm] = nx
+            if nx_at:
+                nexts_at[tm] = nx_at
+        if S.state_of(r) == "waiting":
+            wi = waiting_info(r.get("session_id") or "")
+            tool = str(wi.get("tool") or "")
+            inp = wi.get("input") if isinstance(wi.get("input"), dict) else {}
+            text, opts = question_of(tm, tool)
+            # il dialogo si disegna un attimo dopo l'hook: si riprova, ma solo quando il payload dell'hook non
+            # ha gia' la domanda (altrimenti si ripiega subito su quello e la push non aspetta nessuno)
+            for _ in range(3):
+                if opts or not tm or inp.get("options") or inp.get("question") or inp.get("command"):
+                    break
+                time.sleep(1)
+                text, opts = question_of(tm, tool)
+            if not opts and inp.get("options"):
+                # schermo non ancora disegnato (o sessione senza tmux): domanda e opzioni dal payload dell'hook
+                text, opts = str(inp.get("question") or text or ""), [str(o) for o in inp["options"]]
+            elif not text and inp.get("question"):
+                text = str(inp["question"])
+            if not text and not opts and not tool:
+                # 14/09 (dall'app): attesa vista solo sullo schermo (waits_on_screen), senza file dell'hook e senza
+                # nulla da estrarre → non e' una domanda: il polso mostrava «?» a «0 m». La sessione torna com'era
+                # secondo il ledger (turno aperto = busy, altrimenti idle); mai «?» come testo.
+                r["waiting"] = False
+                r["status"] = turn_status(ledger, r.get("session_id") or "")
+            else:
+                asked = [S.epoch(x.get("ts")) for x in ledger if x.get("session_id") == r.get("session_id") and x.get("event") == "waiting"]
+                first_seen = last_asked.get(S.short_name(r.get("name") or tm, prefixes()))
+                detail = wi.get("input") if isinstance(wi.get("input"), (str, dict)) else ""
+                questions[tm] = {"tool": tool, "text": text or f"{tool} {json.dumps(detail, ensure_ascii=False)[:200]}",
+                                 "options": opts, "asked_at": asked[-1] if asked else int(first_seen or now),
+                                 "detail": json.dumps(detail, ensure_ascii=False) if detail else ""}
+        if S.state_of(r) != "waiting" and (r.get("status") == "busy" or tm in aw):
+            # anche le «awaiting» (prompt dal polso in corso): senza questo la card restava senza attivita'
+            t, note = tool_of(r)
+            if t:
+                tools[tm] = t
+            if note:
+                notes[tm] = note
+    # 1.11 (16/09): modello, effort e contesto di ogni sessione viva, letti dalla sua trascrizione
+    runtime = {}
+    for r in rows:
+        if r.get("status") == "dead" or not r.get("session_id"):
+            continue
+        try:
+            rt = core.session_runtime(r)
+            # 1.14 (22/09): il ripiego dopo un messaggio segnalato, gia' letto da `sessions --json`
+            rt["fallback"] = r.get("fallback") or None
+            runtime[r.get("tmux") or r.get("name") or ""] = rt
+        except Exception:   # noqa: BLE001 — un extra: mai bloccare la push
+            pass
+    return {
+        "host": str(R.get("host") or socket.gethostname()),
+        "root": cm.expand(CFG["workspace"]["root"]), "prefixes": prefixes(), "high_words": R.get("tier_high") or None,
+        "account_kinds": S.kinds_of(CFG["accounts"], CFG.get("default_account") or ""),
+        "state_max_kb": R.get("state_max_kb") or 8,
+        "rows": rows, "ledger": ledger, "questions": questions,
+        "quota": _json_cmd("quota", "--json", expect="{") or {},
+        "projects": inventory(), "night": night_queue(), "night_report": night_report_latest(), "recap": recap_today(now), "ops": list(OPS), "slash": slash_allowed(),
+        "follow": followed(), "awaiting": aw, "next": nexts, "next_at": nexts_at, "tools": tools,
+        "devices": read_json(devices_path(), {}), "seen": seen_cached(now), "recurring": _load("cm-recurring").for_state(),
+        "icons": icons, "colors": R.get("colors") or None, "tool_notes": notes, "runtime": runtime,
+        "advice": advice_of(rows, now), "duplicates": duplicates_of(rows), "approvals": approvals_list(),
+        # 1.12: le scelte valide per il polso, dalla config (tune.models / tune.efforts)
+        "choices": {"models": [{"id": m["id"], "label": m.get("label") or m["id"]} for m in ((CFG.get("tune") or {}).get("models") or []) if m.get("id")],
+                    "efforts": list((CFG.get("tune") or {}).get("efforts") or [])},
+    }
+
+
+# ------------------------------------------------------------------ 1.37: consiglio, doppioni, approvazioni
+ADVICE_REASON_MAX = 200
+DEPLOY_RE = re.compile(r"\b(prod|production|produzione|deploy|live)\b", re.I)
+
+
+def advice_of(rows, now):
+    """{tmux: advice} dalla statusline di fable-director (formato concordato il 05/10): il suo file per sessione
+    <relay.advice_dir>/<session_id>.json, chiave "advice" = {model, effort, reason, switch_cost_tokens, at, source,
+    when («now» | «next_task»), differs}. Vale se e' piu' recente di relay.advice_max_age_s e se modello ed effort
+    sono fra le scelte del polso (tune.models, tune.efforts): un consiglio che l'op model non saprebbe applicare non
+    si mostra. Senza file o senza chiave: null, mai un consiglio inventato."""
+    d = Path(cm.expand(R.get("advice_dir") or "~/.claude/fable-director/sessions"))
+    max_age = float(R.get("advice_max_age_s") or 21600)
+    tune = CFG.get("tune") or {}
+    # 07/10 (dall'app): fable-director scrive l'id base («claude-opus-5-5»), le scelte possono avere la finestra
+    # («claude-opus-5-5[1m]»): si confronta l'id senza il suffisso «[…]», come Tune.sameModel nell'app
+    base = lambda mid: str(mid or "").split("[")[0]  # noqa: E731
+    models = {base(m.get("id")) for m in (tune.get("models") or [])}
+    efforts = set(tune.get("efforts") or [])
+    out = {}
+    for r in rows:
+        sid = str(r.get("session_id") or "")
+        if r.get("status") == "dead" or not re.fullmatch(r"[A-Za-z0-9-]{1,80}", sid):
+            continue
+        snap = read_json(d / f"{sid}.json", None)
+        a = snap.get("advice") if isinstance(snap, dict) else None
+        if not isinstance(a, dict):
+            continue
+        try:
+            at, cost = int(a.get("at") or 0), int(a.get("switch_cost_tokens") or 0)
+        except (TypeError, ValueError):
+            continue
+        if now - at > max_age or base(a.get("model")) not in models or a.get("effort") not in efforts:
+            continue
+        out[r.get("tmux") or r.get("name") or ""] = {"model": a["model"], "effort": a["effort"],
+                                                     "reason": S.one_line(str(a.get("reason") or ""))[:ADVICE_REASON_MAX],
+                                                     "switch_cost_tokens": max(cost, 0), "at": at, "source": "fable-director",
+                                                     "when": a.get("when") if a.get("when") in ("now", "next_task") else "next_task",
+                                                     "differs": bool(a.get("differs"))}
+    return out
+
+
+def duplicates_of(rows):
+    """{tmux: nome corto dell'originale} per le sessioni vive con la stessa cartella e la stessa conversazione di
+    un'altra aperta prima (il «-2» del 05/10)."""
+    first, out = {}, {}
+    live = [r for r in rows if r.get("status") != "dead" and r.get("session_id") and r.get("cwd")]
+    for r in sorted(live, key=lambda r: (r.get("started_at") or 0, r.get("tmux") or "")):
+        k = (os.path.realpath(r["cwd"]), r["session_id"])
+        if k in first:
+            out[r.get("tmux") or r.get("name") or ""] = S.short_name(first[k], prefixes())
+        else:
+            first[k] = r.get("tmux") or r.get("name") or ""
+    return out
+
+
+def approvals_list():
+    """I compiti del registro in attesa di ok, con la richiesta di wait-ok: cosa esce e dove. deploy = la
+    destinazione o la cosa nomina la produzione."""
+    out = []
+    for t in _json_cmd("task", "list", "--state", "awaiting_ok", "--json") or []:
+        req = t.get("request") or {}
+        what, where = str(req.get("what") or ""), str(req.get("where") or "")
+        out.append({"task": t.get("id"), "title": S.one_line(str(t.get("title") or ""))[:200], "what": what[:300], "where": where[:300],
+                    "deploy": bool(DEPLOY_RE.search(what + " " + where)), "requested_at": int(req.get("at") or 0) or None})
+    return sorted(out, key=lambda a: (a["requested_at"] or 0, a["task"] or ""))
+
+
+# ------------------------------------------------------------------ push
+def _cpu():
+    """(CPU propria, CPU dei figli attesi) in secondi, per la riga di misura della push."""
+    a, b = resource.getrusage(resource.RUSAGE_SELF), resource.getrusage(resource.RUSAGE_CHILDREN)
+    return a.ru_utime + a.ru_stime, b.ru_utime + b.ru_stime
+
+
+def _s(x):
+    return f"{x:.1f}".replace(".", ",")
+
+
+def push(dry_run=False, now=None, origin="diretta", requested=None, stamp=None, light=False):
+    """Una push. Il lock copre raccolta, eventi e PUT; FCM, avvisi e pulizie (m["post"]) girano dopo averlo lasciato
+    (08/10, fase 1). `stamp`: la richiesta del ripiego senza demone; se dopo il lock push-request ha un timbro piu'
+    nuovo, la push la fa chi l'ha scritto e questa esce senza raccogliere (None)."""
+    if dry_run:
+        return _push(True, now)
+    # una push alla volta: due in parallelo leggono lo stesso «stato precedente» e scrivono due volte gli stessi
+    # eventi (dal vivo 16:22 del 12/09: la domanda e' arrivata due volte sul bus)
+    t0, cpu0 = time.time(), _cpu()
+    m = {}
+    lock = open(str(rdir() / "push.lock"), "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        m["locked"] = time.time()
+        if stamp is not None:
+            try:
+                if (rdir() / "push-request").read_text().strip() != stamp:
+                    return None   # una richiesta piu' recente: la sua push copre anche questa
+            except OSError:
+                pass
+        st = _light(m) if light else None
+        if st is None:
+            st = _push(False, now, m)
+        else:
+            origin = "battito"
+    finally:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+        finally:
+            lock.close()
+    if m.get("post"):
+        m["post"]()
+    # 07/10 (piano prestazioni, fase 0): una riga di misura per push, letta da `relay stats`
+    end, cpu1 = time.time(), _cpu()
+    wait = t0 - requested if requested else 0.0
+    log(f"push: {len(st['sessions'])} sessioni, {m.get('events', 0)} eventi · origine {origin} · attesa {_s(wait)} s"
+        f" · lock {_s(m['locked'] - t0)} s · raccolta {_s(m['collected'] - m['locked'])} s"
+        f" · pubblicazione {_s(m['published'] - m['collected'])} s · contorno {_s(end - m['published'])} s"
+        f" · ts→put {_s(m['put_at'] - m['ts'])} s · cpu {_s(cpu1[0] - cpu0[0])}+{_s(cpu1[1] - cpu0[1])} s")
+    return st
+
+
+BEAT_FULL_IDLE_S = 300   # 08/10 (battito leggero): una raccolta completa almeno ogni 5 minuti a sessioni ferme,
+BEAT_FULL_BUSY_S = 120   # ogni 2 se una lavora (la nota dello strumento in corso e il contesto cambiano senza hook)
+
+
+_TASKS_DB = None
+
+
+def sources_print():
+    """L'impronta delle sorgenti dello stato che cambiano senza un hook che chieda la push: date e dimensioni di
+    attese, registro delle sessioni, coda della notte, compiti, rapporti della notte e file del relay. Il ledger no:
+    cambia di continuo (ogni lettura della chat ci scrive una riga, 08/10: nessun battito leggero dal vivo), e ogni
+    sua riga che cambia lo stato (start, prompt, waiting, stop, end, un comando che non e' una lettura) arriva con
+    un hook o un comando che chiede gia' la push completa."""
+    sd = Path(cm.expand(CFG["state_dir"]))
+    reg = CFG.get("registry") or {}
+    paths = [sd / "waiting", Path(cm.expand(reg.get("file") or "~/.claude/sessions.json")),
+             Path(cm.expand(reg.get("good_file") or "~/.claude/sessions-good.json")),
+             Path(cm.expand((CFG.get("night") or {}).get("queue_file") or "~/.claude/night-queue.jsonl")), night_report_dir(),
+             rdir() / "follow.json", rdir() / "awaiting.json", rdir() / "devices.json"]
+    global _TASKS_DB
+    if _TASKS_DB is None:   # un caricamento solo: _load riesegue il modulo a ogni chiamata
+        _TASKS_DB = _load("cm-tasks").db_path()
+    paths += [_TASKS_DB, _TASKS_DB.with_name(_TASKS_DB.name + "-wal")]
+    out = []
+    for p in paths:
+        try:
+            st = p.stat()
+            out.append(f"{p.name}:{st.st_size}:{st.st_mtime_ns}")
+        except OSError:
+            out.append(f"{p.name}:-")
+    try:   # le attese: la cartella cambia data quando un file entra o esce, non quando cambia
+        out += sorted(f"{e.name}:{e.stat().st_mtime_ns}" for e in os.scandir(sd / "waiting"))
+    except OSError:
+        pass
+    return ";".join(out)
+
+
+def beat_path():
+    return rdir() / "beat.json"
+
+
+def _light(m):
+    """08/10 (chiesto dal maintainer: 681 push del cron su 689 senza eventi, ~6,5 s di CPU ciascuna). Il battito del cron
+    ripubblica lo stato gia' pronto, con il solo published_at nuovo, se le sorgenti non sono cambiate dall'ultima raccolta
+    e quella raccolta e' abbastanza recente; altrimenti None e si fa la push completa. Dentro il lock della push."""
+    b = read_json(beat_path(), {})
+    last = read_json(rdir() / "last-state.json", {})
+    state, full = last.get("state"), last.get("full")
+    if not isinstance(state, dict) or not isinstance(full, dict) or not b.get("fp"):
+        return None
+    busy = any(s_.get("state") in ("busy", "waiting") for s_ in state.get("sessions") or [])
+    if time.time() - float(b.get("full_at") or 0) > (BEAT_FULL_BUSY_S if busy else BEAT_FULL_IDLE_S) or sources_print() != b["fp"]:
+        return None
+    m["ts"] = float(state.get("ts") or time.time())
+    m["collected"] = time.time()
+    m["put_at"] = time.time()
+    state["published_at"] = full["published_at"] = round(m["put_at"], 3)
+    try:
+        local_state_write(full)
+    except OSError as ex:
+        log(f"stato locale non scritto: {ex}")
+    rtdb("PUT", "state", C.encrypt(state, key()), {"print": "silent"})
+    m["published"] = time.time()
+    m["events"] = 0
+    pub_history_add(m["put_at"])
+    last.update(state=state, full=full)
+    write_json(rdir() / "last-state.json", last)
+    return state
+
+
+def _push(dry_run=False, now=None, m=None):
+    m = {} if m is None else m
+    now = now or time.time()
+    m["ts"] = now
+    fp = None if dry_run else sources_print()   # prima della raccolta: un cambiamento durante la raccolta non si perde
+    src = collect_sources(now)
+    # gli eventi si calcolano sullo stato INTERO; il taglio per la dimensione tocca solo cio' che si pubblica (23/09:
+    # una sessione viva tolta da fit_state diventava «gone» e il polso diceva «Session closed»)
+    full = S.build_state(src, now, fit=False)
+    state = S.fit_state(copy.deepcopy(full), int(src.get("state_max_kb") or 8))
+    names = {}
+    for r in src["rows"]:   # le vive vengono prima: a parita' di nome corto vince la sessione viva
+        names.setdefault(S.short_name(r.get("name") or r.get("tmux") or "?", src["prefixes"]), r.get("tmux") or r.get("name"))
+    if dry_run:
+        print(json.dumps(state, ensure_ascii=False, indent=1))
+        return state
+    last_p = rdir() / "last-state.json"
+    last = read_json(last_p, {})
+    events, seq = S.events_between(last.get("full") or last.get("state") or {}, full, now, int(last.get("seq") or 0) + 1,
+                                   warn_pct=float((CFG.get("guard") or {}).get("warn_pct") or 95))
+    # 1.43 (08/10): published_at, l'istante della pubblicazione (ts resta quello del campionamento); le app ci
+    # calcolano la freschezza e, con published_at - ts, la lentezza del PC
+    m["put_at"] = time.time()
+    state["published_at"] = full["published_at"] = round(m["put_at"], 3)
+    try:
+        local_state_write(full)   # 06/10: in locale lo stato intero, senza i tagli degli 8 KB (non esce dalla macchina)
+    except OSError as ex:
+        log(f"stato locale non scritto: {ex}")
+    k = key()
+    m["collected"] = time.time()
+    try:
+        rtdb("PUT", "state", C.encrypt(state, k), {"print": "silent"})
+        if events:
+            rtdb("PATCH", "events", {e["key"]: C.encrypt(e, k) for e in events}, {"print": "silent"})
+        local_events_add(events, now)   # anche senza eventi nuovi: toglie i vecchi
+    except (urllib.error.URLError, OSError, ValueError) as ex:
+        # il bus non prende: il polso non sta ricevendo. Si segna da quando, e se dura si passa da Telegram
+        down = fallback_mark(now)
+        log(f"push FAILED ({int(down)} s): {ex}")
+        fallback_notice(events, down)
+        raise
+    m["published"] = time.time()
+    m["events"] = len(events)
+    pub_history_add(m["put_at"])
+    write_json(last_p, {"state": state, "full": full, "seq": seq - 1, "pushed_at": now, "names": names})
+    write_json(beat_path(), {"fp": fp, "full_at": now})
+
+    def post():
+        # 08/10 (fase 1): fuori dal lock della push. Le pulizie una volta ogni PRUNE_EVERY_S, non a ogni push
+        if prune_due(now):
+            prune_events(now)
+            prune_share(now)
+            prune_share(now, "file")
+            prune_local(now)
+        woken = True
+        for e in events:
+            try:
+                fcm_send({"kind": e["kind"], "session": e["session"], "ts": e["ts"], "key": e["key"]})
+            except (urllib.error.URLError, OSError, ValueError) as ex:
+                woken = False
+                log(f"fcm FAILED: {ex}")
+        if events and not woken:
+            # lo stato e' sul bus ma la sveglia non parte: l'orologio se ne accorge solo quando lo si guarda
+            fallback_notice(events, fallback_mark(now))
+        else:
+            fallback_clear()
+            unseen_notice(events, now)
+    m["post"] = post
+    return state
+
+
+PRUNE_EVERY_S = 600
+
+
+def prune_due(now):
+    """Le pulizie di /events, /share, /file e della copia locale: al piu' una volta ogni PRUNE_EVERY_S (08/10, fase 1:
+    prima a ogni push, con il lock in mano)."""
+    p = rdir() / "prune-at"
+    try:
+        if now - p.stat().st_mtime < PRUNE_EVERY_S:
+            return False
+    except OSError:
+        pass
+    try:
+        p.touch()
+    except OSError:
+        pass
+    return True
+
+
+PUB_HISTORY_N = 300
+
+
+def pub_history_add(at):
+    """Gli istanti delle ultime PUT di /state: con /seen danno l'eta' dello stato all'arrivo (fase 0, 07/10)."""
+    p = rdir() / "pub-history.json"
+    h = [x for x in read_json(p, []) if isinstance(x, (int, float))]
+    write_json(p, (h + [round(at, 2)])[-PUB_HISTORY_N:])
+
+
+def emit(kind, title, body, ref=None, account=None, now=None):
+    """1.18 (29/09): un evento che non nasce dal diff dello stato — il diario delle 20:00 (`recap`), il resoconto
+    della notte (`night_report`), la ripresa della quota all'azzeramento (`quota`) — su /events con la sveglia FCM,
+    come gli altri. `body` e' il testo di Telegram senza markup, tagliato a fine riga entro 4000 caratteri. Il seq
+    viene da last-state.json sotto il lock delle push, cosi' la chiave non si scontra con gli eventi del diff."""
+    now = int(now or time.time())
+    k = key()
+    lock = open(str(rdir() / "push.lock"), "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        last_p = rdir() / "last-state.json"
+        last = read_json(last_p, {})
+        seq = int(last.get("seq") or 0) + 1
+        ev = {"key": f"{now}_{seq:03d}", "kind": kind, "session": None, "account": account, "ts": now,
+              "title": S.one_line(title), "body": S.cut_lines(body, S.EVENT_BODY_MAX), "ref": ref}
+        rtdb("PATCH", "events", {ev["key"]: C.encrypt(ev, k)}, {"print": "silent"})
+        local_events_add([ev], now)
+        last["seq"] = seq
+        write_json(last_p, last)
+    finally:
+        lock.close()
+    try:
+        fcm_send({"kind": kind, "session": None, "ts": now, "key": ev["key"]})
+    except (urllib.error.URLError, OSError, ValueError) as ex:
+        log(f"fcm FAILED ({kind}): {ex}")
+    log(f"evento {kind}: {ev['title']}")
+    return ev
+
+
+def prune_events(now):
+    """Via gli eventi oltre relay.events_days (la chiave inizia con l'epoch)."""
+    limit = now - float(R.get("events_days") or 7) * 86400
+    try:
+        keys = rtdb("GET", "events", None, {"shallow": "true"}) or {}
+    except (urllib.error.URLError, OSError, ValueError):
+        return
+    old = {k: None for k in keys if str(k).split("_")[0].isdigit() and int(str(k).split("_")[0]) < limit}
+    if old:
+        try:
+            rtdb("PATCH", "events", old, {"print": "silent"})
+        except (urllib.error.URLError, OSError, ValueError):
+            pass
+
+
+def push_async(origin="cmd"):
+    """Torna subito: scrive la richiesta con il suo istante e stacca un figlio che dorme relay.debounce_s e
+    pusha solo se nel frattempo nessun'altra richiesta l'ha superato (piu' hook ravvicinati = una push).
+    `origin` (hook, cron, web, cmd) finisce nella riga di misura della push."""
+    push_request(origin)
+    if serve_alive():
+        return   # 08/10 (fase 1): la fa il worker del demone, nessun processo in fila
+    stamp = f"{time.time():.6f}"
+    (rdir() / "push-request").write_text(stamp)
+    subprocess.Popen([sys.executable, str(HERE / "cm-relay.py"), "push", "--delayed", stamp, "--origin", origin], stdin=subprocess.DEVNULL,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+def push_req_dir():
+    d = rdir() / "push-req"
+    d.mkdir(exist_ok=True)
+    return d
+
+
+def push_request(origin):
+    """Una richiesta di push per il worker del demone: tocca <relay.dir>/push-req/<origine> (hook, cron, cmd, web).
+    La data di modifica e' la richiesta; il cron la scrive con un `touch`, senza avviare Python."""
+    try:
+        (push_req_dir() / re.sub(r"[^a-z0-9_-]", "", origin.lower() or "x")[:20]).touch()
+    except OSError:
+        pass
+
+
+PUSH_MAX_WAIT_S = 10
+PUSH_RETRY_S = (5, 15, 30)
+
+
+class PushWorker(threading.Thread):
+    """08/10 (piano prestazioni, fase 1): le push del demone, una alla volta. Una richiesta e' una data di modifica in
+    push-req/; quelle arrivate durante una push diventano UNA push dopo (al piu' una in corso e una in attesa).
+    Debounce relay.debounce_s dall'ultima richiesta, ma mai oltre PUSH_MAX_WAIT_S dalla prima; una push fallita si
+    riprova (5, 15, 30 s) finche' passa, e intanto le richieste nuove restano in attesa, non perse."""
+
+    def __init__(self):
+        super().__init__(name="relay-push", daemon=True)
+        self.stop = threading.Event()
+
+    def pending(self, after=0.0):
+        """(la richiesta piu' recente, la sua origine, le origini arrivate dopo `after`)."""
+        newest, origin, since = 0.0, "", set()
+        try:
+            for e in os.scandir(push_req_dir()):
+                t = e.stat().st_mtime
+                if t > after:
+                    since.add(e.name)
+                if t > newest:
+                    newest, origin = t, e.name
+        except OSError:
+            pass
+        return newest, origin, since
+
+    def run(self):
+        handled, first, fails = 0.0, None, 0
+        debounce = float(R.get("debounce_s") or 2)
+        while not self.stop.wait(0.25):
+            newest, origin, since = self.pending(handled)
+            if newest <= handled:
+                continue
+            now = time.time()
+            first = first or now
+            if now - newest < debounce and now - first < PUSH_MAX_WAIT_S:
+                continue
+            start = time.time()
+            try:
+                # 08/10 (battito leggero): se nel frattempo ha chiesto solo il cron, la push prova prima a ripubblicare
+                # lo stato gia' pronto
+                push(origin=origin or "?", requested=min(first, newest), light=since <= {"cron"})
+            except Exception as e:   # noqa: BLE001 — il worker non deve morire: la richiesta resta, si riprova
+                log(f"push (worker) FAILED: {str(e)[:200]}")
+                self.stop.wait(PUSH_RETRY_S[min(fails, len(PUSH_RETRY_S) - 1)])
+                fails += 1
+                continue
+            handled, first, fails = start, None, 0
+
+
+def push_delayed(stamp, origin="?"):
+    time.sleep(float(R.get("debounce_s") or 2))
+    try:
+        if (rdir() / "push-request").read_text().strip() != stamp:
+            return 0   # una richiesta piu' recente pushera' lei
+    except OSError:
+        pass
+    # il relay puo' essere stato spento durante l'attesa: chi spegne si aspetta che nessuno scriva piu'
+    if not (cm.load(warn=False).get("relay") or {}).get("enabled"):
+        log("push (delayed): relay spento durante l'attesa, niente scrittura")
+        return 0
+    if serve_alive():
+        return 0   # il demone e' ripartito durante l'attesa: la richiesta e' gia' in push-req/, la fa lui
+    try:
+        push(origin=origin, requested=float(stamp), stamp=stamp)
+    except (RelayError, urllib.error.URLError, OSError, ValueError) as e:
+        log(f"push (delayed) FAILED: {e}")
+        return 1
+    return 0
+
+
+# ------------------------------------------------------------------ pair
+def devices_path():
+    return rdir() / "devices.json"
+
+
+def sweep_stale_pairs():
+    """Toglie da /pair i codici di ieri: quelli scaduti e quelli rimasti con la sola conferma `ok`
+    dopo un accoppiamento riuscito. Silenziosa: se la rete non c'e', il pairing parte lo stesso."""
+    try:
+        nodes = rtdb("GET", "pair")
+    except (urllib.error.URLError, OSError, ValueError, RelayError):
+        return
+    if not isinstance(nodes, dict):
+        return
+    now = time.time()
+    for code, node in nodes.items():
+        if not isinstance(node, dict):
+            continue
+        exp = node.get("exp")
+        stale = (isinstance(exp, (int, float)) and exp < now) or (set(node) <= {"ok"})
+        if stale:
+            try:
+                rtdb("DELETE", f"pair/{code}")
+                log(f"pair: spazzato il codice {code} (scaduto o gia' confermato)")
+            except (urllib.error.URLError, OSError, ValueError, RelayError):
+                pass
+
+
+def firebase_app():
+    """(dati dell'app Firebase, origine) per il QR, o (None, motivo): vedi cm-config.relay_firebase_app."""
+    return cm.relay_firebase_app(CFG)
+
+
+def qr_payload(pair_id, pub, host, exp, app, add=False):
+    """Il documento del QR (contratto 1.15, tests/fixtures/relay/pair-qr.json): v, i (id del nodo /pair/<id>), c (pc_pub),
+    h (host), e (exp) e f, i dati che l'app del telefono usa per entrare nel progetto Firebase: k chiave API, p id del
+    progetto, a id dell'app Android, d URL del database (relay.firebase_url: il bus che il relay scrive), t topic FCM."""
+    doc = {"v": 1, "i": pair_id, "c": pub, "h": host, "e": int(exp),
+           "f": {"k": app["api_key"], "p": app["project_id"], "a": app["app_id"], "d": base_url(), "t": str(R.get("fcm_topic") or "watch")}}
+    if add:
+        doc["m"] = "add"   # 1.30: un dispositivo in piu' — la chiave del relay arriva cifrata nella conferma, non si deriva
+    return doc
+
+
+def qr_lines(text, margin=2):
+    """Il QR di `text` come righe di testo per il terminale: mezzi blocchi (due moduli per carattere, uno sopra e uno
+    sotto), margine di `margin` moduli chiari (2: le fotocamere dei telefoni lo leggono e il QR resta stretto sul
+    terminale), correzione L senza rialzo automatico (R3, 25/09: col payload reale, 349 byte, la M dava versione 14
+    e 73 moduli, la L da' versione 12 e 65; il contratto non fissa il livello). I moduli chiari sono blocchi pieni e quelli scuri spazi, come `qrencode -t UTF8`: su un terminale
+    scuro il QR viene nero su bianco, che e' come lo legge una fotocamera. Generatore: qrcodegen (Project Nayuki,
+    MIT, scripts/qrcodegen.py), nessuna dipendenza nuova."""
+    Q = _load("qrcodegen")
+    qr = Q.QrCode.encode_segments(Q.QrSegment.make_segments(text), Q.QrCode.Ecc.LOW, boostecl=False)
+    n = qr.get_size()
+
+    def dark(x, y):
+        return 0 <= x < n and 0 <= y < n and qr.get_module(x, y)
+
+    lines = []
+    for y in range(-margin, n + margin, 2):
+        row = []
+        for x in range(-margin, n + margin):
+            top, bottom = dark(x, y), dark(x, y + 1)
+            row.append(" " if top and bottom else "\u2584" if top else "\u2580" if bottom else "\u2588")
+        lines.append("".join(row))
+    return lines
+
+
+def pair_accept(priv, node, w, host):
+    """La risposta in /pair/<node>/watch: {watch_pub, uid, name, check} e, dal telefono (1.15), `uids` (fino a 4) e
+    `names` (uid → nome). Se `check` e' HMAC della chiave concordata sulla stringa del nodo (il codice, o l'id del
+    QR), torna (chiave, conferma `ok`, dispositivi {uid: {name, paired_at}}); altrimenti None. Senza `uids` un
+    solo dispositivo, come prima."""
+    import hmac as _hmac
+    try:
+        k = C.shared_key(priv, str(w["watch_pub"]))
+    except Exception as e:   # noqa: BLE001 — chiave pubblica malformata
+        log(f"pair: watch_pub non valida ({e})"); return None
+    if not _hmac.compare_digest(C.check_code(k, node), str(w.get("check") or "")):
+        return None
+    uid, name = str(w["uid"]), str(w.get("name") or "watch")
+    uids = [str(u) for u in (w.get("uids") if isinstance(w.get("uids"), list) else []) if isinstance(u, str) and u.strip()]
+    uids = list(dict.fromkeys([uid] + uids))   # il mittente sempre, senza doppioni, nell'ordine dato
+    if len(uids) > 4:
+        log(f"pair: {len(uids)} uid, tengo i primi 4"); uids = uids[:4]
+    names = w.get("names") if isinstance(w.get("names"), dict) else {}
+    now = int(time.time())
+    # 1.32: il tipo lo dice il dispositivo (kind per se', kinds = uid → kind per quelli che porta con se')
+    kinds = w.get("kinds") if isinstance(w.get("kinds"), dict) else {}
+    devices = {}
+    for u in uids:
+        dk = w.get("kind") if u == uid else kinds.get(u)   # non `k`: e' la chiave concordata
+        devices[u] = dict({"name": str(names.get(u) or (name if u == uid else "watch")), "paired_at": now},
+                          **({"kind": dk} if dk in S.DEVICE_KINDS else {}))
+    return k, {"host": host, "check": C.check_code(k, node + ":pc")}, devices
+
+
+def add_ok(ok, k_pair, relay_key):
+    """1.30 (04/10, chiesto dalla sessione dell'app per il tablet): la conferma di un pairing `--add` porta la chiave
+    del relay che c'e' gia', cifrata (AES-GCM, la stessa busta {v, enc} di /state) con la chiave concordata del giro
+    (HKDF di X25519, come `check`). In chiaro dentro la busta: {"key": "<64 cifre hex>"}."""
+    return dict(ok, key=C.encrypt({"key": relay_key.hex()}, k_pair))
+
+
+PAIR_MAX_DEVICES = 8   # 1.39 (05/10): erano 4; telefono, orologio, tablet e Chromebook li riempivano, e i browser restavano fuori
+ADB_TIMEOUT_S = 8
+
+
+def pair_link(line):
+    """1.32: l'invito come link dell'app — cmwatch://pair?q=<base64url della riga di --text, senza padding>."""
+    import base64 as _b64
+    return "cmwatch://pair?q=" + _b64.urlsafe_b64encode(line.encode()).rstrip(b"=").decode()
+
+
+def open_on_android(line):
+    """1.32 (04/10, zero tocchi sul Chromebook, scelto dal maintainer): se un adb vede l'Android della stessa macchina
+    (ARC, relay.adb_serial = emulator-5554) apre l'invito nell'app con `am start`; l'app chiede comunque conferma.
+    Timeout brevi: l'adb shell dell'ARC a volte si blocca e si sblocca solo con `adb reconnect`, che si prova una
+    volta. relay.adb = il binario (default /usr/bin/adb, poi quello nel PATH: quello dell'SDK in ~/android-sdk e' di
+    un'altra architettura). Torna (aperto, motivo)."""
+    adb = str(R.get("adb") or "") or ("/usr/bin/adb" if os.path.exists("/usr/bin/adb") else (shutil.which("adb") or ""))
+    serial = str(R.get("adb_serial") or "emulator-5554")
+    pkg = str(R.get("app_package") or "")
+    if not adb or not pkg:
+        return False, "no adb" if not adb else "no relay.app_package"
+
+    def run(*a, t=ADB_TIMEOUT_S):
+        try:
+            p = subprocess.run([adb, "-s", serial, *a], capture_output=True, text=True, timeout=t, stdin=subprocess.DEVNULL)
+            return p.returncode, (p.stdout + p.stderr).strip()
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return -1, e.__class__.__name__
+    rc, out = run("get-state", t=4)
+    if rc != 0 or out != "device":
+        return False, f"{serial}: {out or rc}"
+    cmd = ("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", f"'{pair_link(line)}'", pkg)
+    for attempt in (1, 2):
+        rc, out = run(*cmd)
+        if rc == 0 and "Error" not in out:
+            return True, serial
+        if attempt == 1:
+            run("reconnect", t=5)
+    return False, (out.splitlines() or [str(rc)])[-1][:120]
+
+
+def osc52(text):
+    """1.32, ripiego: la riga negli appunti del sistema con la sequenza OSC 52, che il Terminale di ChromeOS (e quasi
+    tutti i terminali) passa agli appunti condivisi con Android; in Crostini non ci sono wl-copy ne' xclip. Solo se
+    l'uscita e' un terminale; dentro tmux la sequenza va incapsulata."""
+    import base64 as _b64
+    if not sys.stdout.isatty():
+        return False
+    seq = f"\033]52;c;{_b64.b64encode(text.encode()).decode()}\a"
+    if os.environ.get("TMUX"):
+        seq = "\033Ptmux;" + seq.replace("\033", "\033\033") + "\033\\"
+    sys.stdout.write(seq)
+    sys.stdout.flush()
+    return True
+PAIR_INVITE_TTL_S = 300
+
+
+def unpair(arg):
+    """1.39 (05/10, chiesto dall'app: «Scollega questo browser»): un dispositivo fuori da /allowed, da devices.json e
+    da /seen. Il database lo legge solo chi e' in /allowed, quindi da quel momento non legge piu' niente; la chiave
+    resta agli altri. Mai l'ultimo: senza dispositivi il relay non lo comanda piu' nessuno."""
+    uid = str(arg or "").strip()
+    devs = read_json(devices_path(), {})
+    try:
+        allowed = rtdb("GET", "allowed") or {}
+    except (urllib.error.URLError, OSError, ValueError):
+        allowed = {}
+    known = set(devs) | set(allowed)
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", uid) or uid not in known:
+        return False, M("relay.cmd_unpair_unknown", uid=uid or "?")
+    if len(known) <= 1:
+        return False, M("relay.cmd_unpair_last")
+    rtdb("DELETE", f"allowed/{uid}")
+    rtdb("DELETE", f"seen/{uid}")
+    name = str((devs.get(uid) or {}).get("name") or uid)
+    devs.pop(uid, None)
+    write_json(devices_path(), devs)
+    log(f"unpair: {name} (uid {uid}) tolto, ne restano {len(known) - 1}")
+    return True, M("relay.cmd_unpaired", name=name)
+
+
+def pair_add_invite():
+    """1.31 (04/10, dal telefono, chiesto dal maintainer): un dispositivo in piu' senza stare al PC. Il telefono (gia'
+    accoppiato: il comando arriva cifrato con la chiave) chiede l'invito; il relay lancia da solo `relay pair --add
+    --text` in un processo a parte e risponde con il QR e il codice, che il telefono mostra al tablet. Il resto e' la
+    1.30: stessa stretta di mano, chiave consegnata cifrata nella conferma, /allowed come unione. Solo il relay scrive
+    /allowed e consegna la chiave. text = JSON {qr, code, exp}; qr = il documento del QR (con m «add») o null senza i
+    dati dell'app Firebase. Rifiuti: un pairing gia' aperto, nessuna chiave salvata, gia' PAIR_MAX_DEVICES dispositivi."""
+    if not C.load_key(rdir()):
+        return False, M("relay.pair_add_no_key")
+    try:
+        before = set(read_json(devices_path(), {})) | set(rtdb("GET", "allowed") or {})
+    except (urllib.error.URLError, OSError, ValueError):
+        before = set(read_json(devices_path(), {}))
+    if len(before) >= PAIR_MAX_DEVICES:
+        return False, M("relay.cmd_pair_add_full", max=PAIR_MAX_DEVICES)
+    lock = rdir() / "pair-invite.pid"
+    try:
+        old = int(lock.read_text().strip())
+        os.kill(old, 0)
+        return False, M("relay.cmd_pair_add_busy")
+    except (OSError, ValueError):
+        pass
+    out = rdir() / "pair-invite.out"
+    with open(out, "w") as f:
+        p = subprocess.Popen([sys.executable, str(HERE / "cm-relay.py"), "pair", "--add", "--text", "--timeout", str(PAIR_INVITE_TTL_S)],
+                             stdout=f, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True)
+    lock.write_text(str(p.pid))
+    deadline = time.time() + 20
+    qr, code = None, None
+    while time.time() < deadline and p.poll() is None:
+        for ln in out.read_text().splitlines():
+            if ln.startswith("{") and qr is None:
+                try:
+                    qr = json.loads(ln)
+                except ValueError:
+                    pass
+            m = re.search(r"\b(\d{6})\b", ln) if not ln.startswith("{") else None
+            if m:
+                code = m.group(1)
+        if code:
+            break
+        time.sleep(0.3)
+    if not code:
+        rc = p.poll()
+        tail = (out.read_text().strip().splitlines() or ["?"])[-1]
+        if rc is None:
+            p.terminate()
+        return False, M("relay.cmd_pair_add_failed", why=tail[:160])
+    log(f"pair_add: invito aperto dal telefono, pid {p.pid}, codice {code}")
+    exp = int(qr["e"]) if isinstance(qr, dict) and qr.get("e") else int(time.time() + PAIR_INVITE_TTL_S)
+    return True, json.dumps({"qr": qr, "code": code, "exp": exp}, ensure_ascii=False)
+
+
+def pair(timeout=None, text=False, add=False):
+    """Codice a 6 cifre e QR sullo schermo (1.15): lo stesso {pc_pub, host, exp} in /pair/<code> (l'orologio, con il
+    codice) e in /pair/<id> (il telefono, che legge il QR); il relay interroga tutti e due, vince la prima risposta
+    valida in /pair/<…>/watch e l'altro nodo si cancella; scadenza e tentativi sono in comune. La chiave e'
+    HKDF(X25519); `check` (HMAC della chiave sulla stringa del nodo) prova che l'altra parte ha derivato la stessa
+    chiave. /allowed = {uid: true} per ogni uid accettato (il pairing nuovo revoca i vecchi, la chiave e' una sola),
+    devices.json sul PC. Senza i dati dell'app Firebase il QR non compare, lo dice, e il codice funziona. `text`
+    stampa il JSON del QR su una riga invece di disegnarlo. Esce 0 ok, 2 dopo relay.pair_attempts check sbagliati,
+    3 allo scadere di relay.pair_ttl_s.
+    1.30 `add`: un dispositivo IN PIU' (il tablet accanto a telefono e orologio). Nodi e QR portano il segno
+    `mode`/`m` = «add»; la stretta di mano e il `check` sono gli stessi, ma la chiave del relay resta quella di oggi e
+    arriva al dispositivo nuovo cifrata nella conferma (`add_ok`); /allowed e devices.json sono l'unione con i
+    dispositivi di prima (al massimo 4: oltre, la conferma e' {"error": "full"} ed esce 4); eventi e risultati
+    restano. Senza una chiave salvata non parte (esce 2): non c'e' niente a cui aggiungersi."""
+    import base64 as _b64
+    import secrets as _secrets
+    relay_key = C.load_key(rdir()) if add else None
+    if add and not relay_key:
+        print(M("relay.pair_add_no_key")); return 2
+    ttl = float(timeout or R.get("pair_ttl_s") or 300)
+    max_attempts = int(R.get("pair_attempts") or 5)
+    code = f"{_secrets.randbelow(10 ** 6):06d}"
+    pair_id = _b64.urlsafe_b64encode(_secrets.token_bytes(16)).rstrip(b"=").decode()   # 22 caratteri, validi come chiave RTDB
+    nodes = [code, pair_id]
+    sweep_stale_pairs()
+    paired = False
+    priv, pub = C.pair_keys()
+    exp = int(time.time() + ttl)
+    host = str(R.get("host") or socket.gethostname())
+    app, why = firebase_app()
+    for node in nodes:
+        rtdb("PUT", f"pair/{node}", dict({"pc_pub": pub, "host": host, "exp": exp}, **({"mode": "add"} if add else {})), {"print": "silent"})
+    if app:
+        line = json.dumps(qr_payload(pair_id, pub, host, exp, app, add), ensure_ascii=False, separators=(",", ":"))
+        if text:
+            print(line)
+        else:
+            rows = qr_lines(line)
+            try:
+                cols = os.get_terminal_size().columns
+            except OSError:
+                cols = 0
+            if cols and cols < len(rows[0]):
+                print(M("relay.pair_qr_narrow", cols=cols, need=len(rows[0])))
+            print(M("relay.pair_scan"))
+            print("\n".join(rows))
+    else:
+        print(M("relay.pair_no_qr", why=M(why, path=cm.expand(R.get("google_services") or ""), package=R.get("app_package") or "")))
+    if add:
+        # 1.32: il codice a 6 cifre serve solo all'orologio; con --add si dice cosa fare nell'app
+        print(M("relay.pair_code_add", code=code, min=max(1, int(round(ttl / 60)))))
+        if app:
+            opened, why_not = open_on_android(line)
+            if opened:
+                print(M("relay.pair_opened_android", serial=why_not))
+            elif osc52(line):
+                print(M("relay.pair_clipboard", why=why_not))
+            log(f"pair --add: invito {'aperto su ' + why_not if opened else 'non aperto (' + why_not + ')'}")
+    else:
+        print(M("relay.pair_code", code=code))
+    sys.stdout.flush()
+    log(f"pair: codice {code}, id {pair_id}, scade {exp}" + ("" if app else f", senza QR ({why})"))
+    attempts = 0
+    try:
+        while time.time() < exp:
+            for node in nodes:
+                try:
+                    w = rtdb("GET", f"pair/{node}/watch")
+                except (urllib.error.URLError, OSError, ValueError) as e:
+                    log(f"pair: lettura fallita ({e}), riprovo"); continue
+                if not (isinstance(w, dict) and w.get("watch_pub") and w.get("uid")):
+                    continue
+                got = pair_accept(priv, node, w, host)
+                if got and add:
+                    k, ok, devices = got
+                    try:
+                        before = set(read_json(devices_path(), {})) | set(rtdb("GET", "allowed") or {})
+                    except (urllib.error.URLError, OSError, ValueError):
+                        before = set(read_json(devices_path(), {}))
+                    union = before | set(devices)
+                    if len(union) > PAIR_MAX_DEVICES:
+                        rtdb("PUT", f"pair/{node}", {"error": "full"}, {"print": "silent"})
+                        print(M("relay.pair_add_full", n=len(union), max=PAIR_MAX_DEVICES))
+                        log(f"pair --add: {len(union)} dispositivi, oltre {PAIR_MAX_DEVICES}: rifiutato")
+                        paired = True   # la risposta {"error"} resta per il dispositivo, come la conferma
+                        for other in nodes:
+                            if other != node:
+                                try:
+                                    rtdb("DELETE", f"pair/{other}")
+                                except (urllib.error.URLError, OSError, ValueError):
+                                    pass
+                        return 4
+                    merged = dict(read_json(devices_path(), {}), **devices)
+                    write_json(devices_path(), merged)
+                    rtdb("PUT", "allowed", {u: True for u in union}, {"print": "silent"})
+                    rtdb("PUT", f"pair/{node}", {"ok": add_ok(ok, k, relay_key)}, {"print": "silent"})
+                    for other in nodes:
+                        if other != node:
+                            try:
+                                rtdb("DELETE", f"pair/{other}")
+                            except (urllib.error.URLError, OSError, ValueError):
+                                pass
+                    shown = ", ".join(f"{d['name']} (uid {u})" for u, d in devices.items())
+                    print(M("relay.pair_ok_add", devices=shown, n=len(union)))
+                    log(f"pair --add: ok su /pair/{'<code>' if node == code else '<id>'}: {shown}; {len(union)} dispositivi")
+                    paired = True
+                    return 0
+                if got:
+                    k, ok, devices = got
+                    C.save_key(rdir(), k)
+                    write_json(devices_path(), devices)
+                    rtdb("PUT", "allowed", {u: True for u in devices}, {"print": "silent"})
+                    # chiave nuova: gli eventi e i risultati cifrati con la vecchia non si aprono piu' → via
+                    for stale in ("events", "result"):
+                        try:
+                            rtdb("DELETE", stale)
+                        except (urllib.error.URLError, OSError, ValueError):
+                            pass
+                    rtdb("PUT", f"pair/{node}", {"ok": ok}, {"print": "silent"})
+                    # La conferma deve restare leggibile finche' l'altra parte non la prende: l'orologio interroga
+                    # /pair/<code>/ok una volta al secondo (FirebaseTransport.pollMs) e un solo secondo di vita
+                    # bastava a farlo arrivare tardi — PC accoppiato, orologio fermo su «Code not accepted» (19/09).
+                    # Quindi: si tolgono subito le chiavi del giro, cosi' sullo stesso nodo non si puo' iniziare
+                    # un'altra stretta di mano (la PUT qui sopra riscrive il nodo intero: via pc_pub, watch, host,
+                    # exp), resta solo `ok`, che il prossimo `pair` spazza via (vedi sweep_stale_pairs); l'altro
+                    # nodo del giro (1.15) se ne va subito.
+                    for other in nodes:
+                        if other != node:
+                            try:
+                                rtdb("DELETE", f"pair/{other}")
+                            except (urllib.error.URLError, OSError, ValueError):
+                                pass
+                    shown = ", ".join(f"{d['name']} (uid {u})" for u, d in devices.items())
+                    print(M("relay.pair_ok", devices=shown, path=str(C.key_path(rdir()))))
+                    log(f"pair: ok su /pair/{'<code>' if node == code else '<id>'}: {shown}")
+                    paired = True
+                    return 0
+                attempts += 1
+                log(f"pair: check sbagliato ({attempts}/{max_attempts})")
+                rtdb("DELETE", f"pair/{node}/watch")
+                if attempts >= max_attempts:
+                    print(M("relay.pair_failed", n=attempts)); return 2
+            time.sleep(1)
+        print(M("relay.pair_timeout", s=int(ttl))); return 3
+    finally:
+        if not paired:   # accoppiato: /pair/<nodo>/ok resta per l'altra parte, lo spazza il pair successivo
+            for node in nodes:
+                try:
+                    rtdb("DELETE", f"pair/{node}")
+                except (urllib.error.URLError, OSError, ValueError, RelayError):
+                    pass
+
+
+# ------------------------------------------------------------------ esecuzione dei comandi (allow-list)
+def names_map():
+    """nome nel contratto → nome tmux (dalla push piu' recente)."""
+    return (read_json(rdir() / "last-state.json", {}).get("names") or {})
+
+
+def tmux_of(session):
+    return names_map().get(str(session or ""), str(session or ""))
+
+
+def checkpoint(cwd):
+    if not cwd or not os.path.isdir(os.path.join(cwd, ".git")):
+        return None
+    try:
+        r = subprocess.run(["git", "-C", cwd, "stash", "create"], capture_output=True, text=True, timeout=30)
+        return r.stdout.strip() or subprocess.run(["git", "-C", cwd, "rev-parse", "HEAD"], capture_output=True, text=True, timeout=30).stdout.strip() or None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def turn_status(ledger, sid):
+    """busy se l'ultimo evento di turno della sessione e' un prompt (o ripresa), idle se e' uno stop o non c'e'."""
+    ev = [x.get("event") for x in ledger if sid and x.get("session_id") == sid and x.get("event") in ("prompt", "start", "queue-pop", "stop")]
+    return "busy" if ev and ev[-1] != "stop" else "idle"
+
+
+def last_sessions():
+    last = read_json(rdir() / "last-state.json", {})
+    return {s["name"]: s for s in (last.get("full") or last.get("state") or {}).get("sessions", [])}
+
+
+def last_message(row, cap=LAST_MAX):
+    """L'ultimo messaggio dell'assistente di una sessione, dal transcript, INTERO fino a `cap` caratteri (oltre,
+    si taglia a fine frase: all'ascolto conta l'inizio). Testo grezzo, markdown compreso: chi legge ripulisce.
+    «» se non c'e' transcript o nessun messaggio. Il registro tiene solo 600 caratteri della coda, quindi per il
+    testo intero la sorgente e' il transcript (contratto 1.4, per il tasto ▶ del polso, 14/09)."""
+    path = core.transcript_of(row)
+    if not path:
+        return ""
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return ""
+    texts = []
+    # gli ultimi 512 KB bastano per un turno lungo; se non c'e' nulla si rilegge tutto il file
+    for window in (512 * 1024, size):
+        events, _ = core.transcript_events(path, max(0, size - window))
+        texts = [e[1] for e in events if e[0] == "text" and str(e[1]).strip()]
+        if texts or window >= size:
+            break
+    if not texts:
+        return ""
+    text = str(texts[-1]).strip()
+    if len(text) <= cap:
+        return text
+    cut = text[:cap]
+    end = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "), cut.rfind(".\n"))
+    return (cut[:end + 1] if end > cap // 2 else cut).rstrip()
+
+
+SHARE_TTL_S = 600    # 1.19: un /share/<id> che nessun comando ha letto sparisce dopo 10 minuti
+REPORT_TEXT_MAX = 4000
+IMAGE_EXT = {"image/jpeg": "jpg", "image/png": "png"}
+
+
+def share_report(cmd, tm, session):
+    """1.19 (29/09): «Condividi» dal telefono — testo e/o un'immagine verso una sessione viva, con `supervisor report
+    <cartella> <file|-> <testo> --session <tmux>`. L'immagine sta cifrata in /share/<arg> ({mime, data base64}) e si
+    cancella sempre, riuscito o no."""
+    sid = str(cmd.get("arg") or "").strip()
+    try:
+        return _share_report(cmd, tm, session, sid)
+    finally:
+        if sid and cmd.get("_local"):
+            if re.fullmatch(r"[A-Za-z0-9_-]{1,80}", sid):
+                for ext in (".bin", ".json"):
+                    (local_dir("share") / f"{sid}{ext}").unlink(missing_ok=True)
+        elif sid:
+            try:
+                rtdb("DELETE", f"share/{sid}")
+            except (urllib.error.URLError, OSError, ValueError):
+                pass
+            seen = read_json(rdir() / "share-seen.json", {})
+            if seen.pop(sid, None) is not None:
+                write_json(rdir() / "share-seen.json", seen)
+
+
+def _share_report(cmd, tm, session, sid):
+    text = str(cmd.get("text") or "").strip()
+    if not text and not sid:
+        return False, M("relay.cmd_report_empty")
+    if len(text) > REPORT_TEXT_MAX:
+        return False, M("relay.cmd_report_long", max=REPORT_TEXT_MAX)
+    row = next((r for r in (_json_cmd("sessions", "--json", "--no-screen") or []) if (r.get("tmux") or r.get("name")) == tm), None)
+    if not row or not row.get("cwd") or not os.path.isdir(row["cwd"]):
+        return False, M("relay.cmd_report_no_session", name=session or "?")
+    img = None
+    if sid:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", sid):
+            return False, M("relay.cmd_report_no_image")
+        if cmd.get("_local"):
+            # 1.35: l'allegato della web app locale, posato in chiaro da POST /api/share/<id>
+            blob = read_json(local_dir("share") / f"{sid}.json", None)
+            mime = str((blob or {}).get("mime") or "").strip().lower()
+            ext = IMAGE_EXT.get(mime)
+            try:
+                data = (local_dir("share") / f"{sid}.bin").read_bytes() if blob and (ext or MIME_RE.fullmatch(mime)) else b""
+            except OSError:
+                data = b""
+        else:
+            doc = rtdb("GET", f"share/{sid}")
+            if isinstance(doc, dict) and len(str(doc.get("enc") or "")) > S.SHARE_MAX_BYTES:
+                return False, M("relay.cmd_report_too_big", max=S.SHARE_MAX_BYTES)
+            try:
+                blob = C.decrypt(doc, key()) if isinstance(doc, dict) else None
+                mime = str((blob or {}).get("mime") or "").strip().lower()
+                ext = IMAGE_EXT.get(mime)
+                data = base64.b64decode(str(blob["data"]), validate=True) if ext or MIME_RE.fullmatch(mime) else b""
+            except (ValueError, KeyError, TypeError, binascii.Error):
+                ext, data, mime = None, b"", ""
+        if not data:
+            return False, M("relay.cmd_report_no_image" if ext or not mime or mime.startswith("image/") else "relay.cmd_report_no_file")
+        if not ext:
+            return share_file(cmd, tm, session, row, mime, data, blob.get("name"), text)
+        tmpd = rdir() / "share-tmp"
+        tmpd.mkdir(parents=True, exist_ok=True)
+        img = tmpd / f"{sid}.{ext}"
+        img.write_bytes(data)
+    try:
+        rc, out = run_cm("report", row["cwd"], str(img) if img else "-", text or M("relay.report_image_only"), "--session", tm)
+    finally:
+        if img:
+            img.unlink(missing_ok=True)
+    if rc != 0:
+        return False, (out.splitlines() or ["report failed"])[0]
+    saved = next((l.split(":", 1)[1].strip() for l in out.splitlines() if l.strip().startswith(("image:", "immagine:"))), "")
+    if saved:
+        return True, M("relay.cmd_report_sent_image", name=session, file=os.path.relpath(saved, row["cwd"]))
+    return True, M("relay.cmd_report_sent", name=session)
+
+
+MIME_RE = re.compile(r"[a-z0-9][a-z0-9.+-]{0,63}/[a-z0-9][a-z0-9.+-]{0,126}")
+SHARE_NAME_MAX = 120
+SHARE_INBOX = ".claude-master-inbox"
+
+
+def clean_name(name, mime):
+    """1.28: il nome che arriva dal telefono, ripulito: solo l'ultimo pezzo del percorso, lettere, cifre e « ._-()+,@=»,
+    spazi uniti, niente punto iniziale; None se ne resta niente o supera 120 caratteri. Senza nome: «file» con
+    l'estensione del tipo."""
+    if name is None or str(name).strip() == "":
+        return "file" + (mimetypes.guess_extension(mime) or ".bin")
+    n = str(name).replace("\\", "/").rsplit("/", 1)[-1]
+    n = "".join(ch for ch in n if ch.isalnum() or ch in " ._-()+,@=")
+    n = " ".join(n.split()).lstrip(". ")
+    return n if n and len(n) <= SHARE_NAME_MAX else None
+
+
+def _human_size(n):
+    return f"{n} B" if n < 1024 else f"{n / 1024:.0f} KB" if n < 1024 * 1024 else f"{n / 1024 / 1024:.1f} MB"
+
+
+def share_file(cmd, tm, session, row, mime, data, name, text):
+    """1.28 (03/10, chiesto dalla sessione dell'app, approvato dal maintainer): un file di qualunque formato dal
+    telefono. I byte vanno nella cartella della sessione, in .claude-master-inbox/ (con un .gitignore «*»: mai in un
+    commit), e la sessione riceve, con il prefisso del dispositivo, «ti ho mandato il file …: <percorso>» e il testo.
+    Il file non si esegue: la sessione lo legge. Le immagini restano su `report` come prima."""
+    clean = clean_name(name, mime)
+    if not clean:
+        return False, M("relay.cmd_report_bad_name")
+    inbox = Path(row["cwd"]) / SHARE_INBOX
+    inbox.mkdir(exist_ok=True)
+    if not (inbox / ".gitignore").exists():
+        (inbox / ".gitignore").write_text("*\n")
+    dest = inbox / f"{time.strftime('%Y%m%d-%H%M%S')}-{clean}"
+    dest.write_bytes(data)
+    os.chmod(dest, 0o600)
+    msg = M("relay.share_file", name=clean, mime=mime, size=_human_size(len(data)), path=str(dest))
+    rc, out = run_cm("talk", tm, prefix_for(cmd) + " " + msg + ("\n\n" + text if text else ""), "--no-wait")
+    if rc != 0:
+        return False, out.splitlines()[0] if out else "talk failed"
+    if saved_in_inbox(out):
+        return False, M("relay.cmd_inbox_only", name=session)
+    return True, M("relay.cmd_report_sent_file", name=session, file=clean)
+
+
+def prune_share(now, node="share"):
+    """Via i /share/<id> che nessun comando ha letto entro SHARE_TTL_S: le chiavi sono uuid senza istante, quindi si
+    ricorda quando il relay li ha visti la prima volta (share-seen.json). 1.24: lo stesso per /file/<id> che il
+    dispositivo non ha letto (e quindi non ha cancellato)."""
+    try:
+        keys = rtdb("GET", node, None, {"shallow": "true"}) or {}
+    except (urllib.error.URLError, OSError, ValueError):
+        return
+    seen_p = rdir() / f"{node}-seen.json"
+    seen = {k: v for k, v in read_json(seen_p, {}).items() if k in keys}
+    for k in keys:
+        seen.setdefault(k, now)
+    old = [k for k, t in seen.items() if now - float(t) > SHARE_TTL_S]
+    for k in old:
+        try:
+            rtdb("DELETE", f"{node}/{k}")
+            seen.pop(k, None)
+        except (urllib.error.URLError, OSError, ValueError):
+            pass
+    write_json(seen_p, seen)
+
+
+def _fit_image(data, cap_enc):
+    """Un'immagine troppo grande per la busta diventa JPEG, sempre piu' piccola, finche' la busta cifrata ci sta
+    (base64 di base64 e AES-GCM: si stima dal JPEG e si verifica sulla busta vera). None se non ci sta mai."""
+    from io import BytesIO
+    try:
+        from PIL import Image
+        im = Image.open(BytesIO(data))
+        im.load()
+    except Exception:   # noqa: BLE001 — non e' un'immagine che PIL sa leggere
+        return None
+    im = im.convert("RGB")
+    side = max(im.size)
+    for edge, q in ((2048, 85), (1600, 80), (1280, 75), (1024, 70), (800, 65), (640, 60)):
+        if edge < side:
+            im2 = im.copy()
+            im2.thumbnail((edge, edge))
+        else:
+            im2 = im
+        buf = BytesIO()
+        im2.save(buf, "JPEG", quality=q, optimize=True)
+        out = buf.getvalue()
+        if len(C.encrypt({"mime": "image/jpeg", "data": base64.b64encode(out).decode()}, key()).get("enc") or "") <= cap_enc:
+            return out
+    return None
+
+
+FILE_PART_BYTES = 1024 * 1024        # 1.34: un pezzo, prima della cifratura (in /file circa 1,4 MB di base64)
+FILE_PARTS_MAX = 25 * 1024 * 1024    # 1.34: il tetto di un file a pezzi
+FILE_ONE_MAX = S.FILE_ENC_MAX * 9 // 16 - 100   # il file piu' grande che sta in un solo {v, enc} (due base64)
+
+
+def file_parts(data, mime, name, k_, part=FILE_PART_BYTES):
+    """1.34: (meta, [pezzi]) — meta = {v, enc} di {n, size, sha256, mime, name}; ogni pezzo = {v, enc} dei suoi byte
+    grezzi (`C.encrypt_raw`)."""
+    import hashlib
+    chunks = [data[i:i + part] for i in range(0, len(data), part)] or [b""]
+    meta = {"n": len(chunks), "size": len(data), "sha256": hashlib.sha256(data).hexdigest(), "mime": mime, "name": name}
+    return C.encrypt(meta, k_), [C.encrypt_raw(c, k_) for c in chunks]
+
+
+def file_open(cmd, session, tm, arg):
+    """1.24 (02/10, chiesto dalla sessione dell'app, approvato dal maintainer alle 09:10): aprire dal telefono un file
+    che compare nella conversazione. arg = il `path` esatto di transcript.entries[].files[]; si serve SOLO un percorso
+    che compare nei `files` del transcript di quella sessione. Il file va in /file/<id del comando>, busta {v, enc}
+    come /share, in chiaro {mime, data base64}; oltre S.FILE_ENC_MAX di `enc` un'immagine si riduce (JPEG), il
+    resto si rifiuta. Il dispositivo lo cancella dopo averlo letto; il relay quelli non letti dopo SHARE_TTL_S (10 minuti)."""
+    path = str(arg or "").strip()
+    row = next((r for r in (_json_cmd("sessions", "--json", "--no-screen") or []) if (r.get("tmux") or r.get("name")) == tm), None)
+    tr = core.transcript_of(row) if row else None
+    if not row or not tr:
+        return False, M("relay.cmd_file_no_session", name=session or "?")
+    size = os.path.getsize(tr)
+    listed = False
+    for window in TRANSCRIPT_WINDOWS:
+        start = 0 if window is None or window >= size else size - window
+        listed = any(fr.get("path") == path for e in core.transcript_entries(tr, start) for fr in (e.get("files") or []))
+        if listed or not start:
+            break
+    if not path or not listed:
+        return False, M("relay.cmd_file_not_listed")
+    try:
+        data = Path(path).read_bytes()
+    except OSError:
+        return False, M("relay.cmd_file_unreadable")
+    import mimetypes
+    mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    cid = str(cmd.get("id") or "")
+    if cmd.get("_local"):
+        # 1.35: la web app locale lo prende intero da GET /api/file/<id>, senza tetto ne' pezzi: qui solo il rimando
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", cid):
+            return False, M("relay.cmd_file_unreadable")
+        write_json(local_dir("file") / f"{cid}.json", {"path": path, "mime": mime, "name": os.path.basename(path)})
+        return True, M("relay.cmd_file_ready", mime=mime, size=len(data))
+    if cmd.get("parts") is True:
+        # 1.34: a pezzi, fino a FILE_PARTS_MAX; senza `parts` (un'app vecchia) tutto come prima
+        if len(data) > FILE_PARTS_MAX:
+            return False, M("relay.cmd_file_too_large", size=len(data), max=FILE_PARTS_MAX)
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", cid):
+            return False, M("relay.cmd_file_unreadable")
+        k_ = key()
+        meta, parts = file_parts(data, mime, os.path.basename(path), k_)
+        for i, part in enumerate(parts):
+            rtdb("PUT", f"file/{cid}/parts/{i}", part, {"print": "silent"})
+        rtdb("PUT", f"file/{cid}/meta", meta, {"print": "silent"})   # per ultimo: con meta i pezzi ci sono gia' tutti
+        return True, M("relay.cmd_file_ready", mime=mime, size=len(data))
+    doc = C.encrypt({"mime": mime, "data": base64.b64encode(data).decode()}, key())
+    if len(str(doc.get("enc") or "")) > S.FILE_ENC_MAX:
+        small = _fit_image(data, S.FILE_ENC_MAX) if mime.startswith("image/") else None
+        if small is None:
+            return False, M("relay.cmd_file_too_large", size=len(data), max=FILE_ONE_MAX)
+        mime, data = "image/jpeg", small
+        doc = C.encrypt({"mime": mime, "data": base64.b64encode(data).decode()}, key())
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", cid):
+        return False, M("relay.cmd_file_unreadable")
+    rtdb("PUT", f"file/{cid}", doc, {"print": "silent"})
+    return True, M("relay.cmd_file_ready", mime=mime, size=len(data))
+
+
+SLASH_RE = re.compile(r"[a-z][a-z0-9-]{0,40}")
+SLASH_TEXT_MAX = 2000
+SLASH_NO_PANEL = ("compact", "clear", "exit")   # non aprono pannelli: niente attesa ne' Esc
+SLASH_PANEL_MAX = 3500
+
+
+def slash_allowed():
+    return [str(x).strip().lstrip("/").lower() for x in (R.get("slash_commands") or []) if str(x).strip()]
+
+
+def slash_send(cmd, session, tm, arg):
+    """1.25 (02/10, chiesto dalla sessione dell'app, approvato dal maintainer alle 11:12): un comando slash dal
+    telefono. arg = il comando senza «/», text = gli argomenti (o null). Solo i comandi di relay.slash_commands. Va
+    DIGITATO nel pannello (talk --via tmux), senza prefisso: dal socket arriverebbe come messaggio di un'altra sessione e
+    Claude Code non lo eseguirebbe. Una sessione al lavoro o ferma su un dialogo rifiuta: il testo finirebbe in coda o
+    risponderebbe al dialogo. /exit si digita come gli altri: `close` rifiuta una sessione attaccata, dal telefono
+    deve valere come la persona al terminale."""
+    name = str(arg or "").strip().lstrip("/").lower()
+    if not SLASH_RE.fullmatch(name) or name not in slash_allowed():
+        return False, M("relay.cmd_slash_not_allowed", cmd=name or "?")
+    row = next((r for r in (_json_cmd("sessions", "--json", "--no-screen") or []) if (r.get("tmux") or r.get("name")) == tm), None)
+    if not row or not row.get("tmux"):
+        return False, M("relay.cmd_slash_no_session", name=session or "?")
+    if row.get("status") in ("busy", "waiting") or row.get("waiting"):
+        return False, M("relay.cmd_slash_busy", name=session)
+    text = " ".join(str(cmd.get("text") or "").split())[:SLASH_TEXT_MAX]
+    rc, out = run_cm("talk", row["tmux"], f"/{name} {text}".rstrip(), "--via", "tmux", "--no-wait")
+    if rc == 4:
+        return False, M("relay.cmd_slash_typed", name=session)
+    if rc != 0:
+        return False, (out.splitlines() or ["slash failed"])[0]
+    sent = M("relay.cmd_slash_sent", cmd=name, name=session)
+    if name in SLASH_NO_PANEL:
+        return True, sent
+    # 02/10 (dal telefono): /cost, /usage, /status… aprono un pannello sopra la casella che resta aperto finche' qualcuno
+    # preme Esc. `panel` lo legge, lo chiude con un Esc e il testo arriva al telefono nel risultato
+    prc, pout = run_cm("panel", row["tmux"], "--wait", "6")
+    if prc in (0, 4) and pout.strip():
+        return True, sent + "\n\n" + pout.strip()[:SLASH_PANEL_MAX] + ("\n\n" + M("relay.cmd_slash_panel_open") if prc == 4 else "")
+    return True, sent
+
+
+def night_report_dir():
+    return Path(cm.expand("~/.team-supervisor/night-report"))
+
+
+def night_report_latest():
+    """1.44 (08/10): {date, generated_at} dell'ultimo rapporto della notte, per night.report nello stato; None se non
+    ce n'e' uno."""
+    try:
+        files = sorted(p for p in night_report_dir().glob("????-??-??.json"))
+    except OSError:
+        return None
+    for p in reversed(files):
+        rep_ = read_json(p, None)
+        if isinstance(rep_, dict) and rep_.get("date"):
+            return {"date": str(rep_["date"]), "generated_at": rep_.get("generated_at")}
+    return None
+
+
+def night_report(arg):
+    """1.44 (chiesto dall'app per la pagina «Notte», approvata dal maintainer il 07/10 alle 21:50): il rapporto della notte
+    (schema team-supervisor/night-report v1) cosi' com'e' su disco. arg = «AAAA-MM-GG», o null per l'ultimo."""
+    day = str(arg or "").strip()
+    if day:
+        p = night_report_dir() / f"{day}.json"
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) or not p.is_file():
+            return False, f"no night report for {day}"
+    else:
+        files = sorted(night_report_dir().glob("????-??-??.json")) if night_report_dir().is_dir() else []
+        if not files:
+            return False, "no night report yet"
+        p = files[-1]
+    try:
+        return True, p.read_text().strip()
+    except OSError:
+        return False, f"no night report for {day or p.stem}"
+
+
+def projects_list():
+    """1.26 (02/10, chiesto dalla sessione dell'app, approvato dal maintainer alle 17:15): l'elenco completo dei progetti
+    per «Lancia». /state li taglia a 10 e poi a 5 per stare negli 8 KB; qui ci sono tutti, di tutti gli account, con i
+    campi di state.projects, dal piu' recente (last_used; i null in fondo) e poi per nome. text = JSON {projects, more};
+    oltre TRANSCRIPT_MAX_BYTES si tolgono i meno recenti e more = true."""
+    rows = [{"name": p.get("name", ""), "path": p.get("path", ""), "account": p.get("account", ""),
+             "last_used": p.get("last_used") if isinstance(p.get("last_used"), int) else None} for p in inventory()]
+    rows.sort(key=lambda p: (p["last_used"] is None, -(p["last_used"] or 0), p["name"]))
+    more = False
+    while rows and len(json.dumps({"projects": rows, "more": True}, ensure_ascii=False).encode()) > TRANSCRIPT_MAX_BYTES:
+        rows.pop()
+        more = True
+    return True, json.dumps({"projects": rows, "more": more}, ensure_ascii=False)
+
+
+SEARCH_MAX_HITS = 50
+SEARCH_MAX_S = 10
+SEARCH_DAYS = 7
+SEARCH_SNIPPET = 160
+_SEARCH_CACHE = {}   # path -> {size, mtime, end, cwd, entries: [(id, role, at, testo a una riga, testo piegato)]}
+_SEARCH_LOCK = threading.Lock()   # la cache la toccano la ricerca e l'indicizzazione in background
+_WARM = {"thread": None}
+
+
+def _fold(t):
+    """Il testo per il confronto: minuscole e niente accenti («Perché» -> «perche»)."""
+    if t.isascii():
+        return t.lower()
+    return "".join(ch for ch in unicodedata.normalize("NFD", t) if not unicodedata.combining(ch)).casefold()
+
+
+def _fold_map(t):
+    """Come _fold, carattere per carattere: (piegato, indice nel testo originale di ogni carattere piegato)."""
+    out, idx = [], []
+    for i, ch in enumerate(t):
+        f = _fold(ch)
+        out.append(f)
+        idx.extend([i] * len(f))
+    return "".join(out), idx
+
+
+def _search_file(path):
+    """Le voci user e assistant di una trascrizione, dalla cache. Un file cresciuto si legge solo nella parte nuova,
+    fino all'ultimo a capo (una riga a meta' si rilegge la volta dopo); uno cambiato in altro modo da capo."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    c = _SEARCH_CACHE.get(path)
+    if c and c["size"] == st.st_size and c["mtime"] == st.st_mtime:
+        return c
+    if not c or st.st_size < c["end"]:
+        c = {"end": 0, "entries": [], "cwd": None}
+    with open(path, "rb") as f:
+        f.seek(max(c["end"], st.st_size - 65536))
+        tail = f.read(st.st_size - f.tell())
+        nl = tail.rfind(b"\n")
+        end = st.st_size - len(tail) + nl + 1 if nl >= 0 else c["end"]
+        if c["cwd"] is None:
+            f.seek(0)
+            m = re.search(rb'"cwd":\s*("(?:[^"\\]|\\.)*")', f.read(65536))
+            c["cwd"] = json.loads(m.group(1)) if m else ""
+    if end > c["end"]:
+        # offset un byte prima: transcript_entries scarta la prima riga (puo' essere a meta'), qui e' vuota
+        for e in core.transcript_entries(path, max(0, c["end"] - 1), limit=end, text_max=10 ** 9, chat_only=True):
+            t = re.sub(r"\s*\n\s*", " ", e["text"]).strip()
+            if t:
+                c["entries"].append((e["id"], e["role"], e["at"], t, _fold(t)))
+    c.update(size=st.st_size, mtime=st.st_mtime, end=end)
+    _SEARCH_CACHE[path] = c
+    return c
+
+
+def _snippet(text, folded_q):
+    """(snippet, [inizio, fine]) intorno alla prima occorrenza: fino a SEARCH_SNIPPET caratteri, senza «…»."""
+    folded, idx = _fold_map(text)
+    i = folded.find(folded_q)
+    if i < 0:   # piegato a pezzi non coincide col piegato intero (rarissimo): l'inizio del testo
+        return text[:SEARCH_SNIPPET], [0, 0]
+    a, b = idx[i], idx[i + len(folded_q) - 1] + 1
+    if b - a >= SEARCH_SNIPPET:
+        return text[a:a + SEARCH_SNIPPET], [0, SEARCH_SNIPPET]
+    lo = max(0, min(a - (SEARCH_SNIPPET - (b - a)) // 2, len(text) - SEARCH_SNIPPET))
+    return text[lo:lo + SEARCH_SNIPPET], [a - lo, b - lo]
+
+
+def search_files(now=None):
+    """(vive {trascrizione: riga}, insieme dei file, ordine dal piu' recente): le trascrizioni delle sessioni vive e
+    quelle toccate negli ultimi SEARCH_DAYS giorni, dei due account."""
+    now = now or time.time()
+    live = {}
+    for r in (_json_cmd("sessions", "--json", "--no-screen") or []):
+        p = core.transcript_of(r)
+        if p:
+            live[os.path.realpath(p)] = r
+    files = set(live)
+    for acc in (CFG.get("accounts") or {}).values():
+        for f in (Path(cm.expand(acc.get("config_dir") or "~/.claude")) / "projects").glob("*/*.jsonl"):
+            try:
+                if now - f.stat().st_mtime <= SEARCH_DAYS * 86400:
+                    files.add(os.path.realpath(str(f)))
+            except OSError:
+                pass
+    order = sorted(files, key=lambda p: (os.path.getmtime(p) if os.path.exists(p) else 0), reverse=True)
+    return live, files, order
+
+
+def _trim():
+    """Rende al sistema la memoria della lettura (le trascrizioni intere passano in memoria un file alla volta): senza,
+    il relay restava a ~150 MB dopo l'indicizzazione invece dei ~40 della sola cache (misurato il 04/10)."""
+    import gc
+    gc.collect()
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except (OSError, AttributeError):
+        pass   # non glibc (macOS, Windows): resta com'e'
+
+
+def search_warm():
+    """04/10 (dall'utente: dopo un riavvio del relay la ricerca rispondeva «nessun risultato» senza aver letto tutto):
+    riempie la cache della ricerca leggendo tutte le trascrizioni, dalla piu' recente, un file alla volta col lock
+    preso solo per quel file (una ricerca puo' passare in mezzo). La lanciano l'avvio di `serve` e una ricerca che si
+    ferma ai 10 s."""
+    t0, n = time.monotonic(), 0
+    try:
+        _, _, order = search_files()
+        for p in order:
+            with _SEARCH_LOCK:
+                if _search_file(p):
+                    n += 1
+        _trim()
+        log(f"search: cache pronta, {n} trascrizioni in {time.monotonic() - t0:.0f} s")
+    except Exception as e:   # noqa: BLE001 — un aiuto in piu': mai far cadere il relay
+        log(f"search: indicizzazione interrotta ({e})")
+
+
+def search_warm_async():
+    """Un solo giro di indicizzazione alla volta, in un thread che non trattiene l'uscita del processo."""
+    th = _WARM["thread"]
+    if th is not None and th.is_alive():
+        return False
+    _WARM["thread"] = threading.Thread(target=search_warm, name="search-warm", daemon=True)
+    _WARM["thread"].start()
+    return True
+
+
+def search(arg):
+    """1.27 (03/10, chiesto dalla sessione dell'app, approvato dal maintainer alle 16:57): cerca un testo nelle
+    conversazioni di tutte le sessioni dei due account — le vive e le chiuse con la trascrizione degli ultimi 7 giorni;
+    solo le voci user e assistant di `transcript` (niente strumenti, niente subagenti, user senza il prefisso del
+    relay); maiuscole e accenti non contano. text = JSON {hits, more}: al massimo 50 hit e 60 KB, dal piu' recente;
+    oltre, o dopo 10 s, quello trovato e more = true. La cache si riempie in background dall'avvio del relay (circa
+    30 s per ~1 GB a settimana); una ricerca che arriva prima puo' fermarsi ai 10 s con more = true, e la cache finisce
+    di riempirsi da sola."""
+    q = " ".join(str(arg or "").split())
+    if not q or len(q) > 200:
+        return False, M("relay.cmd_search_bad_query")
+    fq = _fold(q)
+    t0 = time.monotonic()
+    live, files, order = search_files()
+    hits, more = [], False
+    for p in order:
+        if len(hits) >= SEARCH_MAX_HITS and os.path.getmtime(p) < (hits[SEARCH_MAX_HITS - 1]["at"] or 0):
+            more = True   # i file dopo sono tutti piu' vecchi dei 50 gia' trovati
+            break
+        if time.monotonic() - t0 > SEARCH_MAX_S:
+            more = True
+            search_warm_async()   # la cache finisce di riempirsi da sola: la ricerca dopo trova tutto
+            break
+        with _SEARCH_LOCK:
+            c = _search_file(p)
+        if not c:
+            continue
+        row = live.get(p)
+        cwd = (row or {}).get("cwd") or c["cwd"] or ""
+        name = S.short_name(row.get("name") or row.get("tmux") or "", prefixes()) if row else (os.path.basename(cwd.rstrip("/")) or Path(p).parent.name)
+        for eid, role, at, text, folded in c["entries"]:
+            if fq in folded:
+                snip, span = _snippet(text, fq)
+                hits.append({"session": name, "live": bool(row), "project": cwd, "entry": eid, "role": role, "at": at,
+                             "snippet": snip, "match": span})
+        hits.sort(key=lambda h: (h["at"] is None, -(h["at"] or 0)))
+    with _SEARCH_LOCK:
+        for p in list(_SEARCH_CACHE):
+            if p not in files:
+                del _SEARCH_CACHE[p]
+    if len(hits) > SEARCH_MAX_HITS:
+        hits, more = hits[:SEARCH_MAX_HITS], True
+    while hits and len(json.dumps({"hits": hits, "more": True}, ensure_ascii=False).encode()) > TRANSCRIPT_MAX_BYTES:
+        hits.pop()
+        more = True
+    return True, json.dumps({"hits": hits, "more": more}, ensure_ascii=False)
+
+
+TIMELINE_MAX_S = 7 * 86400
+
+
+def timeline_page(session, arg):
+    """1.29 (03/10, fase 2 approvata dal maintainer alle 18:32): la cronologia di cosa hanno fatto le sessioni per il
+    riepilogo del telefono, da `supervisor timeline`: per sessione prompt, test, commit, esiti e compiti in ordine di
+    tempo. session = un nome di sessions[].name o null per tutte; project come state.sessions[].project; arg = «6h», «90m», «2d» (al massimo 7 giorni) o un
+    epoch s da cui partire; null = 6h. text = JSON {since, sessions, more}; oltre 60 KB si tolgono gli eventi piu'
+    vecchi della sessione piu' lunga e more = true."""
+    a = str(arg or "6h").strip()
+    now = float(os.environ.get("CM_RELAY_NOW") or time.time())   # CM_RELAY_NOW: solo per i test, con dati di prova datati
+    m = re.fullmatch(r"(\d{1,4})([mhd])", a)
+    if m:
+        secs = int(m.group(1)) * {"m": 60, "h": 3600, "d": 86400}[m.group(2)]
+    elif re.fullmatch(r"\d{9,11}", a):
+        secs = now - int(a)
+    else:
+        return False, M("relay.cmd_timeline_bad_arg", arg=a)
+    if secs <= 0 or secs > TIMELINE_MAX_S:
+        return False, M("relay.cmd_timeline_bad_arg", arg=a)
+    tl = _load("cm-timeline").timeline(secs, str(session) if session else None, now=now,
+                                       live=_json_cmd("sessions", "--json", "--no-screen") or [])
+    root = cm.expand(CFG["workspace"]["root"])
+    for r in tl["sessions"]:
+        r["project"] = S.project_of(r["project"], root)   # come state.sessions[].project: relativo alla radice
+    more = False
+    while tl["sessions"] and len(json.dumps(dict(tl, more=True), ensure_ascii=False).encode()) > TRANSCRIPT_MAX_BYTES:
+        big = max(tl["sessions"], key=lambda r: len(r["events"]))
+        big["events"].pop(0)
+        if not big["events"]:
+            tl["sessions"].remove(big)
+        more = True
+    return True, json.dumps(dict(tl, more=more), ensure_ascii=False)
+
+
+TRANSCRIPT_MAX_N = 200
+TRANSCRIPT_MAX_BYTES = 60000   # 1.22: il JSON di una pagina in /result; oltre si toglie dalla parte vecchia e more=true
+TRANSCRIPT_WINDOWS = (2 * 1024 * 1024, 16 * 1024 * 1024, None)   # si legge dalla coda, e si allarga solo se serve
+
+
+def transcript_page(session, tm, arg):
+    """1.22 (30/09): la chat di una sessione per il telefono. arg «n» = le ultime n voci; «n:before=<id>» = le n
+    prima di quella voce; «n:after=<id>» = le prime n dopo (il telefono lo ripete a scheda aperta, e costa poco:
+    basta la coda del file). text = JSON {entries, more}."""
+    m = re.fullmatch(r"\s*(\d{1,4})\s*(?::\s*(before|after)=([A-Za-z0-9._-]{1,80}))?\s*", str(arg or "50"))
+    if not m or not int(m.group(1)):
+        return False, M("relay.cmd_transcript_bad_arg", arg=str(arg or ""))
+    n, mode, ref = min(int(m.group(1)), TRANSCRIPT_MAX_N), m.group(2), m.group(3)
+    row = next((r for r in (_json_cmd("sessions", "--json", "--no-screen") or []) if (r.get("tmux") or r.get("name")) == tm), None)
+    if not row:
+        return False, M("relay.cmd_interrupt_gone", name=session)
+    path = core.transcript_of(row)
+    if not path:
+        return False, M("relay.cmd_transcript_none", name=session)
+    size = os.path.getsize(path)
+    for window in TRANSCRIPT_WINDOWS:
+        start = 0 if window is None or window >= size else size - window
+        entries = core.transcript_entries(path, start)
+        ids = [e["id"] for e in entries]
+        if ref and ref not in ids and start:
+            continue   # la voce e' piu' indietro: si allarga la finestra
+        if not ref and len(entries) < n and start:
+            continue
+        break
+    if ref and ref not in ids:
+        return False, M("relay.cmd_transcript_unknown", id=ref)
+    if mode == "after":
+        i = ids.index(ref) + 1
+        page, more = entries[i:i + n], len(entries) > i + n
+    else:
+        end = ids.index(ref) if mode == "before" else len(entries)
+        page = entries[max(0, end - n):end]
+        more = end - n > 0 or bool(start)
+    while page and len(json.dumps({"entries": page, "more": True}, ensure_ascii=False).encode()) > TRANSCRIPT_MAX_BYTES:
+        if mode == "after":
+            page = page[:-1]
+        else:
+            page = page[1:]
+        more = True
+    return True, json.dumps({"entries": page, "more": bool(more)}, ensure_ascii=False)
+
+
+DECISION_TEXT_MAX = 2000
+
+
+def from_device(cmd):
+    """1.37: da dove arriva, a parole, per il registro e per la master («dal telefono», «dalla web app»…)."""
+    dev = str(cmd.get("device") or "")
+    return M(f"relay.from_{dev}") if dev in ("phone", "watch", "web") else M("relay.from_app")
+
+
+def approve_task(cmd, arg):
+    """1.37 (05/10, «Da approvare» nell'app): l'ok a un compito del registro in awaiting_ok, registrato come quello
+    scritto a mano — `task approve <task> --by <chi> --text "<testo> (dal telefono)"`. Solo un compito che aspetta
+    davvero un ok; arrivano solo dai dispositivi accoppiati (il bus) e dalla web app locale (il token)."""
+    tid = str(arg or "").strip()
+    # 1.42 (07/10, modalita' live): l'ok dato al polso vale solo con la doppia conferma; `confirmations` intero, mai un bool
+    live = cmd.get("via") == "live"
+    n = cmd.get("confirmations")
+    if live and (isinstance(n, bool) or not isinstance(n, int) or n < 2):
+        return False, M("relay.cmd_approve_live_needs_two", task=tid or "?")
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,80}", tid) or tid not in {a["task"] for a in approvals_list()}:
+        return False, M("relay.cmd_approve_not_waiting", task=tid or "?")
+    text = S.one_line(str(cmd.get("text") or "").strip())[:500] or "ok"
+    where = from_device(cmd) + (", " + M("relay.approve_live") if live else "")
+    rc, out = run_cm("task", "approve", tid, "--by", str(cmd.get("by") or "app"), "--text", f"{text} ({where})")
+    if rc != 0:
+        return False, (out.splitlines() or ["task approve failed"])[0]
+    return True, M("relay.cmd_approved", task=tid)
+
+
+def decision_send(cmd, arg):
+    """1.37: «Salva come decisione» — il testo va alla master con `talk master`, che lo scrive nella sua memoria
+    (un file e una riga nell'indice) e conferma. arg = il progetto, facoltativo. Master chiusa: resta nella casella."""
+    text = str(cmd.get("text") or "").strip()
+    if not text:
+        return False, M("relay.cmd_decision_empty")
+    if len(text) > DECISION_TEXT_MAX:
+        return False, M("relay.cmd_decision_long", max=DECISION_TEXT_MAX)
+    project = S.one_line(str(arg or "").strip())[:200]
+    msg = M("relay.decision_to_master", device=from_device(cmd), text=text,
+            project=M("relay.decision_project", project=project) if project else "")
+    rc, out = run_cm("talk", "master", msg, "--no-wait")
+    if rc != 0:
+        return False, (out.splitlines() or ["talk failed"])[0]
+    return True, M("relay.cmd_decision_inbox" if saved_in_inbox(out) else "relay.cmd_decision_sent")
+
+
+def prefix_for(cmd):
+    """1.22 (30/09): il prefisso del prompt dice da dove arriva — `device` del comando («phone» | «watch» | «web», 1.36);
+    senza, uno neutro («via app»: prima della 1.36 diceva «polso» anche per la web app). `transcript` lo riconosce,
+    lo toglie e ne fa `origin`."""
+    dev = str(cmd.get("device") or "")
+    return M(f"relay.prompt_prefix_{dev}") if dev in ("phone", "watch", "web") else M("relay.prompt_prefix")
+
+
+def is_live(tm):
+    """La sessione tmux c'e' adesso (sessions --json): `talk` su una chiusa salva nella casella ed esce 0."""
+    return any((r.get("tmux") or r.get("name")) == tm for r in (_json_cmd("sessions", "--json", "--no-screen") or []))
+
+
+def saved_in_inbox(out):
+    """`talk` ha solo messo il messaggio nella casella (sessione chiusa fra il controllo e la consegna): la sua riga
+    rimanda a `talk --status <id>`, in ogni lingua."""
+    return "talk --status" in (out or "")
+
+
+def execute(cmd):
+    """(ok, testo) per un comando del contratto: {op, session, arg, by}. Allow-list fissa, tutto via la CLI."""
+    op = str(cmd.get("op") or "")
+    session = str(cmd.get("session") or "")
+    arg = cmd.get("arg")
+    if op not in OPS:
+        return False, M("relay.cmd_not_allowed", op=op or "?")
+    tm = tmux_of(session)
+    info = last_sessions().get(session) or {}
+    try:
+        if op == "answer":
+            # 1.10 (15/09): arg «n» = l'opzione n; «text:<testo>» = «Type something.» + il testo; «chat» = «Chat about this»
+            a = str(arg or "").strip()
+            if a == "chat":
+                pick = ["--chat"]
+            elif a.startswith("text:"):
+                if not a[5:].strip():
+                    return False, M("relay.cmd_empty_text")
+                pick = ["--text", a[5:].strip()]
+            elif a.isdigit() and int(a):
+                pick = [a]
+            else:
+                return False, M("relay.cmd_bad_answer", arg=a or "?")
+            row = next((r for r in (_json_cmd("sessions", "--json", "--no-screen") or []) if (r.get("tmux") or r.get("name")) == tm), None)
+            if row:
+                checkpoint(row.get("cwd"))
+            rc, out = run_cm("answer", tm, *pick)
+            if rc != 0:
+                return False, out.splitlines()[0] if out else "answer failed"
+            clear_waiting((row or {}).get("session_id"))
+            m = re.search(r"risposto\s+(\d+)\.\s+(.*?)\s{2,}", out + "  ") or re.search(r"risposto\s+(\d+)\.\s+(\S.*)$", out.splitlines()[0])
+            label = m.group(2).strip() if m else ""
+            return True, M("relay.cmd_answered", n=m.group(1) if m else a, label=label)
+        if op == "prompt":
+            text = str(arg or "").strip()
+            if not text:
+                return False, "empty prompt"
+            if not is_live(tm):
+                return False, M("relay.cmd_not_running", name=session)
+            # 1.42: un prompt dettato in modalita' live porta le istruzioni vocali dopo il prefisso (timeline e transcript le tolgono)
+            voice = " " + M("relay.prompt_voice") if cmd.get("voice") is True else ""
+            rc, out = run_cm("talk", tm, prefix_for(cmd) + voice + " " + text, "--no-wait")
+            if rc != 0:
+                return False, out.splitlines()[0] if out else "talk failed"
+            if saved_in_inbox(out):
+                return False, M("relay.cmd_inbox_only", name=session)
+            aw = read_json(rdir() / "awaiting.json", {}); aw[tm] = int(time.time()); write_json(rdir() / "awaiting.json", aw)
+            try:   # 1.33: un'azione ricorrente mandata dal telefono sale in cima alla lista
+                _load("cm-recurring").mark_used(text)
+            except Exception:   # noqa: BLE001 — un extra: mai far fallire il prompt
+                pass
+            return True, M("relay.cmd_delivered")
+        if op == "launch":
+            path = str(arg or "")
+            proj = next((p for p in inventory() if os.path.realpath(p["path"]) == os.path.realpath(path)), None) if path else None
+            if not proj:
+                return False, M("relay.cmd_no_project", path=path or "?")
+            # 1.13 (16/09, dall'utente): «Nuova sessione» dal polso con il primo messaggio, nel campo `text` del comando. Un relay
+            # che non conosce `text` lo ignora e lancia senza messaggio: mai un prompt a meta'
+            prompt = " ".join(str(cmd.get("text") or "").split())
+            here = os.path.realpath(proj["path"])
+            before = {r.get("tmux") or r.get("name") for r in (_json_cmd("sessions", "--json", "--no-screen") or [])}
+            # 1.9.2 (15/09, decisione dell'utente): la scheda sul desktop come reopen; senza desktop, senza finestra
+            rc, out = run_cm("launch", proj["path"], "--window")
+            if rc != 0:
+                return False, out.splitlines()[0] if out else "launch failed"
+            # il nome vero della sessione nata (launch prende il primo libero: «orbit-docs-2»), cosi' il polso apre la
+            # Scheda giusta senza indovinare; e' lo stesso nome corto di sessions[].name
+            new = [r.get("tmux") or r.get("name") for r in (_json_cmd("sessions", "--json", "--no-screen") or [])
+                   if (r.get("tmux") or r.get("name")) not in before and r.get("cwd") and os.path.realpath(r["cwd"]) == here]
+            extra = {"session": S.short_name(new[0], prefixes())} if new else {}
+            if not prompt:
+                return True, M("relay.cmd_launched", name=proj["name"], account=proj["account"]), extra
+            if not new:
+                return False, M("relay.cmd_launch_no_prompt", name=proj["name"], account=proj["account"], line="session not found"), extra
+            rc, out = run_cm("talk", new[0], prefix_for(cmd) + " " + prompt, "--no-wait")
+            if rc != 0:
+                return False, M("relay.cmd_launch_no_prompt", name=proj["name"], account=proj["account"],
+                                line=(out.splitlines() or ["talk failed"])[0]), extra
+            aw = read_json(rdir() / "awaiting.json", {}); aw[new[0]] = int(time.time()); write_json(rdir() / "awaiting.json", aw)
+            return True, M("relay.cmd_launched_prompt", name=proj["name"], account=proj["account"]), extra
+        if op in ("follow", "unfollow"):
+            fl = set(read_json(rdir() / "follow.json", []))
+            (fl.add if op == "follow" else fl.discard)(tm)
+            write_json(rdir() / "follow.json", sorted(fl))
+            return True, M("relay.cmd_following" if op == "follow" else "relay.cmd_unfollowed", name=session)
+        if op == "resume":
+            if info.get("state") == "gone":
+                return False, M("relay.cmd_gone", name=session)
+            if not is_live(tm):
+                return False, M("relay.cmd_not_running", name=session)
+            rc, out = run_cm("talk", tm, prefix_for(cmd) + " " + str((CFG.get("guard") or {}).get("resume_prompt") or "riprendi da dove eri"), "--no-wait")
+            if rc != 0:
+                return False, out.splitlines()[0] if out else "talk failed"
+            if saved_in_inbox(out):
+                return False, M("relay.cmd_inbox_only", name=session)
+            return True, M("relay.cmd_resumed", name=session)
+        if op == "reopen":
+            # 1.9 (15/09): una sessione gone rilanciata nella sua cartella (la logica e' una sola, anche per il bot)
+            ok, code, f = core.reopen(tm, run_cm)
+            return ok, M(f"relay.cmd_reopen_{code}", name=session, **f)
+        if op in ("model", "effort"):
+            # 1.12 (16/09): dal selettore della sessione, SOLO per quella sessione — mai il default delle sessioni nuove.
+            # Le verifiche (ferma al prompt, valore fra le scelte, conferma nel riquadro) le fa `supervisor model|effort`;
+            # il testo di un rifiuto e' la sua prima riga, breve, e il polso la mostra cosi' com'e'.
+            if info.get("state") == "gone":
+                return False, M("relay.cmd_gone", name=session)
+            rc, out = run_cm(op, tm, str(arg or "").strip())
+            text = (out.splitlines() or [f"{op} failed"])[0]
+            if rc == 0:
+                push_async()   # lo stato riporta subito il valore nuovo (annotato dal comando, cm-core lo usa)
+            return rc == 0, text
+        if op == "night_add":
+            # 1.17 (29/09): un lavoro nella coda di stanotte, dalla cartella di un progetto pubblicato come launch
+            path = str(arg or "")
+            proj = next((p for p in inventory() if os.path.realpath(p["path"]) == os.path.realpath(path)), None) if path else None
+            if not proj:
+                return False, M("relay.cmd_no_project", path=path or "?")
+            prompt = str(cmd.get("text") or "").strip()
+            if not prompt:
+                return False, M("relay.cmd_night_empty")
+            rc, out = run_cm("night", "add", proj["path"], prompt)
+            if rc == 4:
+                return False, M("relay.cmd_night_full", max=night_max())
+            if rc != 0:
+                return False, (out.splitlines() or ["night add failed"])[0]
+            m = re.search(r"\b([0-9a-f]{8})\b", out)
+            job = m.group(1) if m else "?"
+            return True, M("relay.cmd_night_added", id=job, name=proj["name"], account=proj["account"]), {"job": job}
+        if op == "night_remove":
+            job = str(arg or "").strip()
+            if not job:
+                return False, M("relay.cmd_night_unknown", id="?")
+            rc, out = run_cm("night", "remove", job)
+            if rc == 1:
+                return False, M("relay.cmd_night_unknown", id=job)
+            if rc == 5:
+                return False, M("relay.cmd_night_started", id=job)
+            if rc != 0:
+                return False, (out.splitlines() or ["night remove failed"])[0]
+            return True, M("relay.cmd_night_removed", id=job)
+        if op == "report":
+            return share_report(cmd, tm, session)
+        if op == "transcript":
+            return transcript_page(session, tm, arg)
+        if op == "file":
+            return file_open(cmd, session, tm, arg)
+        if op == "slash":
+            return slash_send(cmd, session, tm, arg)
+        if op == "approve":
+            return approve_task(cmd, arg)
+        if op == "decision":
+            return decision_send(cmd, arg)
+        if op == "projects":
+            return projects_list()
+        if op == "night":
+            return night_report(arg)
+        if op == "search":
+            return search(arg)
+        if op == "timeline":
+            return timeline_page(cmd.get("session"), arg)
+        if op == "pair_add":
+            return pair_add_invite()
+        if op == "unpair":
+            return unpair(arg)
+        if op == "interrupt":
+            # 1.21 (30/09): il tasto Stop — `supervisor interrupt` manda un solo Esc, e solo a turno in corso
+            if info.get("state") == "gone" or not is_live(tm):
+                return False, M("relay.cmd_interrupt_gone", name=session)
+            rc, out = run_cm("interrupt", tm)
+            if rc == 0:
+                aw = read_json(rdir() / "awaiting.json", {})
+                if aw.pop(tm, None) is not None:
+                    write_json(rdir() / "awaiting.json", aw)
+                push_async()   # lo stato dice subito che il turno non gira piu'
+                return True, M("relay.cmd_stopped", name=session)
+            if rc == 1:
+                return False, M("relay.cmd_nothing_to_stop", name=session)
+            if rc == 4:
+                return False, M("relay.cmd_still_running", name=session)
+            return False, (out.splitlines() or ["interrupt failed"])[0]
+        if op == "last":
+            row = next((r for r in (_json_cmd("sessions", "--json", "--no-screen") or []) if (r.get("tmux") or r.get("name")) == tm), None)
+            text = last_message(row) if row else ""
+            return (bool(text), text or M("relay.cmd_no_last", name=session))
+        if op == "screen":
+            # --join: tmux riunisce le righe mandate a capo, cosi' il polso non riceve parole spezzate
+            rc, out = run_cm("screen", tm, "--lines", "30", "--join")
+            return (rc == 0), ("\n".join(out.splitlines()[-30:]) if rc == 0 else (out.splitlines()[0] if out else "screen failed"))
+        if op == "allow_all":
+            q = info.get("question") or {}
+            if not q:
+                return False, M("relay.cmd_no_question", name=session)
+            if q.get("tier") == "high":
+                return False, M("relay.cmd_high")
+            opt = next((o for o in q.get("options", []) if re.search(r"don.?t ask again|non chiedere|sempre|always", str(o.get("label") or ""), re.I)), None)
+            if not opt:
+                return False, M("relay.cmd_no_allow_all")
+            rc, out = run_cm("answer", tm, str(opt["n"]))
+            if rc == 0:
+                clear_waiting(next((r.get("session_id") for r in (_json_cmd("sessions", "--json", "--no-screen") or []) if (r.get("tmux") or r.get("name")) == tm), ""))
+            return (rc == 0), (M("relay.cmd_answered", n=opt["n"], label=opt["label"]) if rc == 0 else (out.splitlines()[0] if out else "answer failed"))
+    except subprocess.TimeoutExpired:
+        return False, "timeout"
+    return False, M("relay.cmd_not_allowed", op=op)
+
+
+# ------------------------------------------------------------------ serve (SSE su /cmd)
+def serve_pid_path():
+    return rdir() / "serve.pid"
+
+
+def serve_status_path():
+    return rdir() / "serve.json"
+
+
+def serve_alive():
+    try:
+        pid = int(serve_pid_path().read_text().strip() or 0)
+        if pid > 0:
+            os.kill(pid, 0)
+            return pid
+    except (OSError, ValueError):
+        pass
+    return 0
+
+
+def serve_stop():
+    pid = serve_alive()
+    if not pid:
+        return False
+    import signal
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return False
+    for _ in range(30):
+        time.sleep(0.1)
+        if not serve_alive():
+            break
+    return True
+
+
+def sse_lines(resp):
+    """Gli eventi (event, data) di uno stream SSE, riga per riga."""
+    ev, data = None, []
+    for raw in resp:
+        line = raw.decode("utf-8", "replace").rstrip("\r\n")
+        if line.startswith("event:"):
+            ev = line[6:].strip()
+        elif line.startswith("data:"):
+            data.append(line[5:].strip())
+        elif line == "":
+            if ev is not None:
+                yield ev, "\n".join(data)
+            ev, data = None, []
+
+
+def commands_from(ev, payload):
+    """{id: doc} dai `put`/`patch` sul nodo /cmd."""
+    if ev not in ("put", "patch"):
+        return {}
+    try:
+        d = json.loads(payload or "null") or {}
+    except ValueError:
+        return {}
+    path, data = str(d.get("path") or "/"), d.get("data")
+    if path in ("", "/"):
+        return dict(data) if isinstance(data, dict) else {}
+    cid = path.strip("/").split("/")[0]
+    if ev == "put" and "/" not in path.strip("/"):
+        return {cid: data}
+    return {}
+
+
+PASSIVE_OPS = ("transcript", "screen", "last", "file", "projects", "search", "timeline", "pair_add", "night")   # letture: non cambiano lo stato, vengono dopo i comandi dell'utente
+
+
+def in_order(cmds):
+    """I comandi nell'ordine in cui il telefono o l'orologio li ha dati (`issued`, poi l'id): le chiavi di /cmd sono
+    uuid casuali, e dopo una riconnessione (una all'ora per il token) il `put` iniziale li porta tutti insieme in
+    ordine di chiave — un prompt poteva partire dopo la risposta che lo seguiva (30/09, dal telefono)."""
+    try:
+        k = key()
+    except RelayError:
+        return list(cmds.items())
+
+    def clear(item):
+        doc = item[1]
+        try:
+            c = C.decrypt(doc, k) if isinstance(doc, dict) and "enc" in doc else doc
+            return c if isinstance(c, dict) else {}
+        except (ValueError, TypeError, AttributeError):
+            return {}
+    items = [(cid, doc, clear((cid, doc))) for cid, doc in cmds.items()]
+    # prima i comandi dell'utente, poi le letture; dentro ciascun gruppo nell'ordine in cui sono stati dati
+    items.sort(key=lambda x: (str(x[2].get("op") or "") in PASSIVE_OPS, float(x[2].get("issued") or 0), x[0]))
+    # di piu' letture uguali della stessa sessione vale l'ultima: il telefono si e' gia' scordato le altre
+    newest = {}
+    for cid, _, c in items:
+        if str(c.get("op") or "") in PASSIVE_OPS:
+            newest[(c.get("op"), c.get("session"))] = cid
+    out = []
+    for cid, doc, c in items:
+        if str(c.get("op") or "") in PASSIVE_OPS and newest.get((c.get("op"), c.get("session"))) != cid:
+            superseded(cid, k)
+            continue
+        out.append((cid, doc))
+    return out
+
+
+def superseded(cid, k):
+    """Una lettura rimpiazzata da una piu' recente della stessa sessione: risultato breve e /cmd pulito, cosi' nulla
+    resta appeso."""
+    try:
+        rtdb("PUT", f"result/{cid}", C.encrypt({"id": cid, "ok": False, "text": M("relay.cmd_superseded"), "at": int(time.time())}, k), {"print": "silent"})
+        rtdb("DELETE", f"cmd/{cid}")
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        log(f"cmd {cid}: superseded non scritto ({e})")
+
+
+def ledger_write(event, **fields):
+    """Una riga nel registro comune (<state_dir>/ledger.jsonl), stessa forma dell'hook: cosi' il recap e le
+    diagnosi vedono anche i comandi arrivati dal polso (design §5: «`by` dice chi ha risposto, il registro lo annota»)."""
+    try:
+        p = Path(cm.expand(CFG["state_dir"])) / "ledger.jsonl"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        row = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "event": event, "session_id": "", "cwd": "", "account": "", "pid": os.getpid()}
+        row.update(fields)
+        with open(p, "a") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def handle_cmd(cid, doc, done, arrived=None):
+    if doc is None:
+        return False
+    if cid in done:
+        # gia' eseguito (Riprova dal polso, o la riconnessione che rimanda tutto /cmd): via senza rieseguire
+        try:
+            rtdb("DELETE", f"cmd/{cid}")
+        except (urllib.error.URLError, OSError, ValueError):
+            pass
+        return False
+    k = key()
+    try:
+        cmd = C.decrypt(doc, k) if isinstance(doc, dict) and "enc" in doc else doc
+    except ValueError as e:
+        log(f"cmd {cid}: non decifrabile ({e}), scartato"); cmd = None
+    if not isinstance(cmd, dict):
+        try:
+            rtdb("DELETE", f"cmd/{cid}")
+        except (urllib.error.URLError, OSError, ValueError):
+            pass
+        done.append(cid); return True
+    cmd.pop("_local", None)   # solo l'API locale lo mette
+    cmd.setdefault("id", cid)
+    result = run_cmd(cmd, arrived)
+    t_put = time.time()
+    try:
+        rtdb("PUT", f"result/{cid}", C.encrypt(result, k), {"print": "silent"})
+        rtdb("DELETE", f"cmd/{cid}")
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        log(f"cmd {cid}: result non scritto ({e})")
+    else:
+        if arrived and str(cmd.get("op") or "") not in PASSIVE_OPS:
+            # fase 0 (07/10): l'attesa vera di un prompt o di una risposta, dall'arrivo sullo stream all'esito sul bus
+            log(f"cmd {cid}: esito scritto · {cmd.get('op')} · dall'arrivo {_s(time.time() - arrived)} s · put {_s(time.time() - t_put)} s")
+    done.append(cid)
+    del done[:-500]
+    write_json(rdir() / "done-cmds.json", done)
+    return True
+
+
+EXEC_LOCK = threading.Lock()   # 1.35: i comandi dal bus e quelli dell'API locale, uno alla volta come prima
+
+
+def run_cmd(cmd, arrived=None):
+    """Esegue un Cmd (gia' in chiaro, con `id`) e ne ritorna il CmdResult: log, registro, osservazioni e push dopo
+    i comandi che cambiano lo stato. Lo usano il daemon sul bus e l'API locale. `arrived` = quando e' arrivato dallo
+    stream (fase 0, 07/10: la fila prima dell'esecuzione)."""
+    cid = str(cmd.get("id") or "")
+    t_in = time.time()
+    with EXEC_LOCK:
+        t_run = time.time()
+        res = execute(cmd)
+    t_done = time.time()
+    try:
+        issued = float(cmd.get("issued") or 0)
+    except (TypeError, ValueError):
+        issued = 0.0
+    timing = (f" · fila {_s(t_run - (arrived or t_in))} s · esecuzione {_s(t_done - t_run)} s"
+              + (f" · issued {_s(t_run - issued)} s (orologio del dispositivo)" if issued > 1e9 else ""))
+    ok, text = res[0], res[1]
+    extra = res[2] if len(res) > 2 and isinstance(res[2], dict) else {}   # 1.13: {"session": nome} dopo un launch
+    by = str(cmd.get("by") or "?")
+    log(f"cmd {cid}: {cmd.get('op')} {cmd.get('session') or ''} da {by}{' (locale)' if cmd.get('_local') else ''} → {'ok' if ok else 'ERR'} {str(text)[:80]}{timing}")
+    row = last_sessions().get(str(cmd.get("session") or "")) or {}
+    ledger_write("watch-cmd", op=str(cmd.get("op") or ""), name=str(cmd.get("session") or ""), by=by, ok=bool(ok),
+                 text=str(text)[:200], session_id=row.get("id") or "", account=row.get("account") or "")
+    if not ok:   # osservazioni (23/09): un comando del polso fallito finisce nella casella di supervisor (claude-observe)
+        try:
+            spec = importlib.util.spec_from_file_location("cm_observe", HERE.parent / "observe" / "observe.py")
+            obs = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(obs)
+            obs.record_external("relay", f"relay {cmd.get('op') or ''}", str(text), str(cmd.get("session") or ""))
+        except Exception:   # noqa: BLE001 — un'informazione in piu': mai far cadere il comando
+            pass
+    # 30/09 (dal vivo): la push sincrona dopo OGNI comando costava ~6 s, anche dopo una lettura della chat, e i prompt
+    # restavano in fila dietro le letture fino a scadere sul telefono. Le letture non cambiano lo stato: niente push;
+    # gli altri comandi la chiedono in background (debounce) e il daemon passa subito al comando dopo
+    if str(cmd.get("op") or "") not in PASSIVE_OPS:
+        try:
+            push_async()
+        except OSError as e:
+            log(f"push dopo il comando FAILED: {e}")
+    return {"id": cid, "ok": bool(ok), "text": str(text), **extra, "at": int(time.time())}
+
+
+# ------------------------------------------------------------------ web app e API locale (1.35)
+W = None   # cm-relay-web, caricato solo quando serve
+
+
+def web_cfg():
+    return R.get("web") or {}
+
+
+class LocalApi:
+    """Quello che cm-relay-web chiede al relay: la copia locale di stato ed eventi, i comandi, file e allegati."""
+
+    def state_stamp(self):
+        try:
+            st = (rdir() / "local" / "state.json").stat()
+            return (st.st_mtime_ns, st.st_size)
+        except OSError:
+            return None
+
+    def state(self):
+        st = read_json(rdir() / "local" / "state.json", None)
+        if st is None:   # appena acceso: il primo battito arriva entro un minuto, si anticipa
+            try:
+                push_async("web")
+            except OSError:
+                pass
+        return st
+
+    def events(self, since):
+        evs = [e for e in read_json(rdir() / "local" / "events.json", {}).values() if float(e.get("ts") or 0) > since]
+        return sorted(evs, key=lambda e: str(e.get("key") or ""), reverse=True)
+
+    def cmd(self, cmd):
+        cmd = dict(cmd)
+        cmd["id"] = str(cmd.get("id") or "") or str(uuid.uuid4())
+        cmd["_local"] = True
+        cmd.setdefault("by", "web")
+        cmd.setdefault("device", "web")   # 1.36: dall'API locale arriva solo la web app
+        return run_cmd(cmd)
+
+    def file(self, fid):
+        p = rdir() / "local" / "file" / f"{fid}.json"
+        if not p.is_file() or time.time() - p.stat().st_mtime > SHARE_TTL_S:
+            return None
+        return read_json(p, None)
+
+    def share(self, sid, blob):
+        d = local_dir("share")
+        (d / f"{sid}.bin").write_bytes(blob["data"])
+        os.chmod(d / f"{sid}.bin", 0o600)
+        write_json(d / f"{sid}.json", {"mime": blob["mime"], "name": blob.get("name"), "size": len(blob["data"])})
+
+
+def web_start():
+    """Dentro `relay serve`, se relay.web.enabled: la porta occupata non ferma il daemon del bus."""
+    global W
+    w = web_cfg()
+    if not w.get("enabled"):
+        return None
+    W = W or _load("cm-relay-web")
+    try:
+        srv = W.start(int(w.get("port") or 8765), W.load_token(rdir()), cm.expand(w["dir"]) if w.get("dir") else "", LocalApi())
+    except OSError as e:
+        log(f"web: porta {w.get('port')} non disponibile ({e})")
+        return None
+    log(f"web: http://127.0.0.1:{srv.server_address[1]}/")
+    return srv
+
+
+def web(rest):
+    """`relay web [--no-open]`: l'indirizzo della web app locale col token; lo apre nel browser (xdg-open, su
+    ChromeOS il Chrome vero) se il daemon la sta servendo."""
+    global W
+    w = web_cfg()
+    if not w.get("enabled"):
+        print(M("relay.web_disabled")); return 2
+    W = W or _load("cm-relay-web")
+    port = int(w.get("port") or 8765)
+    link = W.url(port, W.load_token(rdir()))
+    if not serve_alive():
+        ensure()
+    print(link)
+    if "--no-open" not in rest:
+        opener = os.environ.get("CM_RELAY_OPEN") or shutil.which("xdg-open") or shutil.which("garcon-url-handler")
+        if opener:
+            subprocess.Popen([opener, link], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        else:
+            print(M("relay.web_no_opener"), file=sys.stderr)
+    return 0
+
+
+def serve():
+    if not R.get("enabled"):
+        print(M("relay.disabled")); return 2
+    lock = open(str(rdir() / "serve.lock"), "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print(M("relay.serve_locked")); log("serve: lock preso da un altro serve, esco"); return 4
+    serve_pid_path().write_text(str(os.getpid()))
+    started = time.time()
+    import signal
+
+    def _stop(*_):
+        raise SystemExit(0)
+    signal.signal(signal.SIGTERM, _stop); signal.signal(signal.SIGINT, _stop)
+    log(f"serve: avvio pid {os.getpid()}")
+    search_warm_async()   # 04/10: la prima ricerca dal telefono trova la cache gia' piena
+    push_request("serve")   # all'avvio una push, poi quelle chieste da hook, cron e comandi
+    worker = PushWorker()
+    worker.start()
+    web_srv = web_start()   # 1.35: la web app e l'API locale, se relay.web.enabled
+    done = list(read_json(rdir() / "done-cmds.json", []))
+    st_ = {"pid": os.getpid(), "started": started, "last_cmd_ts": None, "last_cmd": "", "served": 0, "reconnects": 0,
+           "code": code_print()}   # 08/10: l'impronta del codice con cui gira, per `ensure`
+    # subito su file: finche' lo stream regge il ciclo non torna qui, e `relay status` mostrerebbe i numeri del
+    # processo precedente (visto dal vivo il 14/09: «46 riconnessioni» su un daemon appena avviato)
+    try:
+        serve_status_path().write_text(json.dumps(st_))
+    except OSError:
+        pass
+    tries = 0
+    try:
+        while True:
+            try:
+                url = f"{base_url()}/cmd.json?{urllib.parse.urlencode({'access_token': token()})}"
+                req = urllib.request.Request(url, headers={"Accept": "text/event-stream", "Cache-Control": "no-cache"})
+                with urllib.request.urlopen(req, timeout=float(R.get("serve_timeout_s") or 50) + 40) as resp:
+                    if tries:
+                        log("serve: riconnesso")
+                    tries = 0
+                    for ev, payload in sse_lines(resp):
+                        arrived = time.time()
+                        if ev == "auth_revoked":
+                            log("serve: auth_revoked, nuovo token"); (rdir() / "token.json").unlink(missing_ok=True); break
+                        for cid, doc in in_order(commands_from(ev, payload)):
+                            if handle_cmd(cid, doc, done, arrived):
+                                st_["last_cmd_ts"] = time.time(); st_["last_cmd"] = cid; st_["served"] += 1
+                                try:
+                                    serve_status_path().write_text(json.dumps(st_))
+                                except OSError:
+                                    pass
+            except urllib.error.HTTPError as e:
+                if e.code == 401:
+                    (rdir() / "token.json").unlink(missing_ok=True)
+                delay = BACKOFF[min(tries, len(BACKOFF) - 1)]; tries += 1; st_["reconnects"] += 1
+                log(f"serve: HTTP {e.code}, riconnessione fra {delay}s"); time.sleep(delay)
+            except (urllib.error.URLError, OSError, ValueError, RelayError) as e:
+                delay = BACKOFF[min(tries, len(BACKOFF) - 1)]; tries += 1; st_["reconnects"] += 1
+                log(f"serve: rete assente ({str(e)[:80]}), riconnessione fra {delay}s"); time.sleep(delay)
+            try:
+                serve_status_path().write_text(json.dumps(st_))
+            except OSError:
+                pass
+    finally:
+        log("serve: stop")
+        worker.stop.set()
+        if web_srv:
+            web_srv.stop()
+        try:
+            serve_pid_path().unlink()
+        except OSError:
+            pass
+        try:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+        finally:
+            lock.close()
+    return 0
+
+
+CODE_FILES = ("cm-relay.py", "cm-relay-state.py", "cm-relay-crypto.py", "cm-relay-web.py", "cm-core.py")
+STALE_S = 180
+
+
+def code_print():
+    """L'impronta del codice del relay su disco (dimensione e data dei file che il demone carica): se il demone vivo ne
+    ha una diversa, gira con codice vecchio (08/10: 62 minuti di stato fermo, cron e hook gia' col codice nuovo)."""
+    out = []
+    for n in CODE_FILES:
+        try:
+            st = (HERE / n).stat()
+            out.append(f"{n}:{st.st_size}:{st.st_mtime_ns}")
+        except OSError:
+            pass
+    return ";".join(out)
+
+
+def guard_path():
+    return rdir() / "guard.json"
+
+
+def _hm(t):
+    return time.strftime("%H:%M", time.localtime(t))
+
+
+def guard(now=None):
+    """08/10 (chiesto dal maintainer dopo lo stato fermo dalle 10:47 alle 11:49): la guardia che `ensure` fa ogni minuto.
+    Se l'ultimo stato pubblicato ha piu' di STALE_S, push diretta con origine «guardia»; se il lock delle push e' preso
+    da piu' di STALE_S, non aspetta e lo dice. Un guasto si avvisa una volta su Telegram appena visto e, quando lo stato
+    riparte, con l'evento `relay_stale` (1.45) che dice da quando, perche' e come si e' sbloccato."""
+    now = now or time.time()
+    g = read_json(guard_path(), {})
+    last = read_json(rdir() / "last-state.json", {})
+    pub = float((last.get("state") or {}).get("published_at") or last.get("pushed_at") or 0)
+    if not pub:
+        return
+    if now - pub <= STALE_S:
+        if g.get("since"):
+            cause = g.get("cause") or "push"
+            body = M(f"relay.stale_{cause}", since=_hm(g["since"]), at=_hm(g.get("fixed_at") or pub),
+                     lock=int((now - float(g.get("lock_since") or now)) // 60)) + " " + M("relay.stale_ok")
+            try:
+                emit("relay_stale", M("relay.stale_title", min=max(1, int((pub - g["since"]) // 60))), body)
+            except Exception as e:   # noqa: BLE001 — l'avviso in piu' non deve far cadere la guardia
+                log(f"guardia: evento relay_stale non mandato ({str(e)[:120]})")
+            guard_path().unlink(missing_ok=True)
+        elif g and now - float(g.get("restarted_at") or 0) > 600:
+            guard_path().unlink(missing_ok=True)
+        return
+    g.setdefault("since", pub)
+    g.setdefault("cause", "push")
+    lock = open(str(rdir() / "push.lock"), "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        busy = False
+        fcntl.flock(lock, fcntl.LOCK_UN)
+    except OSError:
+        busy = True
+    finally:
+        lock.close()
+    if busy:
+        g.setdefault("lock_since", now)
+        if now - float(g["lock_since"]) > STALE_S:
+            g["cause"] = "lock"
+            log(f"guardia: stato fermo da {int(now - pub)} s, lock delle push occupato da {int(now - g['lock_since'])} s")
+    else:
+        g.pop("lock_since", None)
+        log(f"guardia: stato fermo da {int(now - pub)} s, push diretta")
+        try:
+            push(origin="guardia")
+            g["fixed_at"] = time.time()
+        except Exception as e:   # noqa: BLE001
+            log(f"push (guardia) FAILED: {str(e)[:200]}")
+    if not g.get("told") and (g["cause"] != "lock" or now - float(g.get("lock_since") or now) > STALE_S):
+        text = M("relay.stale_title", min=max(1, int((now - g["since"]) // 60))) + "\n" + M(
+            f"relay.stale_{g['cause']}", since=_hm(g["since"]), at=_hm(g.get("fixed_at") or now),
+            lock=int((now - float(g.get("lock_since") or now)) // 60))
+        try:
+            _load("cm-bot").send(text, watch_quiet=False)
+        except Exception as e:   # noqa: BLE001 — senza bot resta il log e, alla ripresa, l'evento
+            log(f"guardia: avviso Telegram non mandato ({str(e)[:120]})")
+        g["told"] = True
+    write_json(guard_path(), g)
+
+
+def ensure():
+    if not R.get("enabled"):
+        return 0
+    pid = serve_alive()
+    if pid:
+        code = read_json(serve_status_path(), {}).get("code")
+        if not code or code == code_print():
+            print(M("relay.serve_alive", pid=pid))
+            guard()
+            return 0
+        # il demone gira con il codice di prima: cron e hook usano gia' quello nuovo (08/10, 62 minuti di stato fermo)
+        log(f"serve: riavviato, codice cambiato (pid {pid})")
+        g = read_json(guard_path(), {})
+        g.update(cause="code", restarted_at=time.time())
+        write_json(guard_path(), g)
+        serve_stop()
+    lp = rdir() / "relay.log"
+    with open(lp, "a") as out:
+        subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "serve"], stdin=subprocess.DEVNULL, stdout=out, stderr=out,
+                         start_new_session=True, env=os.environ.copy())
+    for _ in range(30):
+        time.sleep(0.1)
+        if serve_alive():
+            break
+    pid = serve_alive()
+    print(M("relay.serve_started", pid=pid) if pid else M("relay.serve_stopped"))
+    return 0 if pid else 1
+
+
+def crontab_read():
+    return subprocess.run([os.environ.get("CM_CRONTAB_CMD", "crontab"), "-l"], capture_output=True, text=True).stdout
+
+
+def crontab_write(text):
+    subprocess.run([os.environ.get("CM_CRONTAB_CMD", "crontab"), "-"], input=text, text=True, check=True)
+
+
+def cron_lines():
+    shim = cm.home() / ".local" / "bin" / "supervisor"
+    # 08/10 (fase 1): il battito e' un `touch` della richiesta, senza avviare Python; la push la fa il demone
+    req = rdir() / "push-req" / "cron"
+    return [f"* * * * * {shim} relay ensure >/dev/null 2>&1", f"* * * * * mkdir -p {req.parent} && touch {req} # supervisor relay battito"]
+
+
+def install():
+    if not R.get("enabled"):
+        print(M("relay.disabled")); return 2
+    cur = crontab_read()
+    lines = [l for l in cur.splitlines() if "supervisor relay" not in l]
+    lines += ["# supervisor relay: l'orologio (ascolto dei comandi, battito di /state ogni minuto)"] + cron_lines()
+    crontab_write("\n".join(lines) + "\n")
+    print(M("relay.cron_installed", s=int(R.get("heartbeat_s") or 60)))
+    ensure()
+    return 0
+
+
+def uninstall():
+    if serve_stop():
+        print(M("relay.serve_stopped"))
+    cur = crontab_read()
+    if "supervisor relay" in cur:
+        lines = [l for l in cur.splitlines() if "supervisor relay" not in l]
+        crontab_write("\n".join(lines) + ("\n" if lines else ""))
+        print(M("relay.cron_removed"))
+    return 0
+
+
+def off():
+    """Pausa: ferma il daemon (il cron resta; `ensure` lo rialza al prossimo minuto solo se relay.enabled)."""
+    print(M("relay.serve_stopped") if serve_stop() else M("relay.serve_alive", pid=0).split("(")[0].strip())
+    return 0
+
+
+def status():
+    pid = serve_alive()
+    last = read_json(rdir() / "last-state.json", {})
+    st_ = read_json(serve_status_path(), {})
+    serve_s = (f"VIVO pid {pid}, comandi {st_.get('served', 0)}, riconnessioni {st_.get('reconnects', 0)}" if pid else "fermo")
+    print(M("relay.status", state="abilitato" if R.get("enabled") else "spento", url=R.get("firebase_url") or "-",
+            key="ok" if C.load_key(rdir()) else "assente (relay pair)", sa="ok" if sa_path().is_file() else f"assente ({sa_path()})",
+            serve=serve_s, last=(time.strftime("%H:%M:%S", time.localtime(last["pushed_at"])) if last.get("pushed_at") else "-"),
+            cron="yes" if "supervisor relay" in crontab_read() else "no"))
+    return 0
+
+
+# ------------------------------------------------------------------ misure (fase 0, 07/10)
+_NUM = r"(-?[0-9]+,[0-9])"
+STATS_PUSH = re.compile(r"^(\S+) push: \d+ sessioni, (\d+) eventi · origine (\S+) · attesa " + _NUM + r" s · lock " + _NUM
+                        + r" s · raccolta " + _NUM + r" s · pubblicazione " + _NUM + r" s · contorno " + _NUM
+                        + r" s · ts→put " + _NUM + r" s · cpu " + _NUM + r"\+" + _NUM + r" s")
+STATS_CMD = re.compile(r"^(\S+) cmd \S+: (\S+) .*· fila " + _NUM + r" s · esecuzione " + _NUM + r" s")
+STATS_DONE = re.compile(r"^(\S+) cmd \S+: esito scritto · (\S+) · dall'arrivo " + _NUM + r" s")
+STATS_ARRIVAL = re.compile(r"^(\S+) arrivo: \S+ " + _NUM + r" s dopo la push")
+
+
+def _num(x):
+    return float(x.replace(",", "."))
+
+
+def _pct(xs, q):
+    xs = sorted(xs)
+    return xs[min(len(xs) - 1, int(round(q * (len(xs) - 1))))] if xs else 0.0
+
+
+def stats(rest):
+    """`relay stats [--since T] [--until T]`: p50, p95 e massimo delle misure del log (push, eta' dello stato, comandi).
+    T = HH:MM di oggi o un istante ISO (2026-10-07T16:20). Solo le righe con le misure (dalla fase 0 in poi)."""
+    def bound(flag):
+        if flag not in rest or rest.index(flag) + 1 >= len(rest):
+            return None
+        v = rest[rest.index(flag) + 1]
+        return time.strftime("%Y-%m-%dT") + v if re.fullmatch(r"\d{1,2}:\d{2}", v) and len(v) == 5 else (
+            time.strftime("%Y-%m-%dT") + "0" + v if re.fullmatch(r"\d:\d{2}", v) else v)
+    since, until = bound("--since"), bound("--until")
+    lines = []
+    for p in (log_path().with_name(log_path().name + ".1"), log_path()):
+        try:
+            lines += p.read_text(errors="replace").splitlines()
+        except OSError:
+            pass
+    keep = lambda ts: (since is None or ts >= since) and (until is None or ts < until)  # noqa: E731
+    push, cmds, done, arr = [], {}, {}, []
+    for l in lines:
+        if (mm := STATS_PUSH.match(l)) and keep(mm.group(1)):
+            g = [_num(x) for x in mm.groups()[3:]]
+            push.append({"ts": mm.group(1), "origin": mm.group(3), "wait": g[0], "lock": g[1], "dur": g[1] + g[2] + g[3] + g[4],
+                         "collect": g[2], "age": g[5], "cpu": g[6] + g[7]})
+        elif (mm := STATS_DONE.match(l)) and keep(mm.group(1)):
+            done.setdefault(mm.group(2), []).append(_num(mm.group(3)))
+        elif (mm := STATS_CMD.match(l)) and keep(mm.group(1)):
+            cmds.setdefault(mm.group(2), []).append((_num(mm.group(3)), _num(mm.group(4))))
+        elif (mm := STATS_ARRIVAL.match(l)) and keep(mm.group(1)):
+            arr.append(_num(mm.group(2)))
+    row = lambda name, xs: f"  {name:<34} n {len(xs):>5}   p50 {_pct(xs, .5):7.1f}   p95 {_pct(xs, .95):7.1f}   max {max(xs) if xs else 0:7.1f}"  # noqa: E731
+    out = [f"relay stats {since or 'inizio'} → {until or 'ora'}", "push"]
+    if push:
+        mins = {p["ts"][:16] for p in push}
+        out.append(f"  {'push':<34} n {len(push):>5}   al minuto {len(push) / max(1, len(mins)):.2f} (minuti con push {len(mins)})")
+        out += [row("durata (lock compreso) s", [p["dur"] for p in push]), row("attesa sul lock s", [p["lock"] for p in push]),
+                row("attesa dalla richiesta s", [p["wait"] for p in push]), row("raccolta s", [p["collect"] for p in push]),
+                row("cpu (propria + figli) s", [p["cpu"] for p in push]), row("ts → put (età alla partenza) s", [p["age"] for p in push])]
+        orig = {}
+        for p in push:
+            orig[p["origin"]] = orig.get(p["origin"], 0) + 1
+        out.append("  origine: " + ", ".join(f"{k} {v}" for k, v in sorted(orig.items())))
+    else:
+        out.append("  nessuna riga di misura")
+    out += ["stato all'arrivo (stima da /seen)", row("dopo la push s", arr)]
+    out.append("comandi")
+    for op in sorted(set(cmds) | set(done)):
+        xs = cmds.get(op, [])
+        out.append(row(f"{op}: fila s", [x[0] for x in xs]))
+        out.append(row(f"{op}: esecuzione s", [x[1] for x in xs]))
+        if op in done:
+            out.append(row(f"{op}: dall'arrivo all'esito s", done[op]))
+    print("\n".join(out))
+    return 0
+
+
+# ------------------------------------------------------------------ CLI
+def main(argv):
+    cmd = argv[0] if argv else ""
+    rest = argv[1:]
+    if cmd == "push":
+        if "--dry-run" in rest:
+            try:
+                push(dry_run=True)
+            except (subprocess.TimeoutExpired, OSError) as e:
+                print(str(e), file=sys.stderr); return 1
+            return 0
+        if not R.get("enabled"):
+            print(M("relay.disabled")); return 2
+        origin = rest[rest.index("--origin") + 1] if "--origin" in rest and rest.index("--origin") + 1 < len(rest) else ""
+        if "--delayed" in rest:
+            return push_delayed(rest[rest.index("--delayed") + 1], origin or "?")
+        if "--async" in rest:
+            push_async(origin or "cron"); return 0
+        try:
+            st = push()
+        except (RelayError, urllib.error.URLError, OSError, ValueError) as e:
+            print(f"relay push: {e}", file=sys.stderr); log(f"push FAILED: {e}"); return 1
+        print(M("relay.pushed", n=len(st["sessions"])))
+        return 0
+    if cmd == "stats":
+        return stats(rest)
+    if cmd == "setup":   # il progetto Firebase, guidato (R2, 24/09): la sua CLI, non cryptography ne' crontab
+        return _load("cm-relay-setup").main(rest)
+    if cmd == "pair":
+        # 04/10 (dall'app): `pair --help` avviava un pairing vero. L'aiuto, e un argomento sconosciuto, prima di tutto
+        known, i = {"--text", "--add"}, 0
+        while i < len(rest):
+            if rest[i] == "--timeout" and i + 1 < len(rest):
+                i += 2; continue
+            if rest[i] in ("-h", "--help") or rest[i] not in known:
+                print(M("relay.pair_usage"), file=sys.stdout if rest[i] in ("-h", "--help") else sys.stderr)
+                return 0 if rest[i] in ("-h", "--help") else 2
+            i += 1
+    if cmd in ("pair", "install"):
+        # prima di chiedere o scrivere qualcosa: le dipendenze che finora si scoprivano solo come
+        # errore (ImportError di cryptography, crontab assente). Esce 5 con il comando da lanciare.
+        if not R.get("enabled"):
+            print(M("relay.disabled")); return 2
+        missing = cm.relay_deps_missing(cm.Machine(), os.environ.get("CM_CRONTAB_CMD", "crontab"))
+        if missing:
+            for dep in missing:
+                print(M(f"relay.dep_{dep}_missing"), file=sys.stderr)
+            return 5
+    if cmd == "pair":
+        tmo = float(rest[rest.index("--timeout") + 1]) if "--timeout" in rest else None
+        try:
+            return pair(tmo, text="--text" in rest, add="--add" in rest)
+        except (RelayError, urllib.error.URLError, OSError, ValueError) as e:
+            print(f"relay pair: {e}", file=sys.stderr); return 1
+    if cmd == "serve":
+        return serve()
+    if cmd == "web":
+        return web(rest)
+    if cmd == "ensure":
+        return ensure()
+    if cmd == "status":
+        return status()
+    if cmd == "install":
+        return install()
+    if cmd == "uninstall":
+        return uninstall()
+    if cmd == "off":
+        return off()
+    print(M("relay.usage"), file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
