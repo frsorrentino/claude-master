@@ -508,7 +508,9 @@ def tool_line(name, tool_input, width=120):
     return line(f"{name} {detail[:width]}")
 
 
-ENTRY_TEXT_MAX = 4000   # 1.22: il testo di una voce della chat del telefono; oltre, `cut: true` (mai «…»)
+ENTRY_TEXT_MAX = 20000   # 1.22: il testo di una voce della chat del telefono; oltre, `cut: true` (mai «…»). 08/10 (il maintainer,
+# dall'app: una risposta di 10.721 caratteri arrivava tagliata a 4000, a meta' parola): da 4000 a 20000
+ENTRY_BYTES_MAX = 40000   # e mai oltre 40 KB in UTF-8, cosi' una voce sola sta sempre in una pagina da 60 KB di /result
 _REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.S)
 # 1.22 (30/09): i file che nella chat del telefono diventano un'anteprima. Write/Edit solo di media e documenti (il
 # codice e le note .md si modificano di continuo: sarebbero rumore); SendUserFile qualunque file
@@ -624,10 +626,24 @@ def _clean(text):
     return t, 0
 
 
+def cut_text(t, n):
+    """(testo, tagliato): al piu' n caratteri ed ENTRY_BYTES_MAX byte, tagliato all'ultima parola intera se ce n'e' una
+    nell'ultimo quinto (08/10: il taglio cadeva a meta' parola, «e' la qualific»)."""
+    if len(t) <= n and len(t.encode()) <= ENTRY_BYTES_MAX:
+        return t, False
+    c = t[:n]
+    while len(c.encode()) > ENTRY_BYTES_MAX:
+        c = c[:len(c) * 9 // 10]
+    i = max(c.rfind(" "), c.rfind("\n"))
+    if i >= len(c) * 4 // 5:
+        c = c[:i]
+    return c.rstrip(), True
+
+
 def _entry(eid, role, text, at, tool=None, note=None, error=None, text_max=ENTRY_TEXT_MAX):
-    t = str(text or "")
-    return {"id": eid, "role": role, "text": t[:text_max], "at": at, "tool": tool, "note": note or None,
-            "error": error, "cut": len(t) > text_max, "turn": None, "files": None, "origin": None, "queued": False}
+    t, cut = cut_text(str(text or ""), text_max)
+    return {"id": eid, "role": role, "text": t, "at": at, "tool": tool, "note": note or None,
+            "error": error, "cut": cut, "turn": None, "files": None, "origin": None, "queued": False}
 
 
 def transcript_entries(path, offset=0, limit=None, text_max=ENTRY_TEXT_MAX, chat_only=False):

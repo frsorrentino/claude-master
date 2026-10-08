@@ -248,7 +248,9 @@ def diff(a, b, path=""):
     return "" if a == b else f"{path}: {a!r} != {b!r}"
 
 
-T.check("R2 build_state(src) == state-1-question.json (four sessions, two accounts, quota, projects, night, recap)", st1 == F1, diff(st1, F1) or "equal")
+# 1.43 (08/10): published_at lo mette _push subito prima della PUT, non build_state: nel confronto non conta
+_np = lambda d: {kk: v for kk, v in d.items() if kk != "published_at"}  # noqa: E731
+T.check("R2 build_state(src) == state-1-question.json (four sessions, two accounts, quota, projects, night, recap)", st1 == _np(F1), diff(st1, _np(F1)) or "equal")
 # R12 (contratto 1.16, 25/09): low_priority («off» | «offered» | «active» | null) e goal ({text, since, met} | null) per sessione
 # R13 (contratto 1.17, 29/09): la coda di stanotte nello stato, sempre presente; prompt a fine parola entro 160, senza «…»
 T.check("R13 (1.17) state-1: night.items in queue order with id, dir, name (as projects[].name), prompt, added (epoch), started null",
@@ -295,14 +297,14 @@ SRC2 = {"host": "crostini-demo", "root": ROOT_WS, "prefixes": ["work-"],
 SRC2["account_kinds"] = KINDS
 SRC2.update(DEV_SRC)
 st2 = S.build_state(SRC2, 1789214400)
-T.check("R2 build_state(src) == state-2-idle.json", st2 == F2, diff(st2, F2) or "equal")
+T.check("R2 build_state(src) == state-2-idle.json", st2 == _np(F2), diff(st2, _np(F2)) or "equal")
 SRC3 = {"host": "crostini-demo", "root": ROOT_WS, "prefixes": [], "rows": [], "ledger": [], "questions": {},
         "quota": {"personal": {"cinque_ore_pct": 0, "settimana_pct": 36, "reset_settimanale": 1789610400, "reset_cinque_ore": 1789228800, "vecchia": True}, "work": {"cinque_ore_pct": None, "settimana_pct": 75, "reset_settimanale": 1789444800, "reset_cinque_ore": 1789225200, "vecchia": True}},
         "projects": [], "night": {"queued": 0, "running": None}, "ops": list(R_OPS), "slash": ["compact", "clear", "exit", "context", "cost"], "recap": {"date": "2026-09-12", "items": []}, "follow": set(), "awaiting": set(), "next": {}, "tools": {}, "choices": {"models": [{"id": "claude-opus-5[1m]", "label": "Opus 5"}, {"id": "claude-fable-5-1", "label": "Fable 5.1"}, {"id": "claude-sonnet-5", "label": "Sonnet 5"}, {"id": "claude-haiku-4-5", "label": "Haiku 4.5"}], "efforts": ["low", "medium", "high", "xhigh", "max"]}}
 SRC3["account_kinds"] = KINDS
 SRC3.update(DEV_SRC)
 st3 = S.build_state(SRC3, 1789200000)
-T.check("R2 build_state(src) == state-3-stale.json", st3 == F3, diff(st3, F3) or "equal")
+T.check("R2 build_state(src) == state-3-stale.json", st3 == _np(F3), diff(st3, _np(F3)) or "equal")
 T.check("R2 (1.33) no recurring list → no `recurring` field (the app shows no box)", "recurring" not in S.build_state(dict(SRC3, recurring=[]), 1789200000), "")
 T.check("R2 (1.8) every session carries account_kind and every quota entry its kind (personal | work)",
         all(x["account_kind"] in ("personal", "work") for x in st1["sessions"]) and st1["quota"]["personal"]["kind"] == "personal" and st1["quota"]["work"]["kind"] == "work", str([(x["name"], x["account"], x["account_kind"]) for x in st1["sessions"]]))
@@ -504,7 +506,8 @@ dry = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip().startswith(
 T.check("R4 push --dry-run: clear JSON on stdout, no HTTP; sessions ordered ❓ ▶ ✓ ✗ with short names, the question whole with kind ask and options 1-2, the busy session's outcome from the ledger (short = Watch line), gone from the snapshot, quota, projects with accounts from folder_map, recap, night", r.returncode == 0 and len(CALLS["requests"]) == n_req and [(x["name"], x["state"]) for x in dry.get("sessions", [])] == [("ledger-api", "waiting"), ("atlas-shop", "busy"), ("field-notes", "idle"), ("orbit-docs", "gone")] and dry["sessions"][0]["question"]["text"] == "Deploy ready, waiting for the client ok. Deploy now?" and dry["sessions"][0]["question"]["kind"] == "ask" and [o["label"] for o in dry["sessions"][0]["question"]["options"]] == ["yes", "no"] and dry["sessions"][0]["question"]["asked_at"] == 1789210500 and dry["sessions"][0]["followed"] is True and dry["sessions"][0]["project"] == "work/clients/ledger-api" and dry["sessions"][1]["outcome"]["short"] == "Migrazioni applicate, test verdi" and dry["sessions"][1]["turn_started"] == 1789210700 and dry["sessions"][1]["next"] == "Review the seeds and the admin page" and dry["sessions"][3]["since"] == S.epoch("2026-09-12T09:00:00") and dry["quota"]["work"] == {"h5": None, "w7": 75, "reset_w7": 1789444800, "reset_h5": 1789225200, "stale": True, "kind": "work"} and {(p["name"], p["account"]) for p in dry["projects"]} == {("atlas-shop", "personal"), ("field-notes", "personal"), ("ledger-api", "work"), ("orbit-docs", "work")} and dry["host"] == "crostini-test" and dry["night"] == {"queued": 0, "running": None, "items": []} and dry["v"] == 1, r.stdout[:600] + r.stderr)
 T.check("R4 (1.1) every live session carries icon (from cm-color's registry, stable) and color «#RRGGBB»; the gone one has none on the first push", all(x["icon"] and re.match(r"^#[0-9A-F]{6}$", x["color"] or "") for x in dry["sessions"] if x["state"] != "gone") and dry["sessions"][3]["icon"] is None, str([(x["name"], x["icon"], x["color"]) for x in dry["sessions"]]))
 r = relay("push")
-T.check("R4 push: exit 0, /state on the bus is {v:1, enc} and decrypts to the same document as the dry-run (but ts)", r.returncode == 0 and set(STORE.get("state", {})) == {"v", "enc"} and STORE["state"]["v"] == 1 and {kk: v for kk, v in C.decrypt(STORE["state"], k).items() if kk != "ts"} == {kk: v for kk, v in dry.items() if kk != "ts"}, r.stdout + r.stderr + str(STORE.get("state"))[:100])
+_pub4 = C.decrypt(STORE["state"], k) if r.returncode == 0 and STORE.get("state") else {}
+T.check("R4 push: exit 0, /state on the bus is {v:1, enc} and decrypts to the same document as the dry-run (but ts and published_at)", r.returncode == 0 and set(STORE.get("state", {})) == {"v", "enc"} and STORE["state"]["v"] == 1 and {kk: v for kk, v in _pub4.items() if kk not in ("ts", "published_at")} == {kk: v for kk, v in dry.items() if kk != "ts"}, r.stdout + r.stderr + str(STORE.get("state"))[:100])
 evs = {kk: C.decrypt(v, k) for kk, v in list((STORE.get("events") or {}).items())}
 T.check("R4 first push: /events has launched ×3 and the question (encrypted, key <ts>_<seq>); FCM sent one data message per event with kind and session; last-state.json written", sorted(e["kind"] for e in evs.values()) == ["launched", "launched", "launched", "question"] and all(kk == evs[kk]["key"] for kk in evs) and len(CALLS["fcm"]) == 4 and any(m["message"]["data"]["kind"] == "question" and m["message"]["data"]["session"] == "ledger-api" and m["message"]["topic"] == "watch" for m in CALLS["fcm"]) and (rdir2 / "last-state.json").is_file(), str(evs) + str(CALLS["fcm"])[:300])
 n_fcm, n_ev = len(CALLS["fcm"]), len(STORE["events"])
@@ -1061,6 +1064,7 @@ T.check("R15 (1.19) refusals in plain words, no report run: a gone session (as i
 old, fresh = "6f1c2d3e-0125-4000-8000-00000000b003", "6f1c2d3e-0125-4000-8000-00000000b004"
 http("PUT", f"/share/{old}.json", {"v": 1, "enc": "x"}); http("PUT", f"/share/{fresh}.json", {"v": 1, "enc": "x"})
 (rdir2 / "share-seen.json").write_text(json.dumps({old: time.time() - 700}))
+(rdir2 / "prune-at").unlink(missing_ok=True)   # 08/10: le pulizie una volta ogni 10 minuti; qui e' ora
 relay("push")
 T.check("R15 (1.19) push prunes a /share node first seen more than 10 minutes ago, keeps a fresh one (remembered in share-seen.json)",
         old not in (STORE.get("share") or {}) and fresh in (STORE.get("share") or {}) and fresh in json.loads((rdir2 / "share-seen.json").read_text()), str(list(STORE.get("share") or {})))
@@ -1210,6 +1214,7 @@ T.check("R29 (1.34) FILE_ONE_MAX, the «max» of the old way, is a file that sti
 old22, fresh22 = "6f1c2d3e-0140-4000-8000-00000000f001", "6f1c2d3e-0140-4000-8000-00000000f002"
 http("PUT", f"/file/{old22}.json", {"v": 1, "enc": "x"}); http("PUT", f"/file/{fresh22}.json", {"v": 1, "enc": "x"})
 (rdir2 / "file-seen.json").write_text(json.dumps({old22: time.time() - 700}))
+(rdir2 / "prune-at").unlink(missing_ok=True)
 relay("push")
 T.check("R22 (1.24) push prunes a /file node not read for more than 10 minutes, keeps a fresh one",
         old22 not in (STORE.get("file") or {}) and fresh22 in (STORE.get("file") or {}), str(list(STORE.get("file") or {})))
@@ -1693,7 +1698,7 @@ T.check("R6 after the network is back a command is served again", res and res["o
 r = relay("status")
 T.check("R6 status: enabled, firebase url, key ok, service account ok, serve alive with the pid, last push time", r.returncode == 0 and "abilitato" in r.stdout and URL in r.stdout and f"VIVO pid {pid1}" in r.stdout and "chiave:           ok" in r.stdout and "service account:  ok" in r.stdout, r.stdout + r.stderr)
 r = relay("install")
-T.check("R6 install: two cron lines (relay ensure, relay push --async every minute)", r.returncode == 0 and "relay ensure" in cron.read_text() and "relay push --async" in cron.read_text() and cron.read_text().count("* * * * *") == 2, cron.read_text() + r.stdout)
+T.check("R6 install: two cron lines (relay ensure, and the heartbeat as a plain `touch` of push-req/cron: no Python every minute)", r.returncode == 0 and "relay ensure" in cron.read_text() and "touch " + str(rdir2 / "push-req" / "cron") in cron.read_text() and "relay push" not in cron.read_text() and cron.read_text().count("* * * * *") == 2, cron.read_text() + r.stdout)
 r = relay("off")
 T.check("R6 off: the daemon stops, the cron stays", r.returncode == 0 and T.wait_until(lambda: serve_pid() == 0, 4) and "relay ensure" in cron.read_text(), r.stdout + r.stderr)
 relay("ensure")
@@ -1918,5 +1923,120 @@ finally:
     RL.LOG_MAX_BYTES = _old31; RL.R.clear(); RL.R.update(_R31)
 T.check("R31 the log rotates past LOG_MAX_BYTES: the old lines go to relay.log.1, the new line starts relay.log",
         _rl31.with_name("relay.log.1").read_text().startswith("x" * 50) and _rl31.read_text().endswith("riga nuova\n"), "")
+
+
+# R35 (08/10, dall'app: una risposta di 10.721 caratteri arrivava tagliata a 4000, a meta' parola)
+CO35 = load("cm-core")
+_w35 = ("parola " * 4000).strip()   # 27.999 caratteri
+_t35, _c35 = CO35.cut_text(_w35, CO35.ENTRY_TEXT_MAX)
+_e35 = CO35._entry("x.0", "assistant", "a" * 10721, 1)
+T.check("R35 an entry of 10,721 characters arrives whole (the cap is 20,000), cut false",
+        CO35.ENTRY_TEXT_MAX == 20000 and len(_e35["text"]) == 10721 and _e35["cut"] is False, str(len(_e35["text"])))
+T.check("R35 over the cap the text stops at the last whole word, cut true",
+        _c35 is True and len(_t35) <= 20000 and _t35.endswith("parola") and _w35.startswith(_t35), _t35[-20:])
+_b35, _bc35 = CO35.cut_text("è" * 25000, CO35.ENTRY_TEXT_MAX)
+T.check("R35 never over ENTRY_BYTES_MAX in UTF-8, so one entry alone always fits a 60 KB page",
+        _bc35 is True and len(_b35.encode()) <= CO35.ENTRY_BYTES_MAX, str(len(_b35.encode())))
+
+
+# R36 (08/10, piano prestazioni, fase 1): un worker per le push, il ripiego che non accoda, il lavoro dopo il lock
+import fcntl as _f36
+import threading as _th36
+_push36, _R36, _retry36, _push_fn36 = RL._push, dict(RL.R), RL.PUSH_RETRY_S, RL.push
+_calls36 = []
+try:
+    RL.R["debounce_s"] = 0.2
+    def _slow36(origin="?", requested=None, **kw):
+        _calls36.append(origin); time.sleep(1.2)
+    RL.push = _slow36
+    for _f in RL.push_req_dir().iterdir():
+        _f.unlink()
+    _w36 = RL.PushWorker(); _w36.start()
+    RL.push_request("hook")
+    T.wait_until(lambda: len(_calls36) == 1, 5)
+    for _i in range(10):   # dieci richieste durante la push lenta
+        RL.push_request("cron" if _i % 2 else "hook"); time.sleep(0.05)
+    time.sleep(3.5)
+    _n36 = len(_calls36)
+    _w36.stop.set(); _w36.join(2)
+    T.check("R36 ten requests during a slow push → exactly one more push (one running, at most one waiting)", _n36 == 2, str(_calls36))
+    _calls36.clear()
+    _fail36 = [True]
+    def _flaky36(origin="?", requested=None, **kw):
+        _calls36.append(origin)
+        if _fail36[0]:
+            _fail36[0] = False; raise OSError("bus giu'")
+    RL.push, RL.PUSH_RETRY_S = _flaky36, (0.2,)
+    _w36 = RL.PushWorker(); _w36.start()
+    RL.push_request("cmd")
+    T.wait_until(lambda: len(_calls36) >= 2, 5); time.sleep(0.6)
+    _w36.stop.set(); _w36.join(2)
+    T.check("R36 a failed push is retried until it goes through, then the worker rests (no request lost, no loop)", len(_calls36) == 2, str(_calls36))
+finally:
+    RL.push, RL.PUSH_RETRY_S = _push_fn36, _retry36
+    RL.R.clear(); RL.R.update(_R36)
+_ran36 = []
+RL._push = lambda dry_run=False, now=None, m=None: _ran36.append(1)
+try:
+    (RL.rdir() / "push-request").write_text("2.000000")
+    _got36 = RL.push(origin="hook", stamp="1.000000")
+finally:
+    RL._push = _push36
+T.check("R36 without the daemon a queued push that finds a newer request after the lock leaves without collecting", _got36 is None and not _ran36, str(_ran36))
+_post36 = []
+def _fake36(dry_run=False, now=None, m=None):
+    t = time.time()
+    m.update(ts=t, collected=t, put_at=t, published=t, events=0)
+    def post():
+        with open(str(RL.rdir() / "push.lock"), "w") as _l:
+            try:
+                _f36.flock(_l, _f36.LOCK_EX | _f36.LOCK_NB); _post36.append("free"); _f36.flock(_l, _f36.LOCK_UN)
+            except OSError:
+                _post36.append("held")
+    m["post"] = post
+    return {"sessions": []}
+RL._push = _fake36
+try:
+    RL.push(origin="cmd")
+finally:
+    RL._push = _push36
+T.check("R36 FCM, notices and prunes run after the push lock is released", _post36 == ["free"], str(_post36))
+(RL.rdir() / "prune-at").unlink(missing_ok=True)
+T.check("R36 prunes at most once every 10 minutes", RL.prune_due(time.time()) is True and RL.prune_due(time.time()) is False, "")
+T.check("R36 (1.43) the published state carries published_at, at or after ts", _pub4.get("published_at") and float(_pub4["published_at"]) >= float(_pub4["ts"]), str({x: _pub4.get(x) for x in ("ts", "published_at")}))
+_hk36 = rdir2 / "push-req" / "hook"
+_t36 = time.time() - 1
+_r36 = hook("UserPromptSubmit", {"session_id": "sid-36", "cwd": str(home), "prompt": "ciao"})
+T.check("R36 UserPromptSubmit asks for a push (push-req/hook touched)", _r36.returncode == 0 and _hk36.exists() and _hk36.stat().st_mtime >= _t36, _r36.stderr[-300:])
+OF36 = load("cm-offload")
+T.check("R36 heavy run on this machine runs at low priority: nice -n 10 and ionice -c3 around the command",
+        OF36.low_priority("make test") == ("nice -n 10 " + ("ionice -c3 " if shutil.which("ionice") else "") + "sh -c 'make test'"), OF36.low_priority("make test"))
+
+
+# R37 (1.44, 08/10): op night, il rapporto della notte cosi' com'e', e night.report nello stato
+_nr37 = tmp / "night37"; _nr37.mkdir(exist_ok=True)
+_dir37 = RL.night_report_dir
+RL.night_report_dir = lambda: _nr37
+try:
+    _empty37 = RL.night_report(None)
+    _sample37 = (FIX / "night-report-sample.json").read_text()
+    (_nr37 / "2026-10-07.json").write_text(_sample37)
+    _ok37 = RL.night_report(None)
+    _no37 = RL.night_report("2026-10-01")
+    _day37 = RL.night_report("2026-10-07")
+    _latest37 = RL.night_report_latest()
+finally:
+    RL.night_report_dir = _dir37
+_crs37 = json.loads((FIX / "cmd-result-sample.json").read_text())
+_res37 = {r["id"]: r for r in _crs37["result"] if isinstance(r, dict)}
+T.check("R37 (1.44) night with no report → «no night report yet»", _empty37 == (False, "no night report yet"), str(_empty37))
+T.check("R37 (1.44) night null → the last report as it is on disk; the same JSON as the fixture's …0383 result",
+        _ok37[0] is True and json.loads(_ok37[1]) == json.loads(_sample37) == json.loads(_res37["6f1c2d3e-0383-4000-8000-000000000383"]["text"]), str(_ok37)[:120])
+T.check("R37 (1.44) night for a day without a report → «no night report for 2026-10-01», as the fixture's …0384",
+        _no37 == (False, _res37["6f1c2d3e-0384-4000-8000-000000000384"]["text"]) and _day37[0] is True, str(_no37))
+T.check("R37 (1.44) night is a passive read (it wakes nobody, it never triggers a push) and is in ops", "night" in RL.PASSIVE_OPS and "night" in RL.OPS, "")
+_st37 = S.build_state({"night_report": _latest37}, 1)
+T.check("R37 (1.44) /state night.report = {date, generated_at} of the last report; absent without reports",
+        _st37["night"].get("report") == {"date": "2026-10-07", "generated_at": json.loads(_sample37)["generated_at"]} and "report" not in S.build_state({}, 1)["night"], str(_st37["night"]))
 
 T.finish()

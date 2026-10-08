@@ -217,6 +217,14 @@ def os_family(kind):
     return {"windows-native": "windows", "macos-tmux": "macos"}.get(kind, "linux")
 
 
+def low_priority(cmd):
+    """08/10 (piano prestazioni, fase 1): il lavoro pesante che resta sulla regia gira a priorita' bassa, CPU e disco,
+    cosi' il controllo (relay, hook) non aspetta dietro a build e test. Il relay non puo' alzarsi la priorita'
+    (`ulimit -e` = 0): si abbassa il resto."""
+    pre = (["nice", "-n", "10"] if shutil.which("nice") else []) + (["ionice", "-c3"] if shutil.which("ionice") else [])
+    return " ".join(pre + ["sh", "-c", shlex.quote(cmd)]) if pre and cmd else cmd
+
+
 def cmd_for(recipe, kind):
     c = recipe.get("cmd")
     if isinstance(c, str):
@@ -1180,7 +1188,7 @@ def cmd_heavy(argv):
                                    "label": " ".join(cmd)[:60]})
         t0 = now()
         try:
-            rc = subprocess.run(cmd_for(job, hm.hosts()["local"].get("kind") or "linux-tmux"), shell=True, cwd=job["dir"]).returncode
+            rc = subprocess.run(low_priority(cmd_for(job, hm.hosts()["local"].get("kind") or "linux-tmux")), shell=True, cwd=job["dir"]).returncode
         finally:
             with leases() as data:
                 data["leases"] = [l for l in data["leases"] if l.get("pid") != os.getpid()]

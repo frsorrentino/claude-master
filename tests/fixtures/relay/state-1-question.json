@@ -1,6 +1,7 @@
 {
   "v": 1,
   "ts": 1789210800,
+  "published_at": 1789210801.5,
   "host": "crostini-demo",
   "sessions": [
     {
@@ -311,7 +312,8 @@
     "pair_add",
     "approve",
     "decision",
-    "unpair"
+    "unpair",
+    "night"
   ],
   "slash": [
     "compact",

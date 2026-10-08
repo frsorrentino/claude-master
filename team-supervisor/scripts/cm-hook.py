@@ -204,9 +204,22 @@ def pop_queue(p):
 
 
 def relay_push():
-    """L'orologio (0.4.0): `cm-relay.py push --async` staccato, solo con relay.enabled; torna subito (debounce nel relay)."""
-    if not (CFG.get("relay") or {}).get("enabled"):
+    """L'orologio (0.4.0): chiede una push al relay, solo con relay.enabled; torna subito (debounce nel relay).
+    08/10 (piano prestazioni, fase 1): con il demone vivo basta toccare <relay.dir>/push-req/hook, il suo worker
+    la fa; solo senza demone parte `cm-relay.py push --async` (il percorso di prima)."""
+    R = CFG.get("relay") or {}
+    if not R.get("enabled"):
         return
+    d = Path(cm.expand(R.get("dir") or "~/.team-supervisor/relay"))
+    try:
+        (d / "push-req").mkdir(parents=True, exist_ok=True)
+        (d / "push-req" / "hook").touch()
+        pid = int((d / "serve.pid").read_text().strip() or 0)
+        if pid > 0:
+            os.kill(pid, 0)
+            return
+    except (OSError, ValueError):
+        pass
     try:
         subprocess.Popen([sys.executable, str(HERE / "cm-relay.py"), "push", "--async", "--origin", "hook"], stdin=subprocess.DEVNULL,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
@@ -268,6 +281,7 @@ def main(argv):
         if sid:
             (STATE / "waiting" / sid).unlink(missing_ok=True)
         ledger("prompt", p)   # l'inizio del turno (turn_started per il polso)
+        relay_push()   # 08/10 (fase 1): un prompt dalla tastiera arrivava alle app solo al giro del cron
         if CFG["hooks"]["local_time"]["enabled"]:
             sys.stdout.write(local_time() + "\n")
     elif ev == "PermissionRequest":

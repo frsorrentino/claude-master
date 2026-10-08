@@ -348,6 +348,22 @@
       "device": "phone",
       "issued": 1789211020,
       "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0383-4000-8000-000000000383",
+      "op": "night",
+      "session": null,
+      "arg": null,
+      "issued": 1789211030,
+      "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0384-4000-8000-000000000384",
+      "op": "night",
+      "session": null,
+      "arg": "2026-10-01",
+      "issued": 1789211040,
+      "by": "phone-pixel8"
     }
   ],
   "result": [
@@ -592,6 +608,18 @@
       "ok": false,
       "text": "atlas-release-2-4: live approval needs a double confirmation",
       "at": 1789211021
+    },
+    {
+      "id": "6f1c2d3e-0383-4000-8000-000000000383",
+      "ok": true,
+      "text": "{\"schema\": \"team-supervisor/night-report\", \"v\": 1, \"generated_at\": 1791333420, \"date\": \"2026-10-07\", \"window\": {\"start\": 1791325980, \"end\": 1791333360, \"start_source\": \"last_message\", \"floor\": 1791309600, \"last_message\": {\"at\": 1791325980, \"session\": \"master\", \"origin\": \"phone\", \"text\": \"vado a dormire, prosegui tu e segui le sessioni\"}}, \"attention\": {\"questions\": [{\"session\": \"ledger-api\", \"project\": \"/w/ledger-api\", \"id\": \"q-1\", \"kind\": \"choice\", \"text\": \"Pubblico la release 1.4 adesso?\", \"options\": [{\"n\": 1, \"label\": \"Yes\"}, {\"n\": 2, \"label\": \"No\"}], \"tier\": \"normal\", \"asked_at\": 1791332400}], \"approvals\": [{\"task\": \"ledger-release-14\", \"title\": \"Release 1.4 di ledger-api\", \"project\": \"/w/ledger-api\", \"what\": \"tag v1.4 e push\", \"where\": \"github.com/example/ledger-api\", \"requested_at\": 1791332460}], \"unblock\": [{\"session\": \"field-notes\", \"project\": \"/w/field-notes\", \"text\": \"/clear\"}]}, \"timeline\": [{\"kind\": \"session\", \"id\": \"master\", \"title\": \"master\", \"project\": \"/w\", \"start\": 1791325980, \"end\": null, \"outcome\": \"running\", \"detail\": \"vado a dormire, prosegui tu e segui le sessioni\", \"report\": null, \"live\": true, \"counts\": {\"prompts\": 1, \"tests\": 0, \"commits\": 0}}, {\"kind\": \"session\", \"id\": \"ledger-api\", \"title\": \"ledger-api\", \"project\": \"/w/ledger-api\", \"start\": 1791326160, \"end\": 1791327360, \"outcome\": \"ok\", \"detail\": \"Migrazione del registro committata in locale, nessuna release\", \"report\": null, \"live\": true, \"counts\": {\"prompts\": 0, \"tests\": 4, \"commits\": 6}}, {\"kind\": \"session\", \"id\": \"atlas-shop\", \"title\": \"atlas-shop\", \"project\": \"/w/atlas-shop\", \"start\": 1791326160, \"end\": 1791330000, \"outcome\": \"ok\", \"detail\": \"Checkout rifatto, test verdi\", \"report\": null, \"live\": false, \"counts\": {\"prompts\": 0, \"tests\": 2, \"commits\": 3}}, {\"kind\": \"night_job\", \"id\": \"a1b2c3d4\", \"title\": \"atlas-shop-notte — Prima esecuzione del lavoro notturno sul checkout: rifare il carrello e i test di integrazione senza toccare la produzione. Stanotte nessuno risponde alle domande: le scel…\", \"project\": \"/w/atlas-shop-notte\", \"start\": 1791331200, \"end\": 1791331260, \"outcome\": \"stopped\", \"detail\": \"fermo prima del piano: la specifica non si legge.\", \"report\": \"/w/atlas-shop-notte/docs/notte/2026-10-07-a1b2c3d4.md\", \"rc\": 0}, {\"kind\": \"night_job\", \"id\": \"e5f6a7b8\", \"title\": \"ledger-api-notte — Dati del registro dei pagamenti per la pagina mensile.\", \"project\": \"/w/ledger-api-notte\", \"start\": 1791331260, \"end\": 1791332820, \"outcome\": \"ok\", \"detail\": \"dati fatti e verificati, 3 commit sul ramo notte/registro.\", \"report\": \"/w/ledger-api-notte/docs/notte/2026-10-07-e5f6a7b8.md\", \"rc\": 0}, {\"kind\": \"night_job\", \"id\": \"c9d0e1f2\", \"title\": \"field-notes-notte — Riordino delle note di campo per cartella e data, con un indice in testa.\", \"project\": \"/w/field-notes-notte\", \"start\": 1791332880, \"end\": null, \"outcome\": \"running\", \"detail\": null, \"report\": null, \"rc\": null}], \"queue\": [], \"projects\": [{\"name\": \"ledger-api\", \"path\": \"/w/ledger-api\", \"parts_source\": \"plan\", \"parts_file\": \"/w/ledger-api/docs/plans/registro.md\", \"parts\": [{\"title\": \"Migrazione del registro\", \"state\": \"done\"}, {\"title\": \"Pagina mensile\", \"state\": \"done\"}, {\"title\": \"Esportazione CSV\", \"state\": \"done\"}, {\"title\": \"Release 1.4\", \"state\": \"todo\"}], \"parts_total\": 4, \"waiting_on\": [\"domanda: Pubblico la release 1.4 adesso?\", \"ok: Release 1.4 di ledger-api\"], \"next\": \"Release 1.4 dopo l'ok\", \"events\": [{\"at\": 1791326400, \"kind\": \"commit\", \"text\": \"feat(ledger): monthly page\", \"ok\": null, \"ref\": \"a1b2c3d\"}, {\"at\": 1791327300, \"kind\": \"test\", \"text\": \"ledger-verify.py\", \"ok\": true, \"ref\": \"18/18 OK\"}, {\"at\": 1791327360, \"kind\": \"outcome\", \"text\": \"Migrazione del registro committata in locale, nessuna release\", \"ok\": null, \"ref\": null}]}, {\"name\": \"field-notes\", \"path\": \"/w/field-notes\", \"parts_source\": null, \"parts_file\": null, \"parts\": [], \"parts_total\": 0, \"waiting_on\": [\"!: /clear\"], \"next\": \"Indice delle note per data\", \"events\": []}], \"sources\": {\"transcripts\": \"ok\", \"night_done\": \"ok\", \"night_queue\": \"ok\", \"timeline\": \"ok\", \"registry\": \"ok\", \"relay_state\": \"ok\"}}",
+      "at": 1789211031
+    },
+    {
+      "id": "6f1c2d3e-0384-4000-8000-000000000384",
+      "ok": false,
+      "text": "no night report for 2026-10-01",
+      "at": 1789211041
     }
   ]
 }

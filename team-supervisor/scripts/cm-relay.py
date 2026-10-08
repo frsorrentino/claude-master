@@ -68,7 +68,7 @@ M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
 R = CFG["relay"]
 CM_BIN = os.environ.get("CM_RELAY_CM") or str(HERE / "team-supervisor")
 BACKOFF = [1, 2, 5, 15, 30]
-OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report", "interrupt", "transcript", "file", "slash", "projects", "search", "timeline", "pair_add", "approve", "decision", "unpair")
+OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report", "interrupt", "transcript", "file", "slash", "projects", "search", "timeline", "pair_add", "approve", "decision", "unpair", "night")
 LAST_MAX = 4000   # 1.4: l'ultimo messaggio per la lettura vocale — oltre, l'ascolto non regge
 
 
@@ -655,7 +655,7 @@ def collect_sources(now=None):
         "state_max_kb": R.get("state_max_kb") or 8,
         "rows": rows, "ledger": ledger, "questions": questions,
         "quota": _json_cmd("quota", "--json", expect="{") or {},
-        "projects": inventory(), "night": night_queue(), "recap": recap_today(now), "ops": list(OPS), "slash": slash_allowed(),
+        "projects": inventory(), "night": night_queue(), "night_report": night_report_latest(), "recap": recap_today(now), "ops": list(OPS), "slash": slash_allowed(),
         "follow": followed(), "awaiting": aw, "next": nexts, "next_at": nexts_at, "tools": tools,
         "devices": read_json(devices_path(), {}), "seen": seen_cached(now), "recurring": _load("cm-recurring").for_state(),
         "icons": icons, "colors": R.get("colors") or None, "tool_notes": notes, "runtime": runtime,
@@ -745,7 +745,10 @@ def _s(x):
     return f"{x:.1f}".replace(".", ",")
 
 
-def push(dry_run=False, now=None, origin="diretta", requested=None):
+def push(dry_run=False, now=None, origin="diretta", requested=None, stamp=None):
+    """Una push. Il lock copre raccolta, eventi e PUT; FCM, avvisi e pulizie (m["post"]) girano dopo averlo lasciato
+    (08/10, fase 1). `stamp`: la richiesta del ripiego senza demone; se dopo il lock push-request ha un timbro piu'
+    nuovo, la push la fa chi l'ha scritto e questa esce senza raccogliere (None)."""
     if dry_run:
         return _push(True, now)
     # una push alla volta: due in parallelo leggono lo stesso «stato precedente» e scrivono due volte gli stessi
@@ -756,12 +759,20 @@ def push(dry_run=False, now=None, origin="diretta", requested=None):
     try:
         fcntl.flock(lock, fcntl.LOCK_EX)
         m["locked"] = time.time()
+        if stamp is not None:
+            try:
+                if (rdir() / "push-request").read_text().strip() != stamp:
+                    return None   # una richiesta piu' recente: la sua push copre anche questa
+            except OSError:
+                pass
         st = _push(False, now, m)
     finally:
         try:
             fcntl.flock(lock, fcntl.LOCK_UN)
         finally:
             lock.close()
+    if m.get("post"):
+        m["post"]()
     # 07/10 (piano prestazioni, fase 0): una riga di misura per push, letta da `relay stats`
     end, cpu1 = time.time(), _cpu()
     wait = t0 - requested if requested else 0.0
@@ -791,6 +802,10 @@ def _push(dry_run=False, now=None, m=None):
     last = read_json(last_p, {})
     events, seq = S.events_between(last.get("full") or last.get("state") or {}, full, now, int(last.get("seq") or 0) + 1,
                                    warn_pct=float((CFG.get("guard") or {}).get("warn_pct") or 95))
+    # 1.43 (08/10): published_at, l'istante della pubblicazione (ts resta quello del campionamento); le app ci
+    # calcolano la freschezza e, con published_at - ts, la lentezza del PC
+    m["put_at"] = time.time()
+    state["published_at"] = full["published_at"] = round(m["put_at"], 3)
     try:
         local_state_write(full)   # 06/10: in locale lo stato intero, senza i tagli degli 8 KB (non esce dalla macchina)
     except OSError as ex:
@@ -798,7 +813,6 @@ def _push(dry_run=False, now=None, m=None):
     k = key()
     m["collected"] = time.time()
     try:
-        m["put_at"] = time.time()
         rtdb("PUT", "state", C.encrypt(state, k), {"print": "silent"})
         if events:
             rtdb("PATCH", "events", {e["key"]: C.encrypt(e, k) for e in events}, {"print": "silent"})
@@ -812,25 +826,49 @@ def _push(dry_run=False, now=None, m=None):
     m["published"] = time.time()
     m["events"] = len(events)
     pub_history_add(m["put_at"])
-    prune_events(now)
-    prune_share(now)
-    prune_share(now, "file")
-    prune_local(now)
-    woken = True
-    for e in events:
-        try:
-            fcm_send({"kind": e["kind"], "session": e["session"], "ts": e["ts"], "key": e["key"]})
-        except (urllib.error.URLError, OSError, ValueError) as ex:
-            woken = False
-            log(f"fcm FAILED: {ex}")
-    if events and not woken:
-        # lo stato e' sul bus ma la sveglia non parte: l'orologio se ne accorge solo quando lo si guarda
-        fallback_notice(events, fallback_mark(now))
-    else:
-        fallback_clear()
-        unseen_notice(events, now)
     write_json(last_p, {"state": state, "full": full, "seq": seq - 1, "pushed_at": now, "names": names})
+
+    def post():
+        # 08/10 (fase 1): fuori dal lock della push. Le pulizie una volta ogni PRUNE_EVERY_S, non a ogni push
+        if prune_due(now):
+            prune_events(now)
+            prune_share(now)
+            prune_share(now, "file")
+            prune_local(now)
+        woken = True
+        for e in events:
+            try:
+                fcm_send({"kind": e["kind"], "session": e["session"], "ts": e["ts"], "key": e["key"]})
+            except (urllib.error.URLError, OSError, ValueError) as ex:
+                woken = False
+                log(f"fcm FAILED: {ex}")
+        if events and not woken:
+            # lo stato e' sul bus ma la sveglia non parte: l'orologio se ne accorge solo quando lo si guarda
+            fallback_notice(events, fallback_mark(now))
+        else:
+            fallback_clear()
+            unseen_notice(events, now)
+    m["post"] = post
     return state
+
+
+PRUNE_EVERY_S = 600
+
+
+def prune_due(now):
+    """Le pulizie di /events, /share, /file e della copia locale: al piu' una volta ogni PRUNE_EVERY_S (08/10, fase 1:
+    prima a ogni push, con il lock in mano)."""
+    p = rdir() / "prune-at"
+    try:
+        if now - p.stat().st_mtime < PRUNE_EVERY_S:
+            return False
+    except OSError:
+        pass
+    try:
+        p.touch()
+    except OSError:
+        pass
+    return True
 
 
 PUB_HISTORY_N = 300
@@ -891,10 +929,75 @@ def push_async(origin="cmd"):
     """Torna subito: scrive la richiesta con il suo istante e stacca un figlio che dorme relay.debounce_s e
     pusha solo se nel frattempo nessun'altra richiesta l'ha superato (piu' hook ravvicinati = una push).
     `origin` (hook, cron, web, cmd) finisce nella riga di misura della push."""
+    push_request(origin)
+    if serve_alive():
+        return   # 08/10 (fase 1): la fa il worker del demone, nessun processo in fila
     stamp = f"{time.time():.6f}"
     (rdir() / "push-request").write_text(stamp)
     subprocess.Popen([sys.executable, str(HERE / "cm-relay.py"), "push", "--delayed", stamp, "--origin", origin], stdin=subprocess.DEVNULL,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+def push_req_dir():
+    d = rdir() / "push-req"
+    d.mkdir(exist_ok=True)
+    return d
+
+
+def push_request(origin):
+    """Una richiesta di push per il worker del demone: tocca <relay.dir>/push-req/<origine> (hook, cron, cmd, web).
+    La data di modifica e' la richiesta; il cron la scrive con un `touch`, senza avviare Python."""
+    try:
+        (push_req_dir() / re.sub(r"[^a-z0-9_-]", "", origin.lower() or "x")[:20]).touch()
+    except OSError:
+        pass
+
+
+PUSH_MAX_WAIT_S = 10
+PUSH_RETRY_S = (5, 15, 30)
+
+
+class PushWorker(threading.Thread):
+    """08/10 (piano prestazioni, fase 1): le push del demone, una alla volta. Una richiesta e' una data di modifica in
+    push-req/; quelle arrivate durante una push diventano UNA push dopo (al piu' una in corso e una in attesa).
+    Debounce relay.debounce_s dall'ultima richiesta, ma mai oltre PUSH_MAX_WAIT_S dalla prima; una push fallita si
+    riprova (5, 15, 30 s) finche' passa, e intanto le richieste nuove restano in attesa, non perse."""
+
+    def __init__(self):
+        super().__init__(name="relay-push", daemon=True)
+        self.stop = threading.Event()
+
+    def pending(self):
+        newest, origin = 0.0, ""
+        try:
+            for e in os.scandir(push_req_dir()):
+                t = e.stat().st_mtime
+                if t > newest:
+                    newest, origin = t, e.name
+        except OSError:
+            pass
+        return newest, origin
+
+    def run(self):
+        handled, first, fails = 0.0, None, 0
+        debounce = float(R.get("debounce_s") or 2)
+        while not self.stop.wait(0.25):
+            newest, origin = self.pending()
+            if newest <= handled:
+                continue
+            now = time.time()
+            first = first or now
+            if now - newest < debounce and now - first < PUSH_MAX_WAIT_S:
+                continue
+            start = time.time()
+            try:
+                push(origin=origin or "?", requested=min(first, newest))
+            except Exception as e:   # noqa: BLE001 — il worker non deve morire: la richiesta resta, si riprova
+                log(f"push (worker) FAILED: {str(e)[:200]}")
+                self.stop.wait(PUSH_RETRY_S[min(fails, len(PUSH_RETRY_S) - 1)])
+                fails += 1
+                continue
+            handled, first, fails = start, None, 0
 
 
 def push_delayed(stamp, origin="?"):
@@ -908,8 +1011,10 @@ def push_delayed(stamp, origin="?"):
     if not (cm.load(warn=False).get("relay") or {}).get("enabled"):
         log("push (delayed): relay spento durante l'attesa, niente scrittura")
         return 0
+    if serve_alive():
+        return 0   # il demone e' ripartito durante l'attesa: la richiesta e' gia' in push-req/, la fa lui
     try:
-        push(origin=origin, requested=float(stamp))
+        push(origin=origin, requested=float(stamp), stamp=stamp)
     except (RelayError, urllib.error.URLError, OSError, ValueError) as e:
         log(f"push (delayed) FAILED: {e}")
         return 1
@@ -1655,6 +1760,43 @@ def slash_send(cmd, session, tm, arg):
     return True, sent
 
 
+def night_report_dir():
+    return Path(cm.expand("~/.team-supervisor/night-report"))
+
+
+def night_report_latest():
+    """1.44 (08/10): {date, generated_at} dell'ultimo rapporto della notte, per night.report nello stato; None se non
+    ce n'e' uno."""
+    try:
+        files = sorted(p for p in night_report_dir().glob("????-??-??.json"))
+    except OSError:
+        return None
+    for p in reversed(files):
+        rep_ = read_json(p, None)
+        if isinstance(rep_, dict) and rep_.get("date"):
+            return {"date": str(rep_["date"]), "generated_at": rep_.get("generated_at")}
+    return None
+
+
+def night_report(arg):
+    """1.44 (chiesto dall'app per la pagina «Notte», approvata dal maintainer il 07/10 alle 21:50): il rapporto della notte
+    (schema team-supervisor/night-report v1) cosi' com'e' su disco. arg = «AAAA-MM-GG», o null per l'ultimo."""
+    day = str(arg or "").strip()
+    if day:
+        p = night_report_dir() / f"{day}.json"
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) or not p.is_file():
+            return False, f"no night report for {day}"
+    else:
+        files = sorted(night_report_dir().glob("????-??-??.json")) if night_report_dir().is_dir() else []
+        if not files:
+            return False, "no night report yet"
+        p = files[-1]
+    try:
+        return True, p.read_text().strip()
+    except OSError:
+        return False, f"no night report for {day or p.stem}"
+
+
 def projects_list():
     """1.26 (02/10, chiesto dalla sessione dell'app, approvato dal maintainer alle 17:15): l'elenco completo dei progetti
     per «Lancia». /state li taglia a 10 e poi a 5 per stare negli 8 KB; qui ci sono tutti, di tutti gli account, con i
@@ -2152,6 +2294,8 @@ def execute(cmd):
             return decision_send(cmd, arg)
         if op == "projects":
             return projects_list()
+        if op == "night":
+            return night_report(arg)
         if op == "search":
             return search(arg)
         if op == "timeline":
@@ -2270,7 +2414,7 @@ def commands_from(ev, payload):
     return {}
 
 
-PASSIVE_OPS = ("transcript", "screen", "last", "file", "projects", "search", "timeline", "pair_add")   # letture: non cambiano lo stato, vengono dopo i comandi dell'utente
+PASSIVE_OPS = ("transcript", "screen", "last", "file", "projects", "search", "timeline", "pair_add", "night")   # letture: non cambiano lo stato, vengono dopo i comandi dell'utente
 
 
 def in_order(cmds):
@@ -2522,6 +2666,9 @@ def serve():
     signal.signal(signal.SIGTERM, _stop); signal.signal(signal.SIGINT, _stop)
     log(f"serve: avvio pid {os.getpid()}")
     search_warm_async()   # 04/10: la prima ricerca dal telefono trova la cache gia' piena
+    push_request("serve")   # all'avvio una push, poi quelle chieste da hook, cron e comandi
+    worker = PushWorker()
+    worker.start()
     web_srv = web_start()   # 1.35: la web app e l'API locale, se relay.web.enabled
     done = list(read_json(rdir() / "done-cmds.json", []))
     st_ = {"pid": os.getpid(), "started": started, "last_cmd_ts": None, "last_cmd": "", "served": 0, "reconnects": 0}
@@ -2566,6 +2713,7 @@ def serve():
                 pass
     finally:
         log("serve: stop")
+        worker.stop.set()
         if web_srv:
             web_srv.stop()
         try:
@@ -2608,7 +2756,9 @@ def crontab_write(text):
 
 def cron_lines():
     shim = cm.home() / ".local" / "bin" / "team-supervisor"
-    return [f"* * * * * {shim} relay ensure >/dev/null 2>&1", f"* * * * * {shim} relay push --async >/dev/null 2>&1"]
+    # 08/10 (fase 1): il battito e' un `touch` della richiesta, senza avviare Python; la push la fa il demone
+    req = rdir() / "push-req" / "cron"
+    return [f"* * * * * {shim} relay ensure >/dev/null 2>&1", f"* * * * * mkdir -p {req.parent} && touch {req} # team-supervisor relay battito"]
 
 
 def install():

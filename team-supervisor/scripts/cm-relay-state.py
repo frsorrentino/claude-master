@@ -425,7 +425,9 @@ def build_state(src, now, fit=True):
         "quota": build_quota(src.get("quota"), src.get("account_kinds")),
         "projects": projects,
         "night": {"queued": int(night.get("queued") or 0), "running": night.get("running") or None,
-                  "items": night_items(night.get("items"))},
+                  "items": night_items(night.get("items")),
+                  # 1.44 (08/10): l'ultimo rapporto della notte, {date, generated_at}; assente senza rapporti
+                  **({"report": src["night_report"]} if src.get("night_report") else {})},
         "recap": {"date": recap.get("date") or "", "items": [{"project": i.get("project", ""), "done": i.get("done", ""), "next": i.get("next", "")} for i in (recap.get("items") or [])]},
         # 1.12: modelli ed effort che il polso puo' chiedere per una sessione; null se il relay non li conosce
         "choices": src.get("choices") or None,
