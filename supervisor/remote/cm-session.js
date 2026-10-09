@@ -2,6 +2,8 @@
 //   node cm-session.js post NAME TEXT_B64 FROM_NAME FROM_ADDR   consegna nella casella nativa (named pipe o socket)
 //   node cm-session.js read NAME OFFSET [last]                  testi assistant del transcript dall'offset + stato
 //   node cm-session.js close NAME [force]                       ferma il processo (rifiuta busy/waiting senza force)
+//   node cm-session.js tail NAME OFFSET [MAX]                   i byte grezzi del transcript dall'offset, in base64
+//                                                               (la copia locale per la chat del telefono, 09/10)
 // Una riga JSON sullo stdout. Il testo arriva in base64: le virgolette non sopravvivono a PowerShell -> node.
 // Il protocollo della casella e' quello di post_socket (cm-talk.py): riga di auth col peerToken del .key, poi il
 // messaggio; letto dal vivo il 02/10/2026: dalla sessione 0 di sshd la pipe LOCAL\ della sessione 1 si apre.
@@ -62,6 +64,17 @@ if (verb === 'post') {
     }
   }
   out({ status: e._alive ? e.status : 'gone', alive: e._alive, texts: rest[1] === 'last' ? texts.slice(-1) : texts, offset: off, sid: e.sessionId });
+} else if (verb === 'tail') {
+  if (!e) { out({ error: 'not found' }); process.exit(1); }
+  const f = transcript(e), total = size(f);
+  const off = Math.min(Number(rest[0]) || 0, total), max = Math.min(Number(rest[1]) || 2097152, 4194304);
+  let data = '';
+  if (total > off) {
+    const n = Math.min(max, total - off), fd = fs.openSync(f, 'r'), b = Buffer.alloc(n);
+    fs.readSync(fd, b, 0, n, off); fs.closeSync(fd);
+    data = b.toString('base64');
+  }
+  out({ sid: e.sessionId, cwd: e.cwd, status: e._alive ? e.status : 'gone', alive: e._alive, size: total, offset: off, data });
 } else if (verb === 'close') {
   if (!e || !e._alive) { out({ ok: true, already: true }); process.exit(0); }
   if (rest[0] !== 'force' && ['busy', 'waiting'].includes(e.status)) { out({ error: 'status ' + e.status }); process.exit(1); }

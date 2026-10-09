@@ -2,6 +2,10 @@
 
 ## 0.3.x
 
+- **0.8.6 — 2026-10-09: sessions on another host have their conversation and their questions in the app.**
+  - The conversation of a session started with `launch --host` shows in the app: the poller copies the new bytes of its transcript while it waits on a question, and the chat asks for them again when the phone opens it. The copy is byte for byte, under the state folder.
+  - Its open question (AskUserQuestion) comes from that copy, with its options; the app answers it with the `answer` op as for a local session, and `supervisor answer HOST:name [n|--show|--text]` works from the terminal. On a Windows host a short Interactive task on the desktop attaches to the session's console, reads the screen and sends the keys (`remote/cm-console.ps1`); Windows draws the question's box as `[ ]` and the cursor as `>`, both understood. Tried live: an option chosen in 16 s.
+  - A remote session opened, closed or stopped on a question asks the relay for a push at once: a closed session no longer stays «at work» in the app while its prompts come back «not running».
 - **0.8.5 — 2026-10-09: the push guard looks at the folder the command runs in.**
   - The closed-lane guard checks the folder where a push or a release really runs: after a `cd` of the same chain (`&&`, `;`, `||`, `|`, a new line, a subshell, a quoted path) or with `git -C <dir>`, relative to the folder before and with `~` expanded; without either, the session's folder as before. From the master's folder, `cd <project> && git push` passes when that project has an approved task, and `git push` alone stays denied. Every closed command of the chain must be covered.
   - A `cd` the guard cannot read (a variable, `$(…)`, a backtick, `cd -`) covers nothing and is denied with its own message: use an explicit path, do not ask for a new ok.

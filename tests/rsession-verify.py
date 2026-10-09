@@ -261,5 +261,74 @@ inbox_recs = [json.loads(p.read_text()) for p in (tmp / "state" / "inbox" / "win
 T.check("RS11 talk to a closed remote session → exit 5, the message waits in the inbox", r.returncode == 5
         and any(x["text"] == "dopo la chiusura" and x["status"] == "pending" for x in inbox_recs), r.stdout + r.stderr)
 
+# RS12 remote-session-chat (09/10, dal telefono: la chat di una sessione su win vuota, la sua domanda senza
+# risposta): la copia locale del transcript, la domanda letta da li', la risposta con i tasti nella console di la'
+_reg = json.loads((winroot / "registry.json").read_text())
+_reg.append({"name": "win-chat", "sessionId": "sid-win-chat", "cwd": "W:/cm/personali/chat", "status": "waiting", "pid": 4242})
+(winroot / "registry.json").write_text(json.dumps(_reg))
+_ask = {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "tu1", "name": "AskUserQuestion", "input": {"questions": [
+    {"question": "Quale colore per la copertina?", "header": "Colore", "multiSelect": False,
+     "options": [{"label": "Rosso", "description": "caldo"}, {"label": "Verde"}, {"label": "Blu"}]}]}}]}}
+_tr = winroot / "transcript-win-chat.jsonl"
+_tr.write_text(json.dumps({"type": "user", "message": {"content": "prepara la copertina"}}) + "\n"
+               + json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "Ti chiedo il colore."}]}}) + "\n"
+               + json.dumps(_ask) + "\n")
+(winroot / "dialog-win-chat.json").write_text(json.dumps({"id": "tu1", "header": "Colore", "question": "Quale colore per la copertina?",
+                                                          "options": ["Rosso", "Verde", "Blu"], "cursor": 1}))
+r = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-hosts.py"), "poll", "win", "--force"], capture_output=True, text=True, env=env(), timeout=120)
+_mirror = tmp / "state" / "hosts" / "transcripts" / "win" / "sid-win-chat.jsonl"
+T.check("RS12 remote-session-chat: the poller copies the transcript of a session waiting on win, byte for byte",
+        _mirror.is_file() and _mirror.read_bytes() == _tr.read_bytes(), r.stdout + r.stderr)
+PROBE = """
+import importlib.util, json, sys
+def L(n):
+    s = importlib.util.spec_from_file_location(n.replace('-', '_'), sys.argv[1] + '/' + n + '.py'); m = importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
+hm, core = L('cm-hosts'), L('cm-core')
+if len(sys.argv) > 2:
+    hm.sync_transcript('win', 'win-chat', 'sid-win-chat')   # come la chat chiesta dal telefono
+row = next(r for r in hm.remote_session_rows() if r['name'] == 'win:win-chat')
+t = core.transcript_of(row)
+print(json.dumps({'transcript': t, 'ask': core.pending_ask(t), 'entries': [e['text'] for e in core.transcript_entries(t, 0)]}))
+"""
+def probe(sync=False):
+    p = subprocess.run([sys.executable, "-c", PROBE, str(T.SCRIPTS)] + (["sync"] if sync else []), capture_output=True, text=True, env=env(), timeout=60)
+    return json.loads(p.stdout) if p.returncode == 0 else {"error": p.stderr[-400:]}
+pr = probe()
+T.check("RS12 remote-session-chat: the row win:win-chat reads its conversation from the copy, and the open question with its options from the transcript",
+        pr.get("transcript") == str(_mirror) and pr.get("ask") == ["Quale colore per la copertina?", ["Rosso", "Verde", "Blu"]]
+        and "Ti chiedo il colore." in pr.get("entries", []), json.dumps(pr)[:500])
+ANSWER = [sys.executable, str(T.SCRIPTS / "cm-answer.py")]
+r = subprocess.run(ANSWER + ["win:win-chat", "--show"], capture_output=True, text=True, env=env(), timeout=60)
+T.check("RS12 remote-session-chat: answer win:win-chat --show reads the dialog from the console there (cursor «>»)",
+        r.returncode == 0 and "Quale colore per la copertina?" in r.stdout and "2. Verde" in r.stdout and "4." not in r.stdout, r.stdout + r.stderr)
+n0 = len(calls())
+r = subprocess.run(ANSWER + ["win:win-chat", "3"], capture_output=True, text=True, env=env(), timeout=60)
+cons = [c["keys"] for c in calls()[n0:] if c["verb"] == "console" and c["keys"]]
+d = json.loads((winroot / "dialog-win-chat.json").read_text())
+T.check("RS12 remote-session-chat: answer win:win-chat 3 → Down, Down, checked on the screen, then Enter: option 3 chosen there",
+        r.returncode == 0 and cons == [["Down", "Down"], ["Enter"]] and d.get("chosen") == 3 and "Blu" in r.stdout, r.stdout + r.stderr + json.dumps(cons))
+pr = probe(sync=True)
+T.check("RS12 remote-session-chat: after the answer, the chat asked again brings the tool_result into the copy and no question is open",
+        pr.get("ask") is None and _mirror.read_bytes() == _tr.read_bytes(), json.dumps(pr)[:300])
+# un cambio nelle sessioni remote chiede una push al relay (09/10: una sessione chiusa restava «al lavoro» nell'app)
+cfg.write_text(json.dumps(dict(base_cfg, relay={"enabled": True, "dir": str(tmp / "relay")})))
+_req = tmp / "relay" / "push-req" / "hosts"
+subprocess.run([sys.executable, str(T.SCRIPTS / "cm-hosts.py"), "poll", "win", "--force"], capture_output=True, text=True, env=env(), timeout=120)
+_req.unlink(missing_ok=True)
+subprocess.run([sys.executable, str(T.SCRIPTS / "cm-hosts.py"), "poll", "win", "--force"], capture_output=True, text=True, env=env(), timeout=120)
+_quiet = not _req.exists()
+_reg = json.loads((winroot / "registry.json").read_text())
+for _e in _reg:
+    if _e["name"] == "win-chat":
+        _e["closed"] = True
+(winroot / "registry.json").write_text(json.dumps(_reg))
+subprocess.run([sys.executable, str(T.SCRIPTS / "cm-hosts.py"), "poll", "win", "--force"], capture_output=True, text=True, env=env(), timeout=120)
+T.check("RS12 remote-session-chat: a remote session closed → the poller asks the relay for a push (push-req/hosts); nothing changed → no request",
+        _quiet and _req.exists(), str((_quiet, _req.exists())))
+cfg.write_text(json.dumps(base_cfg))
+r = subprocess.run(ANSWER + ["win:win-nessuna", "1"], capture_output=True, text=True, env=env(), timeout=60)
+T.check("RS12 remote-session-chat: a remote name with nothing to answer → no keys sent, exit 1", r.returncode == 1
+        and not [c for c in calls() if c["verb"] == "console" and c.get("name") == "win-nessuna" and c["keys"]], r.stdout + r.stderr)
+
 T.rm(tmp)
 T.finish()

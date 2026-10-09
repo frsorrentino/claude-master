@@ -611,7 +611,14 @@ def collect_sources(now=None):
             nexts[tm] = nx
             if nx_at:
                 nexts_at[tm] = nx_at
-        if S.state_of(r) == "waiting":
+        if S.state_of(r) == "waiting" and r.get("host") and r.get("host") != "local":
+            # 09/10: una sessione su un altro host non ha ne' schermo tmux ne' hook qui: la domanda dal suo transcript
+            # (la copia che il sondatore porta qui quando la sessione si ferma)
+            wi, inp = {}, {}
+            pa = core.pending_ask(core.transcript_of(r))
+            tool = "AskUserQuestion" if pa else ""
+            text, opts = pa or ("", [])
+        elif S.state_of(r) == "waiting":
             wi = waiting_info(r.get("session_id") or "")
             tool = str(wi.get("tool") or "")
             inp = wi.get("input") if isinstance(wi.get("input"), dict) else {}
@@ -623,6 +630,7 @@ def collect_sources(now=None):
                     break
                 time.sleep(1)
                 text, opts = question_of(tm, tool)
+        if S.state_of(r) == "waiting":
             if not opts and inp.get("options"):
                 # schermo non ancora disegnato (o sessione senza tmux): domanda e opzioni dal payload dell'hook
                 text, opts = str(inp.get("question") or text or ""), [str(o) for o in inp["options"]]
@@ -2331,6 +2339,14 @@ def transcript_page(session, tm, arg):
     row = next((r for r in (_json_cmd("sessions", "--json", "--no-screen") or []) if (r.get("tmux") or r.get("name")) == tm), None)
     if not row:
         return False, M("relay.cmd_interrupt_gone", name=session)
+    if row.get("host") and row.get("host") != "local":
+        # 09/10: la chat di una sessione su un altro host: prima i byte nuovi del suo transcript, nella copia locale
+        try:
+            got = _load("cm-hosts").sync_transcript(row["host"], str(row.get("name") or "").split(":", 1)[-1], row.get("session_id") or "")
+            if got:
+                row["transcript"] = str(got)
+        except Exception:   # noqa: BLE001 — host irraggiungibile: si mostra la copia che c'e'
+            pass
     path = core.transcript_of(row)
     if not path:
         return False, M("relay.cmd_transcript_none", name=session)

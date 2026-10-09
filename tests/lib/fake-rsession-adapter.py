@@ -4,7 +4,10 @@ FAKE_WIN_ROOT    la cartella che fa da disco dell'host: il prefisso `W:` dei per
 FAKE_WIN_NOREG=1 la sessione parte ma non si registra mai (Claude fermo su un dialogo)
 Il registro peer finto sta in FAKE_WIN_ROOT/registry.json; ogni chiamata si annota in FAKE_WIN_ROOT/calls.jsonl.
 talk: un messaggio rende la sessione busy; 1,5 s dopo la lettura successiva scrive nel transcript finto la risposta
-«RISPOSTA: <testo>» e la rimette idle. FAKE_WIN_STATUS=nome:stato forza lo stato di una sessione."""
+«RISPOSTA: <testo>» e la rimette idle. FAKE_WIN_STATUS=nome:stato forza lo stato di una sessione.
+09/10: session_tail legge i byte del transcript finto; session_console disegna il dialogo di FAKE_WIN_ROOT/
+dialog-<nome>.json come la console di Windows (cursore «>») e muove il cursore con i tasti; Invio scrive la
+scelta nel transcript (tool_result) e chiude il dialogo."""
 import importlib.util
 import json
 import os
@@ -151,6 +154,63 @@ class FakeWin:
         e["closed"] = True
         self._save(e)
         return {"ok": True}
+
+def _dialog_path(name):
+    return ROOT / f"dialog-{name}.json"
+
+
+def _draw(d):
+    if not d or d.get("chosen"):
+        return "\n> \n  bypass permissions on\n"
+    rows = ["", " [ ] " + d["header"], "", d["question"], ""]   # come la console di Windows (09/10, dal vivo)
+    labels = d["options"] + ["Type something.", "Chat about this"]
+    for i, lab in enumerate(labels, 1):
+        rows.append(("> " if i == d["cursor"] else "  ") + f"{i}. {lab}" + (" " + d.get("typed", "") if i == d["cursor"] and lab == "Type something." and d.get("typed") else ""))
+    rows.append("Enter to select - Up/Down to navigate - Esc to cancel")
+    return "\n".join(rows) + "\n"
+
+
+def _tail(self, name, offset, max_bytes=2 * 1024 * 1024):
+    note("tail", name=name, offset=offset)
+    e = self._entry(name)
+    if not e:
+        raise _ad.HostError("remote", "not found")
+    data = self._tr(name).read_bytes() if self._tr(name).exists() else b""
+    off = min(int(offset), len(data))
+    import base64
+    return {"sid": e.get("sessionId"), "cwd": e.get("cwd"), "status": e.get("status") or "idle", "alive": not e.get("closed"),
+            "size": len(data), "offset": off, "data": base64.b64encode(data[off:off + int(max_bytes)]).decode()}
+
+
+def _console(self, name, keys=None):
+    note("console", name=name, keys=list(keys or []))
+    p = _dialog_path(name)
+    d = json.loads(p.read_text()) if p.exists() else None
+    for k in keys or []:
+        if not d or d.get("chosen"):
+            continue
+        n = len(d["options"]) + 2
+        if k == "Down":
+            d["cursor"] = min(n, d["cursor"] + 1)
+        elif k == "Up":
+            d["cursor"] = max(1, d["cursor"] - 1)
+        elif k.startswith("text:"):
+            d["typed"] = d.get("typed", "") + k[5:]
+        elif k == "Enter":
+            d["chosen"] = d["cursor"]
+            with open(self._tr(name), "a") as f:
+                f.write(json.dumps({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": d["id"], "content": f"chosen {d['cursor']}"}]}}) + "\n")
+            e = self._entry(name)
+            e["status"] = "busy"
+            self._save(e)
+    if d is not None:
+        p.write_text(json.dumps(d))
+    return {"pid": 4242, "screen": _draw(d)}
+
+
+FakeWin.session_tail = _tail
+FakeWin.session_console = _console
+
 
 def adapter_for(name, host, cfg):
     return FakeWin(name, host, cfg)

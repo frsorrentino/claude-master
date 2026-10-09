@@ -30,6 +30,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import uuid
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -527,6 +528,37 @@ node $js {argv}""", timeout=timeout)
 
     def session_read(self, name, offset, last=False):
         return self.node_session("read", name, str(offset), *(["last"] if last else []))
+
+    def session_tail(self, name, offset, max_bytes=2 * 1024 * 1024):
+        """09/10: {sid, cwd, status, alive, size, offset, data} — i byte del transcript dall'offset, in base64."""
+        return self.node_session("tail", name, str(int(offset)), str(int(max_bytes)), timeout=180)
+
+    def session_console(self, name, keys=None, timeout=90):
+        """09/10: lo schermo della console della sessione (e prima i tasti, se ci sono), via cm-console.ps1 lanciato
+        come attivita' Interactive nella sessione del desktop: da sshd AttachConsole non ci arriva. Tasti: «Up»,
+        «Down», «Enter», «Esc», «text:…», «wait:ms». → {pid, screen}."""
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", name):
+            raise HostError("remote", f"bad session name {name}")
+        ps = base64.b64encode((REMOTE / "cm-console.ps1").read_bytes()).decode()
+        kb = base64.b64encode(json.dumps(list(keys or [])).encode()).decode()
+        tag = uuid.uuid4().hex[:10]
+        d = self.ps_json(f"""
+$R = Join-Path $env:USERPROFILE '{HELPER_DIR}'
+New-Item -ItemType Directory -Force -Path (Join-Path $R 'out') | Out-Null
+$ps = Join-Path $R 'cm-console.ps1'
+[IO.File]::WriteAllText($ps, [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{ps}')))
+$o = Join-Path $R 'out\console-{tag}.json'
+$u = (Get-CimInstance Win32_ComputerSystem).UserName
+if (-not $u) {{ ConvertTo-Json -Compress @{{ error = 'nobody is signed in to the desktop: the console cannot be reached' }}; exit 1 }}
+$a = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ps`" -Name {name} -Out `"$o`" -KeysB64 {kb}"
+$pr = New-ScheduledTaskPrincipal -UserId $u -LogonType Interactive -RunLevel Limited
+Register-ScheduledTask -TaskName 'cm-console-{tag}' -TaskPath '\claude-master\' -Action $a -Principal $pr -Force -ErrorAction Stop | Out-Null
+Start-ScheduledTask -TaskPath '\claude-master\' -TaskName 'cm-console-{tag}' -ErrorAction Stop
+for ($i = 0; $i -lt 240 -and -not (Test-Path $o); $i++) {{ Start-Sleep -Milliseconds 250 }}
+Start-Sleep -Milliseconds 200
+Unregister-ScheduledTask -TaskPath '\claude-master\' -TaskName 'cm-console-{tag}' -Confirm:$false -ErrorAction SilentlyContinue
+if (Test-Path $o) {{ (Get-Content $o -Raw).Trim(); Remove-Item -Force $o }} else {{ ConvertTo-Json -Compress @{{ error = 'console: no answer in 60 s' }} }}""", timeout=timeout)
+        return {"pid": d.get("pid"), "screen": base64.b64decode(d.get("screen_b64") or "").decode("utf-8", "replace")}
 
     def session_close(self, name, force=False):
         if not re.fullmatch(r"[A-Za-z0-9._-]+", name):

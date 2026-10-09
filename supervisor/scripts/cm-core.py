@@ -98,6 +98,10 @@ def ledger_rows():
 
 def transcript_of(row):
     """Il transcript jsonl della sessione (come cm-talk): <config_dir>/projects/<slug>/<sessionId>.jsonl, o ""."""
+    if row and row.get("host") and row.get("host") != "local":
+        # 09/10: una sessione su un altro host → la copia locale del suo transcript (cm-hosts.sync_transcript)
+        t = str(row.get("transcript") or "")
+        return t if t and os.path.isfile(t) else ""
     if not row or not row.get("session_id") or not row.get("cwd"):
         return ""
     acc = _cfg()["accounts"].get(row.get("account") or "") or {}
@@ -105,6 +109,38 @@ def transcript_of(row):
     slug = re.sub(r"[^A-Za-z0-9]", "-", os.path.realpath(row["cwd"]))
     p = Path(conf) / "projects" / slug / f"{row['session_id']}.jsonl"
     return str(p) if p.is_file() else ""
+
+
+def pending_ask(path, window=1024 * 1024):
+    """09/10: la domanda aperta di un transcript — l'ultimo AskUserQuestion dell'assistente senza ancora il suo
+    tool_result → (domanda, [etichette delle opzioni]) della prima domanda, o None. Per le sessioni di un altro host,
+    dove non c'e' uno schermo tmux ne' l'hook di qui."""
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as f:
+            f.seek(max(0, size - window))
+            lines = f.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return None
+    asks, done = {}, set()
+    for line in lines:
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        for c in ((d.get("message") or {}).get("content") or []) if isinstance((d.get("message") or {}).get("content"), list) else []:
+            if not isinstance(c, dict):
+                continue
+            if c.get("type") == "tool_use" and c.get("name") == "AskUserQuestion":
+                asks[c.get("id")] = c.get("input") or {}
+            elif c.get("type") == "tool_result":
+                done.add(c.get("tool_use_id"))
+    open_ = [i for i in asks if i not in done]
+    if not open_:
+        return None
+    qs = (asks[open_[-1]].get("questions") or [{}])
+    q = qs[0] if qs and isinstance(qs[0], dict) else {}
+    return str(q.get("question") or ""), [str((o or {}).get("label") or "") for o in (q.get("options") or []) if isinstance(o, dict)]
 
 
 def reopen(name, run=None):

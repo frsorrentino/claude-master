@@ -48,7 +48,10 @@ cm = _load("cm-config")
 sessions = _load("cm-sessions")
 CFG = cm.load(warn=False)
 M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
-OPTION = re.compile(r"^\s*(❯)?\s*(\d+)\.\s+(.*\S)\s*$")
+# il cursore e' «❯»; nella console di Windows Claude Code lo disegna «>» (09/10, sessioni su un altro host)
+OPTION = re.compile(r"^\s*(❯|>)?\s*(\d+)\.\s+(.*\S)\s*$")
+# la casella davanti all'intestazione: «☐» qui, «[ ]» (o «[✓]») nella console di Windows (09/10, dal vivo su win)
+HEADER_BOX = re.compile(r"^\s*\[[ x✓✔]\]\s+(?=\S)")
 FOOTER = "Enter to select"
 FOOTER_PERMISSION = "Esc to cancel"   # «Esc to cancel · Tab to amend»: il dialogo di permesso (Bash, Agent, …)
 # le voci fisse in coda al dialogo di AskUserQuestion: non sono opzioni (via master 12/09, screenshot dell'utente)
@@ -59,7 +62,7 @@ FOOT_KIND = {"type": "type something", "chat": "chat about this"}
 
 def items(text):
     """Tutte le voci numerate del dialogo, opzioni e pie' di pagina: [(n, label, corrente)]."""
-    return [(int(m.group(2)), m.group(3).strip(), m.group(1) == "❯") for m in map(OPTION.match, text.splitlines()) if m]
+    return [(int(m.group(2)), m.group(3).strip(), bool(m.group(1))) for m in map(OPTION.match, text.splitlines()) if m]
 
 
 def tmux(*args):
@@ -67,7 +70,53 @@ def tmux(*args):
 
 
 def screen(name):
-    return tmux("capture-pane", "-p", "-t", name).stdout
+    return TERMS[name].screen() if name in TERMS else tmux("capture-pane", "-p", "-t", name).stdout
+
+
+class Tmux:
+    """Lo schermo e i tasti di una sessione di qui: tmux capture-pane e send-keys."""
+    def __init__(self, name):
+        self.name = name
+
+    def screen(self):
+        return tmux("capture-pane", "-p", "-t", self.name).stdout
+
+    def keys(self, seq):
+        for k in seq:
+            if k.startswith("text:"):
+                tmux("send-keys", "-t", self.name, "-l", k[5:])
+            else:
+                tmux("send-keys", "-t", self.name, k)
+            time.sleep(0.15)
+        time.sleep(0.3)
+        return self.screen()
+
+
+class Remote:
+    """09/10: una sessione su un altro host (`HOST:nome`, o un nome registrato come sessione remota): schermo e tasti
+    della sua console attraverso l'adattatore (su Windows cm-console.ps1). Una chiamata manda i tasti e rilegge."""
+    def __init__(self, host, name):
+        self.host, self.name = host, name
+        self.adapter = _load("cm-hosts").adapter(host)
+
+    def screen(self):
+        return self.adapter.session_console(self.name)["screen"]
+
+    def keys(self, seq):
+        return self.adapter.session_console(self.name, list(seq))["screen"]
+
+
+TERMS = {}
+
+
+def term_for(name):
+    """Tmux o Remote per il nome dato, o None se non c'e' nessuna sessione con quel nome."""
+    if tmux("has-session", "-t", f"={name}").returncode == 0:
+        return Tmux(name)
+    hit = _load("cm-rsession").resolve(name)
+    if hit and hasattr(_load("cm-hosts").adapter(hit[0]), "session_console"):
+        return Remote(*hit)
+    return None
 
 
 def parse(text):
@@ -84,14 +133,14 @@ def parse(text):
         if m:
             if m.group(3).strip().lower().rstrip(".") in [f.rstrip(".") for f in FOOT_OPTIONS]:
                 break   # da qui in poi solo pie' di pagina
-            options.append((int(m.group(2)), m.group(3).strip(), m.group(1) == "❯", ""))
+            options.append((int(m.group(2)), m.group(3).strip(), bool(m.group(1)), ""))
             continue
         if options and l.strip() and l.startswith("  ") and FOOTER not in l and FOOTER_PERMISSION not in l and not l.strip().startswith("─"):
             n, lab, cur, desc = options[-1]
             options[-1] = (n, lab, cur, (desc + " " + l.strip()).strip())
             continue
-        if "☐" in l or "☑" in l:
-            header = l.replace("☐", "").replace("☑", "").strip()
+        if "☐" in l or "☑" in l or HEADER_BOX.match(l):
+            header = HEADER_BOX.sub("", l.replace("☐", "").replace("☑", "")).strip()
             # la domanda puo' stare su piu' righe (con «│» davanti): si uniscono fino alla riga vuota o alla
             # prima opzione (12/09: la seconda riga della domanda della master andava persa)
             qlines = []
@@ -153,11 +202,8 @@ def choose(name, n, text, foot=""):
             return 2
     current = next((x[0] for x in items(scr) if x[2]), n)
     step = "Down" if n > current else "Up"
-    for _ in range(abs(n - current)):
-        tmux("send-keys", "-t", name, step)
-        time.sleep(0.15)
-    time.sleep(0.3)
-    scr2 = screen(name)
+    t = TERMS.get(name) or Tmux(name)
+    scr2 = t.keys([step] * abs(n - current)) if n != current else scr
     if not parse(scr2) or not any(x[0] == n and x[2] for x in items(scr2)):
         print(M("answer.cursor_lost", n=n))
         return 3
@@ -166,14 +212,14 @@ def choose(name, n, text, foot=""):
         # «Type something.» e' un campo in riga: col cursore sopra si scrive e Invio conferma il testo (dal vivo il
         # 15/09: «❯ 3. verde»). Prima si mandava Invio e poi il testo: il testo non arrivava mai alla domanda.
         text = " ".join(text.split())   # un a capo confermerebbe a meta'
-        tmux("send-keys", "-t", name, "-l", text)
-        time.sleep(0.4)
-        typed = next((x[1] for x in items(screen(name)) if x[0] == n and x[2]), "")
+        typed_scr = t.keys(["text:" + text])
+        time.sleep(0.1)
+        typed = next((x[1] for x in items(typed_scr) if x[0] == n and x[2]), "")
         if not typed or not text.startswith(typed[:20].rstrip("…").strip()):
             print(M("answer.cursor_lost", n=n))
             return 3
         label = text
-    tmux("send-keys", "-t", name, "Enter")
+    t.keys(["Enter"])
     time.sleep(1.0)
     print(M("answer.chosen", name=name, n=n, label=label, question=question or "-"))
     return 0
@@ -345,9 +391,12 @@ def main(argv):
         print(M("answer.usage"), file=sys.stderr)
         return 2
     name = argv[0]
-    if tmux("has-session", "-t", f"={name}").returncode != 0:
+    t = term_for(name)
+    if t is None:
         print(M("answer.no_session", name=name), file=sys.stderr)
         return 1
+    if isinstance(t, Remote):
+        TERMS[name] = t
     if argv[1] == "--show":
         return show(name)
     text = ""

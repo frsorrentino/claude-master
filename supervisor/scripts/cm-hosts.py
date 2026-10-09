@@ -19,6 +19,7 @@ propone ruoli, limiti e fiducia; l'utente conferma. Un host non confermato non r
 regia) esiste sempre e passa dallo stesso doctor. Nessuna scrittura su un altro host senza chiederla: l'aiutante
 remoto si installa solo con un si' (o --yes). Prove: CM_SSH_BIN, CM_SCP_BIN, CM_HOSTS_TTY=0|1.
 """
+import base64
 import datetime as dt
 import importlib.util
 import json
@@ -130,6 +131,12 @@ def host(name):
 
 
 def adapter(name, first_contact=False):
+    fake = os.environ.get("CM_RSESSION_ADAPTER")   # prove: lo stesso adattatore finto di cm-rsession
+    if fake:
+        spec = importlib.util.spec_from_file_location("cm_rsession_fake", fake)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.adapter_for(name, hosts().get(name) or {}, CFG)
     return ad.adapter_for(name, hosts().get(name) or {}, CFG, first_contact=first_contact)
 
 
@@ -613,6 +620,27 @@ def lively(snap):
     return jobs or sess
 
 
+def remote_alive(snap):
+    """{(nome, stato)} delle sessioni vive di uno snapshot."""
+    return {((s.get("entry") or {}).get("name"), (s.get("entry") or {}).get("status"))
+            for s in ((snap or {}).get("status") or {}).get("sessions") or [] if s.get("alive")}
+
+
+def relay_push_request():
+    """09/10 (dall'app: una sessione di prova su win chiusa alle 23:00 restava «al lavoro» nello stato e i prompt
+    tornavano «not running»): le sessioni remote cambiate chiedono una push al demone del relay, come un hook. Senza
+    relay acceso, niente."""
+    R = CFG.get("relay") or {}
+    if not R.get("enabled"):
+        return
+    try:
+        d = Path(cm.expand(R.get("dir") or "~/.cc-supervisor/relay")) / "push-req"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "hosts").touch()
+    except OSError:
+        pass
+
+
 def poll_one(name, force=False):
     """status() di un host confermato e scrittura dello snapshot; nessuna lettura se quella di prima e' fresca."""
     h = hosts()[name]
@@ -631,6 +659,16 @@ def poll_one(name, force=False):
         snap.update({"error": e.code, "detail": e.detail[:200], "last_ok_at": prev.get("last_ok_at", 0),
                      "status": prev.get("status")})
     write_json(snap_path(name), snap)
+    if not snap.get("error") and remote_alive(prev) != remote_alive(snap):
+        relay_push_request()   # 09/10: una sessione remota aperta, chiusa o ferma su una domanda arriva subito all'app
+    # 09/10: la sessione ferma su una domanda porta qui il suo transcript: domanda e opzioni nell'app senza aspettare
+    for s in [] if snap.get("error") else ((snap.get("status") or {}).get("sessions") or []):
+        e = s.get("entry") or {}
+        if s.get("alive") and e.get("status") == "waiting" and e.get("name"):
+            try:
+                sync_transcript(name, e["name"], e.get("sessionId") or "")
+            except Exception:   # noqa: BLE001 — la copia e' in piu': mai far cadere il giro del sondatore
+                pass
     return snap
 
 
@@ -672,8 +710,55 @@ def remote_session_rows():
                          "link": ("https://claude.ai/code/session_" + bridge.removeprefix("session_")) if bridge else "",
                          "started_at": e.get("startedAt"), "socket": "", "registry": "", "attached": None,
                          "waiting": e.get("status") == "waiting", "channel": "remoto", "version": e.get("version") or "",
-                         "host": name, "read_age_s": round(age), "unreachable": bool(snap.get("error"))})
+                         "host": name, "read_age_s": round(age), "unreachable": bool(snap.get("error")),
+                         # 09/10: la copia locale del transcript (sync_transcript), per la chat e la domanda nell'app
+                         "transcript": str(mirror_path(name, e.get("sessionId") or "")) if e.get("sessionId") else ""})
     return rows
+
+
+MIRROR_MAX = 32 * 1024 * 1024   # una lettura copia al piu' questo: un transcript enorme arriva in piu' giri
+
+
+def mirror_path(host, sid):
+    return state_dir() / "hosts" / "transcripts" / re.sub(r"[^A-Za-z0-9._-]", "_", host) / f"{re.sub(r'[^A-Za-z0-9-]', '', sid)}.jsonl"
+
+
+def sync_transcript(host, session, sid=""):
+    """09/10 (dal telefono: la chat di una sessione su win vuota nell'app): porta qui i byte nuovi del
+    transcript della sessione `session` sull'host, in coda alla copia locale (mirror_path). Byte per byte, nessuna
+    riscrittura: la copia e' il file di la'. Un file di la' piu' corto della copia la riparte da zero; un altro
+    sessionId (la sessione riaperta) ha la sua copia. → il percorso della copia, o None se l'host non sa leggerlo."""
+    a = adapter(host)
+    if not hasattr(a, "session_tail"):
+        return None
+    p = mirror_path(host, sid) if sid else None
+    off, got = (p.stat().st_size if p and p.is_file() else 0), 0
+    while got < MIRROR_MAX:
+        d = a.session_tail(session, off)
+        size, at = int(d.get("size") or 0), int(d.get("offset") or 0)
+        if not d.get("sid"):
+            return p
+        q = mirror_path(host, d["sid"])
+        if q != p or size < off:   # un altro transcript, o quello di la' e' piu' corto della copia
+            q.parent.mkdir(parents=True, exist_ok=True)
+            known = q.stat().st_size if q.is_file() else 0
+            if known > size:
+                q.write_bytes(b"")
+                known = 0
+            if q != p or known != off:
+                p, off = q, known
+                if off != at:
+                    continue
+        data = base64.b64decode(d.get("data") or "")
+        if data:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            with open(p, "ab") as f:
+                f.write(data)
+            off += len(data)
+            got += len(data)
+        if not data or off >= size:
+            break
+    return p
 
 
 def host_summary_lines():
