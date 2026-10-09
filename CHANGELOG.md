@@ -2,6 +2,10 @@
 
 ## 0.3.x
 
+- **0.8.5 — 2026-10-09: the push guard looks at the folder the command runs in.**
+  - The closed-lane guard checks the folder where a push or a release really runs: after a `cd` of the same chain (`&&`, `;`, `||`, `|`, a new line, a subshell, a quoted path) or with `git -C <dir>`, relative to the folder before and with `~` expanded; without either, the session's folder as before. From the master's folder, `cd <project> && git push` passes when that project has an approved task, and `git push` alone stays denied. Every closed command of the chain must be covered.
+  - A `cd` the guard cannot read (a variable, `$(…)`, a backtick, `cd -`) covers nothing and is denied with its own message: use an explicit path, do not ask for a new ok.
+  - README: the test count is 42 suites and about 1,240 cases.
 - **0.8.4 — 2026-10-09: agenda work in tonight's queue, and sessions on another host show up.**
   - `night_add` takes `master` (contract 1.49, additive): the job runs in the master's folder (`workspace.root`, named after `workspace.root_session_name`) with the account that folder maps to; its queue items are named after the master; `state.night.master = true`. The app queues the Recap cards for the night.
   - Sessions started with `launch --host` never showed in `sessions` or in the app: the hosts poller (`supervisor hosts poll --cron`) was not in the crontab, so no host snapshot was written. `launch --host` now installs it when missing and says so; `doctor` warns when a confirmed host has no poller; `hosts install` and `hosts uninstall` refuse arguments (`install --help` used to install). The README names the session as it shows: `win:win-<name>`.

@@ -1,6 +1,6 @@
 # Supervisor for Claude Code
 
-![Version](https://img.shields.io/badge/version-0.8.4-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.8.5-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 [![supervisor in 40 seconds: a question from a Claude Code session on a Wear OS watch — «Staging is green. Deploy 2.8.0?» — answered with one tap.](assets/readme/promo-poster.jpg)](https://www.francescosorrentino.com/plugins/claude-master-watch)
 
@@ -765,7 +765,7 @@ The complete reference. Italian aliases (`lancia`, `chiudi`, `sessioni`,
 for t in tests/*-verify.py; do python3 "$t"; done
 ```
 
-Thirty suites, about 800 cases, none of which touch your real tmux, your real
+Forty-two suites, about 1,240 cases, none of which touch your real tmux, your real
 Claude or your browser: a private tmux server, a fake `claude` that draws the
 real dialogs and writes the real registry files, a fake browser that follows
 Chrome's rules, a fake Telegram. Every defect found on the real machine became

@@ -6,6 +6,10 @@ Nega `git push`, `gh release create|upload|edit|delete`, `npm publish`, `claude 
 - un compito in corso (o approvato) di un piano approvato, senza `hold`, la cui cartella contiene quella del
   comando; oppure
 - un compito con un ok registrato (`task approve`) nella stessa cartella, non ancora chiuso.
+La cartella del comando (09/10/2026) e' quella in cui gira davvero: dopo un `cd <dir>` della stessa catena
+(`&&`, `;`, `||`, `|`, a capo) o con `git -C <dir> push`, relativa alla cartella di prima e con ~ espansa; senza,
+la cartella della sessione. Un `cd` che non si sa leggere (una variabile, `cd -`) lascia una cartella che nessun
+compito copre: negato, mai concesso per sbaglio. Con piu' comandi chiusi nella catena, li deve coprire tutti.
 Non chiede un secondo ok: controlla soltanto. Spenta di default (`tasks.guard`), e senza registro non fa nulla:
 in quei casi il comportamento e' quello di prima. Un errore della guardia non blocca mai il comando.
 """
@@ -44,6 +48,42 @@ def covered(con, cwd):
     return False, ""
 
 
+SEP = re.compile(r"&&|\|\||[;|\n]")
+QUOTED = re.compile(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"")
+
+
+def targets(cmd, cwd):
+    """[(cartella, leggibile)] dei comandi chiusi di una catena (heredoc gia' tolti), seguendo i `cd`. Leggibile
+    False dopo un `cd` con una variabile, un `$(…)`, un backtick o `-`, finche' un `cd` assoluto non la rimette."""
+    keep = []
+
+    def hold(m):
+        keep.append(m.group(0)[1:-1])
+        return f"\x00{len(keep) - 1}\x00"
+
+    def word(w):
+        return os.path.expanduser(re.sub(r"\x00(\d+)\x00", lambda m: keep[int(m.group(1))], w))
+
+    cur, readable, out = cwd, True, []
+    for seg in SEP.split(QUOTED.sub(hold, cmd)):
+        seg = seg.strip().lstrip("(").strip()
+        parts = seg.split()
+        if parts and parts[0] in ("cd", "pushd"):
+            arg = word(parts[1]) if len(parts) > 1 else os.path.expanduser("~")
+            if arg == "-" or re.search(r"[$`]", arg):
+                readable = False
+            elif os.path.isabs(arg):
+                readable = True
+            cur = os.path.join(cur, arg)
+            continue
+        if CLOSED.search(re.sub(r"\x00\d+\x00", "''", seg)):
+            m = re.search(r"\bgit\s+-C\s+(\S+)", seg)
+            d = word(m.group(1)) if m else ""
+            out.append((os.path.join(cur, d) if d else cur,
+                        (readable or os.path.isabs(d)) and not re.search(r"[$`]", d)))
+    return out
+
+
 def decide(payload):
     """None = lascia passare; altrimenti il motivo del rifiuto."""
     cmd = str((payload.get("tool_input") or {}).get("command") or "")
@@ -59,9 +99,13 @@ def decide(payload):
     con = tk.connect(create=False)
     if con is None:
         return None
-    ok, _ = covered(con, payload.get("cwd") or os.getcwd())
-    if ok:
+    cwd = payload.get("cwd") or os.getcwd()
+    plain = re.sub(r"<<-?\s*['\"]?(\w+)['\"]?.*?^\1$", "", cmd, flags=re.S | re.M)
+    bad = [(d, ok) for d, ok in (targets(plain, cwd) or [(cwd, True)]) if not (ok and covered(con, d)[0])]
+    if not bad:
         return None
+    if any(not ok for _, ok in bad):   # l'ok forse c'e': manca la cartella, non l'approvazione
+        return cm.msg(cfg, "guard.lane_cd_unreadable", cmd=cmd.strip().splitlines()[0][:120])
     return cm.msg(cfg, "guard.lane_closed", cmd=cmd.strip().splitlines()[0][:120])
 
 

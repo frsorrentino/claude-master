@@ -89,6 +89,27 @@ T.check("G4 awaiting ok (asked, nobody approved) → denied", hook("git push --t
 cm("task", "approve", "solo", "--by", "maintainer (phone)", "--text", "ok")
 T.check("G4 the ok recorded → allowed", hook("git push --tags") == "allow", "")
 
+# G7 lane-guard-cd-target (09/10, chiesto dal maintainer): la cartella del comando, non solo quella della sessione.
+# La sessione gira in tmp (come la master sulla radice); il compito «solo», con l'ok, e' in proj.
+g7 = {c: hook(c, tmp) for c in (
+    f"cd {proj} && git push", "cd proj && git push --tags", "cd proj/sub; git push", f"git -C {proj} push",
+    "(cd proj && git push)", f'cd "{proj}" && git push', "cd ~ && cd " + str(proj) + " && git push")}
+T.check("G7 lane-guard-cd-target: from the master's folder, cd <task folder> && git push (absolute, relative, below it, ;, subshell, quoted), git -C <dir> push → allow",
+        all(v == "allow" for v in g7.values()), str(g7))
+g7d = {c: hook(c, tmp) for c in (
+    "git push", "cd proj && cd .. && git push", "cd other && git push", "cd $HOME && git push", "cd - && git push",
+    "cd proj && git push && cd ../other && git push", f"cd {proj} && git -C ../other push", "cd proj && git status; cd .. ; git push", "cd proj && cd && git push")}
+T.check("G7 lane-guard-cd-target: git push alone in the master's folder, a cd out of the task folder, a cd it cannot read, a second push elsewhere → deny",
+        all(v.startswith("deny") for v in g7d.values()), str(g7d))
+
+# G8 (09/10) il cd non leggibile lo dice: la sessione non deve chiedere un ok che c'e' gia'
+g8 = {c: hook(c, d) for c, d in (("cd $HOME && git push", tmp), ("cd - && git push", tmp), ("cd $(git rev-parse --show-toplevel) && git push", proj),
+                                   ("git -C $P push", proj), ("cd $X && cd proj && git push", tmp))}
+g8ok = {c: hook(c, tmp) for c in ("cd $X && cd " + str(proj) + " && git push",)}
+T.check("G8 a cd that cannot be read → deny saying so (explicit path, no new ok), even inside a covered folder; an absolute cd after it reads again",
+        all(v.startswith("deny") and "cannot be read" in v and "do not ask for a new ok" in v for v in g8.values())
+        and g8ok == {"cd $X && cd " + str(proj) + " && git push": "allow"} and "cannot be read" not in hook("cd other && git push", tmp), str(g8) + str(g8ok))
+
 # G5 un registro rotto non blocca mai
 DB.write_text("not a database")
 T.check("G5 a broken registry → allow (the guard never breaks a session)", hook("git push") == "allow", "")

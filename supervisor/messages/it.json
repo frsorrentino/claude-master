@@ -829,6 +829,7 @@
   "plan.brief_result": "Chiudi la risposta con una riga sola: CM-RESULT {{\"task\": \"{id}\", \"attempt\": {attempt}, \"outcome\": \"green|red\", \"reason\": \"…\", \"proof\": {{\"kind\": \"check|commit|link\", \"value\": \"…\"}}, \"at\": <epoch s>}} (con outcome red aggiungi \"perimeter\": [i file da sistemare]).",
   "plan.failed_notice": "plan run: l'unità {id} ({title}) è rossa dopo {n} tentativi: {reason}. I nodi che ne dipendono sono annullati; decide l'utente.",
   "plan.read_only": "nessuno: sola lettura",
+  "guard.lane_cd_unreadable": "Corsia chiusa: in «{cmd}» c'è un cd non leggibile (una variabile, $(…), un backtick o cd -), quindi la guardia non sa quale cartella pubblica. Usa un percorso esplicito (cd /percorso/progetto && …, o git -C /percorso push) e riprova: non chiedere un nuovo ok.",
   "guard.lane_closed": "Corsia chiusa: «{cmd}» pubblica qualcosa, e in questa cartella non c'è un compito di un piano approvato né un ok registrato. Registralo (supervisor plan approve, o task add + task wait-ok e l'ok dell'utente) e riprova.",
   "relay.stale_title": "⚠ stato fermo da {min} min",
   "relay.stale_code": "nessuna push dalle {since}: il demone del relay girava con il codice vecchio. Riavviato alle {at}.",
