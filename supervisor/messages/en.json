@@ -404,6 +404,7 @@
   "relay.cmd_report_no_session": "no session {name}",
   "relay.cmd_report_no_image": "image missing or unreadable",
   "relay.cmd_report_too_big": "too large",
+  "relay.cmd_report_bad_parts": "bad parts",
   "relay.cmd_report_sent": "sent to {name}",
   "relay.cmd_report_sent_image": "sent to {name}: image saved as {file}",
   "relay.report_image_only": "(image from the phone)",

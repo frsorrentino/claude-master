@@ -64,7 +64,7 @@ def app_contract(name):
     return None
 
 
-for f in ("state-1-question", "state-2-idle", "state-3-stale", "events-sample", "cmd-result-sample", "pair-qr", "pair-response", "pair-add", "pair-link", "file-parts", "local-api"):
+for f in ("state-1-question", "state-2-idle", "state-3-stale", "events-sample", "cmd-result-sample", "pair-qr", "pair-response", "pair-add", "pair-link", "file-parts", "share-parts", "local-api"):
     a = FIX / f"{f}.json"; b = app_contract(f"{f}.json")
     T.check(f"R0 fixture {f} identical to the app contract on its master (origin/master; skipped if the app repo is absent)", a.is_file() and (b is None or a.read_bytes() == b), f"{WATCH}@origin/master:contract/{f}.json")
 
@@ -1073,8 +1073,9 @@ http("PUT", f"/share/{old}.json", {"v": 1, "enc": "x"}); http("PUT", f"/share/{f
 relay("push")
 T.check("R15 (1.19) push prunes a /share node first seen more than 10 minutes ago, keeps a fresh one (remembered in share-seen.json)",
         old not in (STORE.get("share") or {}) and fresh in (STORE.get("share") or {}) and fresh in json.loads((rdir2 / "share-seen.json").read_text()), str(list(STORE.get("share") or {})))
-T.check("R15 (1.19) /state carries share {max_bytes: 10000000, any: true}, also when there is nothing else (its presence turns «Share» on in the app)",
-        json.loads(relay("push", "--dry-run").stdout).get("share") == {"max_bytes": 10000000, "any": True} and S.build_state({}, 1)["share"] == {"max_bytes": 10000000, "any": True} and F1["share"] == {"max_bytes": 10000000, "any": True}, "")
+_SH15 = {"max_bytes": 10000000, "any": True, "parts": True, "max_parts_bytes": 52428800}   # 1.48: parts and max_parts_bytes
+T.check("R15 (1.19) /state carries share {max_bytes: 10000000, any: true, parts: true, max_parts_bytes: 52428800}, also when there is nothing else (its presence turns «Share» on in the app)",
+        json.loads(relay("push", "--dry-run").stdout).get("share") == _SH15 and S.build_state({}, 1)["share"] == _SH15 and F1["share"] == _SH15, "")
 # R17 (30/09, dal telefono): «x» chiusa e «work-x» viva nella stessa cartella hanno lo stesso nome corto — vince la
 # viva, la chiusa non entra; e un prompt a una sessione non viva non e' «delivered»
 good_bak = good_json.read_text()
@@ -1587,6 +1588,59 @@ T.check("R26 (1.28) no name → «file» with the type's extension, no text need
         r26b and r26b["ok"] is True and r26b["text"] == "sent file.txt to atlas-shop" and any(inbox26.glob("*-file.txt"))
         and r26c and r26c["ok"] is False and r26c["text"] == "bad name" and r26d and r26d["text"] == "bad name", str([r26b, r26c, r26d]))
 T.check("R26 (1.28) /state share.any = true (the app shows «File» only with this relay)", json.loads(relay("push", "--dry-run").stdout).get("share", {}).get("any") is True and F1["share"]["any"] is True, "")
+# R42 (contratto 1.48, 09/10): un file dal dispositivo a pezzi — /share/<id>/parts/<k> e /share/<id>/meta, fino a 50 MB
+import hashlib as _h42
+SP = json.loads((FIX / "share-parts.json").read_text())
+_ksp = bytes.fromhex(SP["key"])
+T.check("R42 (1.48) fixture share-parts.json: meta opens with the test key to its plain, the parts open to the file in order, sha256 and size of the joined bytes = meta",
+        C.decrypt(SP["meta"], _ksp) == SP["meta_plain"] and b"".join(C.decrypt_raw(x, _ksp) for x in SP["parts"]) == SP["file"].encode()
+        and _h42.sha256(SP["file"].encode()).hexdigest() == SP["meta_plain"]["sha256"] and SP["meta_plain"]["size"] == len(SP["file"].encode())
+        and SP["meta_plain"]["n"] == len(SP["parts"]) == 3, "")
+
+
+def _parts42(sid, data, mime, name, part, skip=(), **over):
+    chunks = [data[i:i + part] for i in range(0, len(data), part)] or [b""]
+    for i, c in enumerate(chunks):
+        if i not in skip:
+            http("PUT", f"/share/{sid}/parts/{i}.json", C.encrypt_raw(c, k))
+    meta = dict({"n": len(chunks), "size": len(data), "sha256": _h42.sha256(data).hexdigest(), "mime": mime, "name": name}, **over)
+    http("PUT", f"/share/{sid}/meta.json", C.encrypt(meta, k))
+
+
+_c42 = {c["id"]: c for c in CMDS}
+_r42 = {r["id"]: r for r in RES}
+_ok42, _bad42 = "6f1c2d3e-0480-4000-8000-000000000480", "6f1c2d3e-0481-4000-8000-000000000481"
+_parts42(_c42[_ok42]["arg"], SP["file"].encode(), "text/plain", "notes.txt", SP["part_bytes"])
+r42a = send_cmd(_c42[_ok42])
+saved42 = sorted(inbox26.glob("*-notes.txt"))
+T.check("R42 (1.48) a text file in three parts → put back together, in the session's inbox byte for byte, /result as in the fixture's …0480; /share/<id> gone",
+        r42a and r42a["ok"] is True and r42a["text"] == _r42[_ok42]["text"] and len(saved42) == 1 and saved42[0].read_bytes() == SP["file"].encode()
+        and _c42[_ok42]["arg"] not in (STORE.get("share") or {}), str(r42a) + str(list(STORE.get("share") or {})))
+_parts42(_c42[_bad42]["arg"], b"x" * 40, "text/plain", "b.txt", 16, skip=(1,))
+r42b = send_cmd(_c42[_bad42])
+_bad42s = []
+for _n42, _over42 in enumerate(({"sha256": "0" * 64}, {"size": 39}, {"n": 51}, {"n": 0})):
+    _sid42 = f"6f1c2d3e-0482-4000-8000-0000000b{_n42:04d}"
+    _parts42(_sid42, b"y" * 40, "text/plain", "c.txt", 16, **_over42)
+    _bad42s.append((send_cmd(dict(_c42[_bad42], id=f"6f1c2d3e-0482-4000-8000-00000000c{_n42:03d}", arg=_sid42)) or {}).get("text"))
+_sid42 = "6f1c2d3e-0483-4000-8000-00000000b483"
+_parts42(_sid42, b"z", "application/zip", "big.zip", 16, size=50 * 1024 * 1024 + 1)
+r42c = send_cmd(dict(_c42[_bad42], id="6f1c2d3e-0483-4000-8000-000000000483", arg=_sid42))
+T.check("R42 (1.48) a part missing → «bad parts» as the fixture's …0481; another sha256, another size, n over 50 or 0 → «bad parts»; over 50 MB → «too large: 52428801 max 52428800»; every node gone",
+        r42b and r42b["ok"] is False and r42b["text"] == _r42[_bad42]["text"] == "bad parts" and _bad42s == ["bad parts"] * 4
+        and r42c and r42c["text"] == "too large: 52428801 max 52428800" and not [x for x in (STORE.get("share") or {}) if x.startswith("6f1c2d3e-048")],
+        str([r42b, _bad42s, r42c, list(STORE.get("share") or {})]))
+_big42 = _os22.urandom(2 * 1024 * 1024 + 12345)
+_sid42 = "6f1c2d3e-0484-4000-8000-00000000b484"
+_parts42(_sid42, _big42, "application/zip", "photos.zip", RL.FILE_PART_BYTES)
+r42d = send_cmd(dict(_c42[_ok42], id="6f1c2d3e-0484-4000-8000-000000000484", arg=_sid42, text=""), wait=40)
+saved42d = sorted(inbox26.glob("*-photos.zip"))
+T.check("R42 (1.48) a 2 MB zip in three 1 MB parts → the same bytes in the inbox", r42d and r42d["ok"] is True and len(saved42d) == 1 and saved42d[0].read_bytes() == _big42, str(r42d))
+_RU42 = load("cm-relay-setup").RULES["rules"]["share"]["$id"]
+_kre42 = re.compile(_RU42["parts"]["$k"][".validate"].split(".matches(/")[1].split("/)")[0])
+T.check("R42 (1.48) RTDB rules: meta and parts/<0..49> each within 1.5 MB, the single node of before still within 10 MB",
+        "1500000" in _RU42["meta"][".validate"] and "1500000" in _RU42["parts"]["$k"][".validate"] and "10000000" in _RU42[".validate"]
+        and all(_kre42.fullmatch(str(i)) for i in range(50)) and not any(_kre42.fullmatch(x) for x in ("50", "01", "-1", "a")), str(_RU42))
 # R27 (contratto 1.29, 03/10): op timeline — la cronologia delle sessioni per il riepilogo del telefono
 # ledger-api (chiusa, account work): due test (verde e rosso), un commit, un esito e un compito, fra since e l'istante
 _la = (ws / "work" / "clients" / "ledger-api").resolve()

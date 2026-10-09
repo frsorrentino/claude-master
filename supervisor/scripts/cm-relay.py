@@ -1603,6 +1603,16 @@ def _share_report(cmd, tm, session, sid):
                 data = (local_dir("share") / f"{sid}.bin").read_bytes() if blob and (ext or MIME_RE.fullmatch(mime)) else b""
             except OSError:
                 data = b""
+        elif isinstance(meta_doc := rtdb("GET", f"share/{sid}/meta"), dict):
+            # 1.48: a pezzi, come /file della 1.34 al contrario
+            ok_p, got = share_parts(sid, meta_doc)
+            if not ok_p:
+                return False, got
+            blob, data = got
+            mime = str(blob.get("mime") or "").strip().lower()
+            ext = IMAGE_EXT.get(mime)
+            if not (ext or MIME_RE.fullmatch(mime)):
+                data = b""
         else:
             doc = rtdb("GET", f"share/{sid}")
             if isinstance(doc, dict) and len(str(doc.get("enc") or "")) > S.SHARE_MAX_BYTES:
@@ -1633,6 +1643,39 @@ def _share_report(cmd, tm, session, sid):
     if saved:
         return True, M("relay.cmd_report_sent_image", name=session, file=os.path.relpath(saved, row["cwd"]))
     return True, M("relay.cmd_report_sent", name=session)
+
+
+SHARE_PARTS_N = 50   # 1.48: /share/<id>/parts/<0..49>, as the RTDB rules
+
+
+def share_parts(sid, meta_doc):
+    """1.48 (09/10, asked by the app for files up to 50 MB from the phone): (True, (meta, bytes)) from /share/<sid>/meta,
+    {v, enc} of {n, size, sha256, mime, name}, and /share/<sid>/parts/0..n-1, {v, enc} of the raw bytes
+    (`C.encrypt_raw`; the app cuts FILE_PART_BYTES, at most SHARE_PARTS_N parts as the RTDB rules). Over S.SHARE_PARTS_MAX → «too large: <size> max <max>»
+    before reading a part; a part missing or unreadable, n out of 1..SHARE_PARTS_N, more or fewer bytes than size, or
+    another sha256 → «bad parts». The node goes away in share_report either way."""
+    bad = (False, M("relay.cmd_report_bad_parts"))
+    k_ = key()
+    try:
+        meta = C.decrypt(meta_doc, k_)
+        n, size, sha = int(meta["n"]), int(meta["size"]), str(meta["sha256"])
+    except (ValueError, KeyError, TypeError):
+        return bad
+    if size > S.SHARE_PARTS_MAX:
+        return False, M("relay.cmd_file_too_large", size=size, max=S.SHARE_PARTS_MAX)
+    if size < 0 or not 1 <= n <= SHARE_PARTS_N:
+        return bad
+    buf = bytearray()
+    for i in range(n):
+        try:
+            buf += C.decrypt_raw(rtdb("GET", f"share/{sid}/parts/{i}"), k_)
+        except (ValueError, TypeError):
+            return bad
+        if len(buf) > size:
+            return bad
+    if len(buf) != size or hashlib.sha256(buf).hexdigest() != sha:
+        return bad
+    return True, (meta, bytes(buf))
 
 
 MIME_RE = re.compile(r"[a-z0-9][a-z0-9.+-]{0,63}/[a-z0-9][a-z0-9.+-]{0,126}")

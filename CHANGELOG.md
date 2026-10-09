@@ -2,6 +2,9 @@
 
 ## 0.3.x
 
+- **0.8.3 — 2026-10-09: files up to 50 MB from the phone.**
+  - Share in parts (contract 1.48, additive): the device writes `/share/<id>/parts/<0..49>` ({v, enc} of the raw bytes, about 1 MB each) and then `/share/<id>/meta` ({v, enc} of {n, size, sha256, mime, name}); the relay puts the file back together, checks size and sha256, and goes on as before (an image to `report`, any other file to the session's inbox). Up to 50 MB; «too large: <size> max 52428800» or «bad parts» otherwise; the node is deleted either way. `state.share` says `parts: true` and `max_parts_bytes`; without `/share/<id>/meta` the single node of before works as it did.
+  - RTDB rules: `meta` and `parts/<0..49>` writable by paired devices, each within 1.5 MB; `supervisor relay setup` publishes them. The copy in `supervisor/relay/database.rules.json` follows the rules in the code again.
 - **0.8.2 — 2026-10-09: the agenda can be changed from the phone.**
   - Op `agenda` (contract 1.47, additive): each row carries `key`, `detail` (column 6, `\n` as line breaks, or null) and `until` (column 7, AAAA-MM-GG, or null); the state `scartato` is read, `chiuso` reads as `fatto`; the result says `owner`, the `blocks` value that means the owner (`relay.agenda_owner`, «owner» when unset). Past the size limit the closed rows go first.
   - Op `agenda_set` (contract 1.47): Fatto (`done`), Rimanda (`snooze` with `until`), Rimuovi (`remove`, kept as `scartato`) and Passa (`pass` to `claude` or the owner) on one row, by its key. One writer at a time, a backup of the file before each write (the last 30 in the relay folder), only that line changes and the file is replaced in one step; a key no longer in the file gives «agenda row changed» and the app reloads.

@@ -105,7 +105,9 @@
   },
   "share": {
     "max_bytes": 10000000,
-    "any": true
+    "any": true,
+    "parts": true,
+    "max_parts_bytes": 52428800
   },
   "ops": [
     "answer",

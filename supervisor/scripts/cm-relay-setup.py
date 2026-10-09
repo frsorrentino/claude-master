@@ -70,7 +70,11 @@ RULES = {"rules": {
     "state": {".read": ALLOWED}, "events": {".read": ALLOWED}, "result": {".read": ALLOWED},
     "cmd": {".read": ALLOWED, ".write": ALLOWED},
     # 1.19: l'immagine di «Condividi», scritta dal telefono e letta (poi cancellata) dal PC con il service account
-    "share": {"$id": {".write": ALLOWED, ".validate": "newData.child('enc').isString() && newData.child('enc').val().length <= 10000000"}},
+    # 1.48: o a pezzi, /share/<id>/parts/<0..49> e /share/<id>/meta, ognuno entro 1,5 MB (50 pezzi da 1 MB = 50 MB)
+    "share": {"$id": {".write": ALLOWED,
+                      ".validate": "(newData.child('enc').isString() && newData.child('enc').val().length <= 10000000) || newData.hasChild('meta') || newData.hasChild('parts')",
+                      "meta": {".validate": "newData.child('enc').isString() && newData.child('enc').val().length <= 1500000"},
+                      "parts": {"$k": {".validate": "$k.matches(/^([0-9]|[1-4][0-9])$/) && newData.child('enc').isString() && newData.child('enc').val().length <= 1500000"}}}},
     # 1.24: il file aperto dal telefono, scritto dal PC con il service account; il dispositivo lo legge e lo cancella
     "file": {"$id": {".read": ALLOWED, ".write": ALLOWED + " && !newData.exists()"}},
     # 1.20: ogni dispositivo scrive solo il proprio /seen/<uid>, l'ora (del server) dell'ultima lettura di /state

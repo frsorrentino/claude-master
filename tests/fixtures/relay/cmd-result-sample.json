@@ -456,6 +456,26 @@
       "blocks": "terzi",
       "issued": 1789211150,
       "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0480-4000-8000-000000000480",
+      "op": "report",
+      "session": "atlas-shop",
+      "arg": "6f1c2d3e-0480-4000-8000-00000000a480",
+      "text": "the notes from the call",
+      "device": "phone",
+      "issued": 1789211200,
+      "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0481-4000-8000-000000000481",
+      "op": "report",
+      "session": "atlas-shop",
+      "arg": "6f1c2d3e-0481-4000-8000-00000000a481",
+      "text": "",
+      "device": "phone",
+      "issued": 1789211210,
+      "by": "phone-pixel8"
     }
   ],
   "result": [
@@ -772,6 +792,18 @@
       "ok": false,
       "text": "bad blocks: terzi",
       "at": 1789211151
+    },
+    {
+      "id": "6f1c2d3e-0480-4000-8000-000000000480",
+      "ok": true,
+      "text": "sent notes.txt to atlas-shop",
+      "at": 1789211202
+    },
+    {
+      "id": "6f1c2d3e-0481-4000-8000-000000000481",
+      "ok": false,
+      "text": "bad parts",
+      "at": 1789211211
     }
   ]
 }

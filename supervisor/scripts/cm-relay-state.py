@@ -59,6 +59,7 @@ def epoch(ts):
 
 SHARE_MAX_BYTES = 10000000   # 1.19: la busta cifrata di /share/<id> (lunghezza di `enc`), un file per comando; 07/10: da 1,5
 # a 10 MB (sotto i 10.485.760 di una stringa RTDB), cioe' un file di circa 5,6 MB (due base64: enc ~ 16/9 del file)
+SHARE_PARTS_MAX = 50 * 1024 * 1024   # 1.48: un file dal dispositivo a pezzi (/share/<id>/parts e meta)
 FILE_ENC_MAX = 1500000   # 1.24: la busta di /file/<id> in un solo {v, enc}, verso telefono e orologio: resta 1,5 MB
 EVENT_BODY_MAX = 4000   # 1.18: il testo di recap, night_report e quota (ripresa) negli eventi
 
@@ -433,7 +434,8 @@ def build_state(src, now, fit=True):
         "choices": src.get("choices") or None,
         # 1.19: il relay sa ricevere «Condividi» (op report con /share); presente = l'app accende il pulsante
         # 1.28: any = ogni formato (non solo immagini): l'app mostra «File» nel menu del «+» solo con questo relay
-        "share": {"max_bytes": SHARE_MAX_BYTES, "any": True},
+        # 1.48: parts = il relay ricompone /share/<id>/parts + meta, fino a max_parts_bytes; senza, il nodo unico
+        "share": {"max_bytes": SHARE_MAX_BYTES, "any": True, "parts": True, "max_parts_bytes": SHARE_PARTS_MAX},
         # 1.21: le op di /cmd che questo relay esegue; l'app accende un pulsante solo se la sua op c'e' (Stop = interrupt)
         "ops": list(src.get("ops") or []),
         # 1.25: i comandi slash che il telefono puo' dare (senza «/»); l'app li propone scrivendo «/» nel campo

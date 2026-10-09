@@ -18,7 +18,15 @@
     "share": {
       "$id": {
         ".write": "auth != null && root.child('allowed').child(auth.uid).val() === true",
-        ".validate": "newData.child('enc').isString() && newData.child('enc').val().length <= 1500000"
+        ".validate": "(newData.child('enc').isString() && newData.child('enc').val().length <= 10000000) || newData.hasChild('meta') || newData.hasChild('parts')",
+        "meta": {
+          ".validate": "newData.child('enc').isString() && newData.child('enc').val().length <= 1500000"
+        },
+        "parts": {
+          "$k": {
+            ".validate": "$k.matches(/^([0-9]|[1-4][0-9])$/) && newData.child('enc').isString() && newData.child('enc').val().length <= 1500000"
+          }
+        }
       }
     },
     "file": {
