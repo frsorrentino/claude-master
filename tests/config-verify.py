@@ -203,6 +203,23 @@ T.check("C13 WARN missing chrome-bridge cli", "WARN" in r.stdout and "nope/cli.j
 r = T.run_config(["doctor"], home, cfg_missing, machine)
 T.check("C13 WARN no config → suggests init", r.returncode == 0 and "init" in r.stdout, r.stdout)
 
+# C13f (09/10) doctor: a confirmed host without the hosts poller in the crontab → WARN with «supervisor hosts install»
+_cr = Path(tmp) / "crontab-c13f"
+_fc = Path(tmp) / "crontab-c13f.sh"
+_fc.write_text('#!/bin/sh\ncat "%s"\n' % _cr)
+_fc.chmod(0o755)
+_hc = json.loads(target.read_text())
+_hc["hosts"] = {"win": {"kind": "windows-native", "transport": {"ssh": "win"}, "confirmed_at": "2026-10-02T00:10"}}
+(Path(tmp) / "hosts.json").write_text(json.dumps(_hc))
+_cr.write_text("")
+r = T.run_config(["doctor"], home, Path(tmp) / "hosts.json", machine, extra_env={"CM_CRONTAB_CMD": str(_fc)})
+T.check("C13f confirmed host, no poller line → WARN with the fix supervisor hosts install", "hosts_poller_missing" in r.stdout and "supervisor hosts install" in r.stdout, r.stdout)
+_cr.write_text("* * * * * /x/supervisor hosts poll --cron >/dev/null 2>&1\n")
+r = T.run_config(["doctor"], home, Path(tmp) / "hosts.json", machine, extra_env={"CM_CRONTAB_CMD": str(_fc)})
+T.check("C13f with the poller line → PASS", "PASS hosts_poller_ok" in r.stdout, r.stdout)
+r = T.run_config(["doctor"], home, target, machine, extra_env={"CM_CRONTAB_CMD": str(_fc)})
+T.check("C13f no confirmed host → no poller row", "hosts_poller" not in r.stdout, r.stdout)
+
 VER_CHECKOUT = json.loads((T.PLUGIN / ".claude-plugin" / "plugin.json").read_text())["version"]
 # C13b doctor: plugin nella cache via `claude plugin list --json` (finto: CM_FAKE_PLUGIN_LIST)
 pl = Path(tmp) / "plugins.json"

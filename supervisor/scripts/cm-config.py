@@ -1183,6 +1183,15 @@ def cmd_doctor():
         rows.append(("PASS", "doctor.firebase_app_ok", {"project": app["project_id"], "source": why}, None) if app
                     else ("WARN", "doctor.firebase_app_missing", {"why": msg(cfg, why, path=expand(cfg["relay"].get("google_services") or ""), package=cfg["relay"].get("app_package") or "")}, "doctor.fix_firebase_app"))
 
+    # 09/10: un host confermato senza il sondatore nel crontab → le sue sessioni non compaiono in sessions ne' nell'app
+    if any(n != "local" and h.get("confirmed_at") for n, h in (cfg.get("hosts") or {}).items()):
+        try:
+            cron = subprocess.run([os.environ.get("CM_CRONTAB_CMD", "crontab"), "-l"], capture_output=True, text=True).stdout
+        except OSError:
+            cron = ""
+        rows.append(("PASS", "doctor.hosts_poller_ok", {}, None) if "supervisor hosts poll" in cron
+                    else ("WARN", "doctor.hosts_poller_missing", {}, "doctor.fix_hosts_poller"))
+
     for name, a in cfg["accounts"].items():
         d = expand(a["config_dir"])
         if os.path.isdir(d):

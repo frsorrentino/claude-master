@@ -100,7 +100,7 @@ def night_items(rows):
     out = []
     for r in rows or []:
         d = str(r.get("dir") or "")
-        out.append({"id": str(r.get("id") or ""), "dir": d, "name": d.rstrip("/").rsplit("/", 1)[-1],
+        out.append({"id": str(r.get("id") or ""), "dir": d, "name": str(r.get("name") or "") or d.rstrip("/").rsplit("/", 1)[-1],
                     "prompt": cut_words(r.get("prompt"), NIGHT_PROMPT_MAX),
                     "added": r["added"] if isinstance(r.get("added"), int) else (epoch(r.get("added")) or None),
                     "started": r["started"] if isinstance(r.get("started"), int) and r["started"] else None})
@@ -427,6 +427,8 @@ def build_state(src, now, fit=True):
         "projects": projects,
         "night": {"queued": int(night.get("queued") or 0), "running": night.get("running") or None,
                   "items": night_items(night.get("items")),
+                  # 1.49 (09/10): night_add takes «master» (workspace.root_session_name) as well as a project
+                  **({"master": True} if night.get("master") else {}),
                   # 1.44 (08/10): l'ultimo rapporto della notte, {date, generated_at}; assente senza rapporti
                   **({"report": src["night_report"]} if src.get("night_report") else {})},
         "recap": {"date": recap.get("date") or "", "items": [{"project": i.get("project", ""), "done": i.get("done", ""), "next": i.get("next", "")} for i in (recap.get("items") or [])]},

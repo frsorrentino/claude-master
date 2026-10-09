@@ -2,6 +2,9 @@
 
 ## 0.3.x
 
+- **0.8.4 — 2026-10-09: agenda work in tonight's queue, and sessions on another host show up.**
+  - `night_add` takes `master` (contract 1.49, additive): the job runs in the master's folder (`workspace.root`, named after `workspace.root_session_name`) with the account that folder maps to; its queue items are named after the master; `state.night.master = true`. The app queues the Recap cards for the night.
+  - Sessions started with `launch --host` never showed in `sessions` or in the app: the hosts poller (`supervisor hosts poll --cron`) was not in the crontab, so no host snapshot was written. `launch --host` now installs it when missing and says so; `doctor` warns when a confirmed host has no poller; `hosts install` and `hosts uninstall` refuse arguments (`install --help` used to install). The README names the session as it shows: `win:win-<name>`.
 - **0.8.3 — 2026-10-09: files up to 50 MB from the phone.**
   - Share in parts (contract 1.48, additive): the device writes `/share/<id>/parts/<0..49>` ({v, enc} of the raw bytes, about 1 MB each) and then `/share/<id>/meta` ({v, enc} of {n, size, sha256, mime, name}); the relay puts the file back together, checks size and sha256, and goes on as before (an image to `report`, any other file to the session's inbox). Up to 50 MB; «too large: <size> max 52428800» or «bad parts» otherwise; the node is deleted either way. `state.share` says `parts: true` and `max_parts_bytes`; without `/share/<id>/meta` the single node of before works as it did.
   - RTDB rules: `meta` and `parts/<0..49>` writable by paired devices, each within 1.5 MB; `supervisor relay setup` publishes them. The copy in `supervisor/relay/database.rules.json` follows the rules in the code again.

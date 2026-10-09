@@ -68,9 +68,19 @@
     }
   ],
   "night": {
-    "queued": 0,
+    "queued": 1,
     "running": null,
-    "items": []
+    "items": [
+      {
+        "id": "c41d9e07",
+        "dir": "/home/demo/workspaces",
+        "name": "master",
+        "prompt": "Do this agenda item: Move the docs site to the new host (orbit-docs)",
+        "added": 1789213000,
+        "started": null
+      }
+    ],
+    "master": true
   },
   "recap": {
     "date": "2026-09-12",

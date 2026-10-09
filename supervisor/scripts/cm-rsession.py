@@ -314,6 +314,12 @@ def cmd_launch(argv):
     p = rec_path(name)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(rec, indent=1, ensure_ascii=False))
+    # 09/10: la sessione compare in sessions e nell'app solo con il sondatore degli host nel crontab
+    try:
+        if _load("cm-hosts").ensure_poller():
+            print(M("rsession.poller_installed"), file=sys.stderr)
+    except (OSError, subprocess.CalledProcessError) as e:
+        print(M("rsession.poller_failed", error=e), file=sys.stderr)
     if not entry:
         print(M("rsession.no_registry", host=hname, name=name, s=int(sess.get("start_timeout_s") or 90)), file=sys.stderr)
         return 5

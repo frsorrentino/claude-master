@@ -769,17 +769,32 @@ def crontab(text=None):
     subprocess.run([c, "-"], input=text, text=True, check=True)
 
 
-def cmd_install(argv):
+def ensure_poller():
+    """True se ha appena messo il sondatore nel crontab, False se c'era gia'. 09/10: senza sondatore lo snapshot degli
+    host non si scrive mai e le sessioni remote non compaiono in sessions ne' nell'app."""
     cur = crontab()
     if CRON_TAG in cur:
-        print(M("host.cron_present"))
-        return 0
+        return False
     crontab(cur.rstrip("\n") + ("\n" if cur.strip() else "") + "# supervisor: sondatore degli host (piano multi-PC 2.3)\n" + cron_line() + "\n")
-    print(M("host.cron_installed", line=cron_line()))
+    return True
+
+
+def poller_installed():
+    return CRON_TAG in crontab()
+
+
+def cmd_install(argv):
+    if argv:   # 09/10: «install --help» installava davvero
+        print(M("host.cron_usage"), file=sys.stderr)
+        return 2
+    print(M("host.cron_installed", line=cron_line()) if ensure_poller() else M("host.cron_present"))
     return 0
 
 
 def cmd_uninstall(argv):
+    if argv:
+        print(M("host.cron_usage"), file=sys.stderr)
+        return 2
     cur = crontab()
     lines = [l for l in cur.splitlines() if CRON_TAG not in l and "sondatore degli host" not in l]
     crontab("\n".join(lines) + ("\n" if lines else ""))

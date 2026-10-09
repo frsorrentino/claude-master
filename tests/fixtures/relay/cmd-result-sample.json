@@ -476,6 +476,15 @@
       "device": "phone",
       "issued": 1789211210,
       "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0490-4000-8000-000000000490",
+      "op": "night_add",
+      "session": null,
+      "arg": "master",
+      "text": "Do this agenda item: Move the docs site to the new host (orbit-docs)",
+      "issued": 1789211300,
+      "by": "phone-pixel8"
     }
   ],
   "result": [
@@ -804,6 +813,13 @@
       "ok": false,
       "text": "bad parts",
       "at": 1789211211
+    },
+    {
+      "id": "6f1c2d3e-0490-4000-8000-000000000490",
+      "ok": true,
+      "text": "queued for tonight: master (personal), job 7b21d4e8",
+      "job": "7b21d4e8",
+      "at": 1789211301
     }
   ]
 }

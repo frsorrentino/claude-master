@@ -523,15 +523,26 @@ def night_max():
     return int((CFG.get("night") or {}).get("max_queued") or 8)
 
 
+def night_master():
+    """1.49 (09/10, asked by the app for the Recap cards, approved by the maintainer): the master's folder as a night
+    target — workspace.root, named workspace.root_session_name, with the account its folder maps to. night_add takes
+    that name as arg, like a project path."""
+    d = os.path.realpath(cm.expand(CFG["workspace"]["root"]))
+    return {"path": d, "name": CFG["workspace"].get("root_session_name") or "master", "account": account_for_path(d)}
+
+
 def night_queue():
     try:
         p = Path(cm.expand(CFG["night"]["queue_file"]))
         rows = [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
     except (OSError, ValueError, KeyError):
         rows = []
-    running = next((os.path.basename(r.get("dir") or "") or "job" for r in rows if r.get("started")), None)
+    # 1.49: a job in the master's folder is named after the master, not after the folder
+    mst = night_master()
+    rows = [dict(r, name=mst["name"]) if os.path.realpath(str(r.get("dir") or "")) == mst["path"] else r for r in rows]
+    running = next((r.get("name") or os.path.basename(r.get("dir") or "") or "job" for r in rows if r.get("started")), None)
     # 1.17: la coda intera, nell'ordine di esecuzione; il prompt ridotto (S.night_items) per stare negli 8 KB
-    return {"queued": len(rows), "running": running, "items": rows}
+    return {"queued": len(rows), "running": running, "items": rows, "master": True}
 
 
 def tool_of(row):
@@ -2529,9 +2540,11 @@ def execute(cmd):
                 push_async()   # lo stato riporta subito il valore nuovo (annotato dal comando, cm-core lo usa)
             return rc == 0, text
         if op == "night_add":
-            # 1.17 (29/09): un lavoro nella coda di stanotte, dalla cartella di un progetto pubblicato come launch
+            # 1.17 (29/09): un lavoro nella coda di stanotte, dalla cartella di un progetto pubblicato come launch;
+            # 1.49: o nella cartella della master, arg = il suo nome
             path = str(arg or "")
-            proj = next((p for p in inventory() if os.path.realpath(p["path"]) == os.path.realpath(path)), None) if path else None
+            proj = night_master() if path == night_master()["name"] else None
+            proj = proj or (next((p for p in inventory() if os.path.realpath(p["path"]) == os.path.realpath(path)), None) if path else None)
             if not proj:
                 return False, M("relay.cmd_no_project", path=path or "?")
             prompt = str(cmd.get("text") or "").strip()

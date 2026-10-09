@@ -63,13 +63,18 @@ base_cfg = {
 }
 cfg.write_text(json.dumps(base_cfg))
 FAKE_AD = T.ROOT / "tests" / "lib" / "fake-rsession-adapter.py"
+CRON = tmp / "crontab"   # 09/10: launch --host mette il sondatore degli host: mai nel crontab vero
+CRON.write_text("")
+FAKE_CRON = tmp / "crontab.sh"
+FAKE_CRON.write_text('#!/bin/sh\nif [ "$1" = "-l" ]; then cat "%s"; else cat > "%s.tmp" && mv "%s.tmp" "%s"; fi\n' % (CRON, CRON, CRON, CRON))
+FAKE_CRON.chmod(0o755)
 FAKE = T.ROOT / "tests" / "lib" / "fake-claude.sh"
 
 
 def env(**extra):
     e = {"PATH": os.environ["PATH"], "HOME": str(home), "CM_HOME": str(home), "CC_SUPERVISOR_CONFIG": str(cfg),
          "CLAUDE_CONFIG_DIR": str(home / ".claude"), "CM_RSESSION_ADAPTER": str(FAKE_AD), "FAKE_WIN_ROOT": str(winroot),
-         "CM_LOADAVG": "0.1", "CM_NPROC": "8", "CM_MEMAVAIL_GB": "5", "CM_PROC_SCAN_PIDS": "", "CM_LAUNCH_NO_TTY": "1",
+         "CM_CRONTAB_CMD": str(FAKE_CRON), "CM_LOADAVG": "0.1", "CM_NPROC": "8", "CM_MEMAVAIL_GB": "5", "CM_PROC_SCAN_PIDS": "", "CM_LAUNCH_NO_TTY": "1",
          "GIT_AUTHOR_NAME": "Prova", "GIT_AUTHOR_EMAIL": "prova@example.com", "GIT_COMMITTER_NAME": "Prova",
          "GIT_COMMITTER_EMAIL": "prova@example.com"}
     e.update(extra)
@@ -131,6 +136,8 @@ starts = [c for c in calls() if c["verb"] == "start"]
 rec = tmp / "state" / "rsessions" / "win-alfa.json"
 T.check("RS2 launch --host win: exit 0, name win-alfa, link from the host's registry, local record",
         r.returncode == 0 and "win-alfa" in out and "https://claude.ai/code/session_FAKE0" in out and rec.is_file(), out)
+T.check("RS2 (09/10) the hosts poller was missing → put in the crontab and said, once",
+        CRON.read_text().count("hosts poll --cron") == 1 and "sondatore degli host non era nel crontab" in out, CRON.read_text() + out)
 T.check("RS2 the snapshot of HEAD becomes a new repository there: base commit, .cm-session.json, no .env, no uncommitted file",
         (rdir / "README.md").is_file() and (rdir / "src" / "a.txt").is_file() and not (rdir / ".env").exists()
         and not (rdir / "nuovo-non-committato.txt").exists() and (rdir / ".cm-session.json").is_file()
