@@ -135,7 +135,8 @@
     "decision",
     "unpair",
     "night",
-    "agenda"
+    "agenda",
+    "agenda_set"
   ],
   "slash": [
     "compact",

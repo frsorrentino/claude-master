@@ -27,8 +27,10 @@ R7   cm-hook.py: waiting/<sid> in JSON con tool_input; PermissionRequest/Stop/Se
      --async (relay abilitata); disabilitata → niente; bot follow/unfollow → push
 """
 import base64
+import fcntl
 import json
 import re
+import shutil
 import os
 import subprocess
 import sys
@@ -2163,14 +2165,17 @@ finally:
     for _n, _v in _save39.items():
         setattr(RL, _n, _v)
 
-# R40 (1.46, 08/10): op agenda, the open decisions and work of relay.agenda_file (TSV), on request, never in /state
+# R40 (1.46, 08/10): op agenda, the open decisions and work of relay.agenda_file (TSV), on request, never in /state;
+# 1.47 (09/10): columns 6 and 7 (detail, until), the state «scartato», «chiuso» read as «fatto», and each row's key
+_AG40 = ("# Decisions and open work\n#\n# state\tscope\tblocks\ttitle\tref\tdetail\tuntil\n"
+         "aperto\tagenzia\towner\tConfirm the 6 client ids with a candidate\t.claude/to-decide-client-id.md\n\n"
+         "aperto\tpersonale\tclaude\tMove the docs site to the new host\torbit-docs\r\n"
+         "  # an indented comment\n"
+         "sospeso\tagenzia\tterzi\tStaging of atlas-shop not reachable from the CLI\t\tThe host blocks SSH from the office.\\nAsk the provider to open port 22.\t2026-10-12\n"
+         "chiuso\tpostazione\tnessuno\tBackups of the workstation every night\tcrontab\n"
+         "scartato\tpersonale\tnessuno\tA second dashboard for the quotas\t\t\tnot-a-date\n")
 _ag40 = tmp / "agenda40.tsv"
-_ag40.write_text("# Decisions and open work\n#\n# state\tscope\tblocks\ttitle\tref\n"
-                 "aperto\tagenzia\towner\tConfirm the 6 client ids with a candidate\t.claude/to-decide-client-id.md\n\n"
-                 "aperto\tpersonale\tclaude\tMove the docs site to the new host\torbit-docs\n"
-                 "  # an indented comment\n"
-                 "sospeso\tagenzia\tterzi\tStaging of atlas-shop not reachable from the CLI\n"
-                 "fatto\tpostazione\tnessuno\tBackups of the workstation every night\tcrontab\n")
+_ag40.write_bytes(_AG40.encode())
 _rel40 = RL.CFG.setdefault("relay", {})
 _saved40 = _rel40.get("agenda_file")
 try:
@@ -2183,11 +2188,75 @@ try:
 finally:
     _rel40["agenda_file"] = _saved40
 _res40 = {r["id"]: r for r in json.loads((FIX / "cmd-result-sample.json").read_text())["result"] if isinstance(r, dict)}
-T.check("R40 (1.46) agenda → {rows: [{state, scope, blocks, title, ref}], more} in file order, comments and blank lines out, a missing ref empty; the fixture's …0386 result",
+_cmd40 = {c["id"]: c for c in json.loads((FIX / "cmd-result-sample.json").read_text())["cmd"] if isinstance(c, dict)}
+T.check("R40 (1.47) agenda → {rows: [{key, state, scope, blocks, title, ref, detail, until}], more} in file order, comments and blank lines out, "
+        "detail with real line breaks, until only as a date, «chiuso» as «fatto»; the fixture's …0386 result",
         _ok40[0] is True and json.loads(_ok40[1]) == json.loads(_res40["6f1c2d3e-0386-4000-8000-000000000386"]["text"]), str(_ok40)[:300])
 T.check("R40 (1.46) no agenda_file, or a file that is not there → «no agenda file», as the fixture's …0387",
         _none40 == _gone40 == (False, _res40["6f1c2d3e-0387-4000-8000-000000000387"]["text"]), str((_none40, _gone40)))
 T.check("R40 (1.46) agenda is a passive read in ops, and /state does not carry it", "agenda" in RL.PASSIVE_OPS and "agenda" in RL.OPS
         and "agenda" not in json.loads(relay("push", "--dry-run").stdout), "")
+
+# R41 (1.47, 09/10): op agenda_set — Fatto, Rimanda, Rimuovi, Passa on a copy of the agenda; backup, lock, nothing else moves
+_ag41 = tmp / "agenda41.tsv"
+_ag41.write_bytes(_AG40.encode())
+_rel41 = RL.CFG.setdefault("relay", {})
+_saved41 = (_rel41.get("agenda_file"), RL.AGENDA_BACKUPS, RL.AGENDA_LOCK_S)
+_bk41 = RL.rdir() / "agenda-backup"
+shutil.rmtree(_bk41, ignore_errors=True)
+try:
+    _rel41["agenda_file"] = str(_ag41)
+    _keys41 = [r["key"] for r in json.loads(RL.agenda_list()[1])["rows"]]
+    _out41 = {}
+    for _cid in sorted(c for c in _cmd40 if _cmd40[c]["op"] == "agenda_set"):
+        _before = _ag41.read_bytes()
+        _out41[_cid] = (RL.execute(_cmd40[_cid]), _before, _ag41.read_bytes())
+    _lines41 = _ag41.read_bytes().decode().splitlines(keepends=True)
+    _orig41 = _AG40.splitlines(keepends=True)
+    _bks41 = sorted(b.read_bytes() for b in _bk41.glob("agenda-*.tsv"))
+    # one writer at a time: with the lock held elsewhere, «agenda busy» and the file untouched
+    _held = open(str(RL.rdir() / "agenda.lock"), "w")
+    fcntl.flock(_held, fcntl.LOCK_EX)
+    RL.AGENDA_LOCK_S = 0.3
+    _k_now = json.loads(RL.agenda_list()[1])["rows"][0]["key"]
+    _busy41 = (RL.agenda_set({"action": "done"}, _k_now), _ag41.read_bytes() == "".join(_lines41).encode())
+    fcntl.flock(_held, fcntl.LOCK_UN); _held.close()
+    RL.AGENDA_BACKUPS = 2
+    _newest41 = _ag41.read_bytes()
+    RL.agenda_set({"action": "pass", "blocks": "owner"}, _k_now)
+    _left41 = sorted(_bk41.glob("agenda-*.tsv"))
+    _capped41 = (len(_left41), _left41[-1].read_bytes() == _newest41)
+    # the owner's name comes from relay.agenda_owner: Passa takes it, and «owner» is then refused
+    _rel41["agenda_owner"] = "someone"
+    _k_now = json.loads(RL.agenda_list()[1])["rows"][1]["key"]
+    _owner41 = (json.loads(RL.agenda_list()[1])["owner"], RL.agenda_set({"action": "pass", "blocks": "owner"}, _k_now),
+                json.loads(RL.agenda_set({"action": "pass", "blocks": "someone"}, _k_now)[1])["row"]["blocks"])
+finally:
+    _rel41["agenda_file"], RL.AGENDA_BACKUPS, RL.AGENDA_LOCK_S = _saved41
+    _rel41.pop("agenda_owner", None)
+_okids41 = [c for c in sorted(_out41) if _res40[c]["ok"]]
+T.check("R41 (1.47) the keys of agenda are the ones the fixture's agenda_set commands use",
+        all(_cmd40[c]["arg"] in _keys41 for c in _okids41), str((_keys41, [_cmd40[c]["arg"] for c in _okids41])))
+T.check("R41 (1.47) agenda_set: every fixture command gives the fixture's result (…0470-…0477)",
+        all(_out41[c][0] == (_res40[c]["ok"], _res40[c]["text"]) for c in _out41) and len(_out41) == 8,
+        str({c[-4:]: _out41[c][0] for c in _out41})[:600])
+T.check("R41 (1.47) done → state fatto, snooze → sospeso with until in column 7 (padded), remove → scartato, pass → column 3; "
+        "only those lines change, comments, blank lines and the CRLF line end stay",
+        _lines41[3] == "fatto\tagenzia\towner\tConfirm the 6 client ids with a candidate\t.claude/to-decide-client-id.md\n"
+        and _lines41[5] == "sospeso\tpersonale\tclaude\tMove the docs site to the new host\torbit-docs\t\t2026-10-20\r\n"
+        and _lines41[7] == "sospeso\tagenzia\tclaude\tStaging of atlas-shop not reachable from the CLI\t\tThe host blocks SSH from the office.\\nAsk the provider to open port 22.\t2026-10-12\n"
+        and _lines41[9] == "scartato\tpersonale\tnessuno\tA second dashboard for the quotas\t\t\tnot-a-date\n"
+        and _lines41[8] == "scartato\tpostazione\tnessuno\tBackups of the workstation every night\tcrontab\n"
+        and [l for i, l in enumerate(_lines41) if i not in (3, 5, 7, 8)] == [l for i, l in enumerate(_orig41) if i not in (3, 5, 7, 8)],
+        "".join(_lines41))
+T.check("R41 (1.47) a refused command (stale key, bad action, bad date, bad blocks) leaves the file as it was",
+        all(_out41[c][1] == _out41[c][2] for c in _out41 if not _res40[c]["ok"]), "")
+T.check("R41 (1.47) a backup before each write, byte for byte the file as it was",
+        len(_bks41) == len(_okids41) and _bks41 == sorted(_out41[c][1] for c in _okids41), str(len(_bks41)))
+T.check("R41 (1.47) with the lock held elsewhere → «agenda busy», file untouched; backups capped at AGENDA_BACKUPS, the newest kept",
+        _busy41 == ((False, "agenda busy"), True) and _capped41 == (2, True), str((_busy41, _capped41)))
+T.check("R41 (1.47) relay.agenda_owner names the owner: agenda says it in `owner`, Passa writes it, «owner» is then refused",
+        _owner41 == ("someone", (False, "bad blocks: owner"), "someone"), str(_owner41))
+T.check("R41 (1.47) agenda_set is a command in ops, not a passive read", "agenda_set" in RL.OPS and "agenda_set" not in RL.PASSIVE_OPS, "")
 
 T.finish()

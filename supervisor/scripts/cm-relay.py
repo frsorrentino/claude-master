@@ -30,6 +30,7 @@ import base64
 import binascii
 import fcntl
 import copy
+import hashlib
 import importlib.util
 import json
 import mimetypes
@@ -68,7 +69,7 @@ M = lambda k, **kw: cm.msg(CFG, k, **kw)  # noqa: E731
 R = CFG["relay"]
 CM_BIN = os.environ.get("CM_RELAY_CM") or str(HERE / "supervisor")
 BACKOFF = [1, 2, 5, 15, 30]
-OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report", "interrupt", "transcript", "file", "slash", "projects", "search", "timeline", "pair_add", "approve", "decision", "unpair", "night", "agenda")
+OPS = ("answer", "prompt", "launch", "follow", "unfollow", "resume", "reopen", "screen", "allow_all", "last", "model", "effort", "night_add", "night_remove", "report", "interrupt", "transcript", "file", "slash", "projects", "search", "timeline", "pair_add", "approve", "decision", "unpair", "night", "agenda", "agenda_set")
 LAST_MAX = 4000   # 1.4: l'ultimo messaggio per la lettura vocale — oltre, l'ascolto non regge
 
 
@@ -1878,30 +1879,156 @@ def night_report(arg):
         return False, f"no night report for {day or p.stem}"
 
 
-AGENDA_FIELDS = ("state", "scope", "blocks", "title", "ref")
+AGENDA_FIELDS = ("state", "scope", "blocks", "title", "ref", "detail", "until")
+AGENDA_CLOSED = ("fatto", "scartato")
+AGENDA_ACTIONS = {"done": "fatto", "snooze": "sospeso", "remove": "scartato", "pass": None}
+AGENDA_BACKUPS = 30
+AGENDA_LOCK_S = 5
+
+
+def agenda_owner():
+    """1.47: the name the agenda gives its owner in the column «blocks» (relay.agenda_owner, «owner» when unset):
+    Passa writes it or «claude»."""
+    return str((CFG.get("relay") or {}).get("agenda_owner") or "owner").strip() or "owner"
+
+
+def agenda_path():
+    f = (CFG.get("relay") or {}).get("agenda_file") or ""
+    p = Path(cm.expand(f)) if f else None
+    return p if p and p.is_file() else None
+
+
+def agenda_is_row(line):
+    return bool(line.strip()) and not line.lstrip().startswith("#")
+
+
+def agenda_keys(lines):
+    """1.47: the key of each row, chosen here — the first 12 hex of the sha1 of the line as written, «-2», «-3»… on a
+    repeated line. It stays the same while the line does, whatever happens to the others; a changed line has a new
+    key, so a write with the old one fails and the app reloads."""
+    seen, keys = {}, {}
+    for i, line in enumerate(lines):
+        if not agenda_is_row(line):
+            continue
+        h = hashlib.sha1(line.rstrip("\r\n").encode("utf-8")).hexdigest()[:12]
+        seen[h] = seen.get(h, 0) + 1
+        keys[i] = h if seen[h] == 1 else f"{h}-{seen[h]}"
+    return keys
+
+
+def agenda_row(line, key):
+    """A TSV line as the op shows it: «chiuso» reads as «fatto»; detail with its «\n» turned into line breaks, or null;
+    until only as AAAA-MM-GG, or null. Columns past the seventh are not read."""
+    cells = [c.strip() for c in line.rstrip("\r\n").split("\t")]
+    cells += [""] * (len(AGENDA_FIELDS) - len(cells))
+    row = dict(zip(AGENDA_FIELDS, cells[:len(AGENDA_FIELDS)]))
+    if row["state"] == "chiuso":
+        row["state"] = "fatto"
+    row["detail"] = row["detail"].replace("\\n", "\n") or None
+    row["until"] = row["until"] if re.fullmatch(r"\d{4}-\d{2}-\d{2}", row["until"]) else None
+    return dict(key=key, **row)
 
 
 def agenda_list():
-    """1.46 (08/10, asked by the app for its Recap, approved by the maintainer at 20:41): the open decisions and work of
-    relay.agenda_file, a TSV with the columns state, scope, blocks, title, ref; lines starting with «#» and blank lines
-    are comments. A read on request like `projects`, never in /state. text = JSON {rows, more}, in file order; past
-    TRANSCRIPT_MAX_BYTES the last rows are dropped and more = true."""
-    f = (CFG.get("relay") or {}).get("agenda_file") or ""
-    p = Path(cm.expand(f)) if f else None
-    if not p or not p.is_file():
+    """1.46 (08/10, asked by the app for its Recap, approved by the maintainer at 20:41): the decisions and work of
+    relay.agenda_file, a TSV; lines starting with «#» and blank lines are comments. A read on request like `projects`,
+    never in /state. text = JSON {rows, more, owner}, in file order. 1.47 (09/10, «Azioni» on the Recap cards, approved
+    by the maintainer): columns 6 and 7, detail and until, the state «scartato», each row's key for `agenda_set`, and
+    `owner`, the «blocks» value that means the owner (relay.agenda_owner). Past
+    TRANSCRIPT_MAX_BYTES the closed rows (fatto, scartato) go first, from the end, then the others; more = true."""
+    p = agenda_path()
+    if not p:
         return False, "no agenda file"
-    rows = []
-    for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
-        if not line.strip() or line.lstrip().startswith("#"):
-            continue
-        cells = [c.strip() for c in line.split("\t")]
-        cells += [""] * (len(AGENDA_FIELDS) - len(cells))
-        rows.append(dict(zip(AGENDA_FIELDS, cells[:len(AGENDA_FIELDS) - 1] + [" ".join(c for c in cells[len(AGENDA_FIELDS) - 1:] if c)])))
+    lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+    keys = agenda_keys(lines)
+    rows = [agenda_row(lines[i], keys[i]) for i in sorted(keys)]
     more = False
-    while rows and len(json.dumps({"rows": rows, "more": True}, ensure_ascii=False).encode()) > TRANSCRIPT_MAX_BYTES:
-        rows.pop()
+    while rows and len(json.dumps({"rows": rows, "more": True, "owner": agenda_owner()}, ensure_ascii=False).encode()) > TRANSCRIPT_MAX_BYTES:
+        closed = [i for i, r in enumerate(rows) if r["state"] in AGENDA_CLOSED]
+        rows.pop(closed[-1] if closed else -1)
         more = True
-    return True, json.dumps({"rows": rows, "more": more}, ensure_ascii=False)
+    return True, json.dumps({"rows": rows, "more": more, "owner": agenda_owner()}, ensure_ascii=False)
+
+
+def agenda_set(cmd, arg):
+    """1.47 (09/10, approved by the maintainer): the Recap's Fatto, Rimanda, Rimuovi and Passa on one row of the agenda.
+    arg = the row's key from `agenda`; `action`: done (state fatto), snooze (sospeso, with `until` AAAA-MM-GG in
+    column 7), remove (scartato: kept in the file, the app hides it) or pass (`blocks`: claude, or the `owner` of
+    `agenda`, in column 3).
+    One writer at a time (relay dir agenda.lock); before each write a copy in relay dir agenda-backup/, the last
+    AGENDA_BACKUPS kept; only that line changes — order, comments, blank lines and line ends stay as they are, and the
+    file is replaced in one step. A key no longer in the file → «agenda row changed»: the app reloads.
+    text = JSON {row} with the row as `agenda` now shows it, new key included."""
+    key = str(arg or "").strip()
+    action = str(cmd.get("action") or "")
+    if action not in AGENDA_ACTIONS:
+        return False, f"bad agenda action: {action or '?'}"
+    until = str(cmd.get("until") or "").strip()
+    blocks = str(cmd.get("blocks") or "").strip()
+    if action == "snooze":
+        try:
+            ok_date = bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", until)) and bool(time.strptime(until, "%Y-%m-%d"))
+        except ValueError:
+            ok_date = False
+        if not ok_date:
+            return False, f"bad until date: {until or '?'}"
+    if action == "pass" and blocks not in ("claude", agenda_owner()):
+        return False, f"bad blocks: {blocks or '?'}"
+    p = agenda_path()
+    if not p:
+        return False, "no agenda file"
+    lock = open(str(rdir() / "agenda.lock"), "w")
+    try:
+        t_end = time.time() + AGENDA_LOCK_S
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if time.time() > t_end:
+                    return False, "agenda busy"
+                time.sleep(0.1)
+        raw = p.read_bytes()
+        text = raw.decode("utf-8")
+        lines = text.splitlines(keepends=True)
+        keys = agenda_keys(lines)
+        at = next((i for i, k in keys.items() if k == key), None)
+        if at is None:
+            return False, "agenda row changed"
+        body = lines[at].rstrip("\r\n")
+        end = lines[at][len(body):]
+        cells = body.split("\t")
+        if action == "pass":
+            cells += [""] * (3 - len(cells))
+            cells[2] = blocks
+        else:
+            cells[0] = AGENDA_ACTIONS[action]
+            if action == "snooze":
+                cells += [""] * (7 - len(cells))
+                cells[6] = until
+        lines[at] = "\t".join(cells) + end
+        bdir = rdir() / "agenda-backup"
+        bdir.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        n = 0
+        while (bdir / f"agenda-{stamp}-{n:02d}.tsv").exists():   # names sort as written: the oldest go first
+            n += 1
+        (bdir / f"agenda-{stamp}-{n:02d}.tsv").write_bytes(raw)
+        for old in sorted(bdir.glob("agenda-*.tsv"))[:-AGENDA_BACKUPS]:
+            old.unlink(missing_ok=True)
+        if p.read_bytes() != raw:   # a hand edit between the read and now: never overwrite it
+            return False, "agenda row changed"
+        tmp = p.with_name(f".{p.name}.{os.getpid()}.tmp")
+        tmp.write_text("".join(lines), encoding="utf-8")
+        shutil.copymode(p, tmp)
+        os.replace(tmp, p)
+        new_lines = "".join(lines).splitlines()
+        return True, json.dumps({"row": agenda_row(new_lines[at], agenda_keys(new_lines)[at])}, ensure_ascii=False)
+    finally:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+        finally:
+            lock.close()
 
 
 def projects_list():
@@ -2405,6 +2532,8 @@ def execute(cmd):
             return night_report(arg)
         if op == "agenda":
             return agenda_list()
+        if op == "agenda_set":
+            return agenda_set(cmd, arg)
         if op == "search":
             return search(arg)
         if op == "timeline":

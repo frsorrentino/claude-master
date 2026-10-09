@@ -380,6 +380,82 @@
       "arg": null,
       "issued": 1789211070,
       "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0470-4000-8000-000000000470",
+      "op": "agenda_set",
+      "session": null,
+      "arg": "c21b025ee5fe",
+      "action": "done",
+      "issued": 1789211080,
+      "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0471-4000-8000-000000000471",
+      "op": "agenda_set",
+      "session": null,
+      "arg": "c21b025ee5fe",
+      "action": "done",
+      "issued": 1789211090,
+      "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0472-4000-8000-000000000472",
+      "op": "agenda_set",
+      "session": null,
+      "arg": "4a74d7ef133f",
+      "action": "snooze",
+      "until": "2026-10-20",
+      "issued": 1789211100,
+      "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0473-4000-8000-000000000473",
+      "op": "agenda_set",
+      "session": null,
+      "arg": "ebd085c3be89",
+      "action": "pass",
+      "blocks": "claude",
+      "issued": 1789211110,
+      "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0474-4000-8000-000000000474",
+      "op": "agenda_set",
+      "session": null,
+      "arg": "03995e6b66aa",
+      "action": "remove",
+      "issued": 1789211120,
+      "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0475-4000-8000-000000000475",
+      "op": "agenda_set",
+      "session": null,
+      "arg": "64fd942753ab",
+      "action": "archive",
+      "issued": 1789211130,
+      "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0476-4000-8000-000000000476",
+      "op": "agenda_set",
+      "session": null,
+      "arg": "64fd942753ab",
+      "action": "snooze",
+      "until": "2026-02-30",
+      "issued": 1789211140,
+      "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0477-4000-8000-000000000477",
+      "op": "agenda_set",
+      "session": null,
+      "arg": "64fd942753ab",
+      "action": "pass",
+      "blocks": "terzi",
+      "issued": 1789211150,
+      "by": "phone-pixel8"
     }
   ],
   "result": [
@@ -640,7 +716,7 @@
     {
       "id": "6f1c2d3e-0386-4000-8000-000000000386",
       "ok": true,
-      "text": "{\"rows\": [{\"state\": \"aperto\", \"scope\": \"agenzia\", \"blocks\": \"owner\", \"title\": \"Confirm the 6 client ids with a candidate\", \"ref\": \".claude/to-decide-client-id.md\"}, {\"state\": \"aperto\", \"scope\": \"personale\", \"blocks\": \"claude\", \"title\": \"Move the docs site to the new host\", \"ref\": \"orbit-docs\"}, {\"state\": \"sospeso\", \"scope\": \"agenzia\", \"blocks\": \"terzi\", \"title\": \"Staging of atlas-shop not reachable from the CLI\", \"ref\": \"\"}, {\"state\": \"fatto\", \"scope\": \"postazione\", \"blocks\": \"nessuno\", \"title\": \"Backups of the workstation every night\", \"ref\": \"crontab\"}], \"more\": false}",
+      "text": "{\"rows\": [{\"key\": \"c21b025ee5fe\", \"state\": \"aperto\", \"scope\": \"agenzia\", \"blocks\": \"owner\", \"title\": \"Confirm the 6 client ids with a candidate\", \"ref\": \".claude/to-decide-client-id.md\", \"detail\": null, \"until\": null}, {\"key\": \"4a74d7ef133f\", \"state\": \"aperto\", \"scope\": \"personale\", \"blocks\": \"claude\", \"title\": \"Move the docs site to the new host\", \"ref\": \"orbit-docs\", \"detail\": null, \"until\": null}, {\"key\": \"ebd085c3be89\", \"state\": \"sospeso\", \"scope\": \"agenzia\", \"blocks\": \"terzi\", \"title\": \"Staging of atlas-shop not reachable from the CLI\", \"ref\": \"\", \"detail\": \"The host blocks SSH from the office.\\nAsk the provider to open port 22.\", \"until\": \"2026-10-12\"}, {\"key\": \"03995e6b66aa\", \"state\": \"fatto\", \"scope\": \"postazione\", \"blocks\": \"nessuno\", \"title\": \"Backups of the workstation every night\", \"ref\": \"crontab\", \"detail\": null, \"until\": null}, {\"key\": \"64fd942753ab\", \"state\": \"scartato\", \"scope\": \"personale\", \"blocks\": \"nessuno\", \"title\": \"A second dashboard for the quotas\", \"ref\": \"\", \"detail\": null, \"until\": null}], \"more\": false, \"owner\": \"owner\"}",
       "at": 1789211061
     },
     {
@@ -648,6 +724,54 @@
       "ok": false,
       "text": "no agenda file",
       "at": 1789211071
+    },
+    {
+      "id": "6f1c2d3e-0470-4000-8000-000000000470",
+      "ok": true,
+      "text": "{\"row\": {\"key\": \"5b44e408d692\", \"state\": \"fatto\", \"scope\": \"agenzia\", \"blocks\": \"owner\", \"title\": \"Confirm the 6 client ids with a candidate\", \"ref\": \".claude/to-decide-client-id.md\", \"detail\": null, \"until\": null}}",
+      "at": 1789211081
+    },
+    {
+      "id": "6f1c2d3e-0471-4000-8000-000000000471",
+      "ok": false,
+      "text": "agenda row changed",
+      "at": 1789211091
+    },
+    {
+      "id": "6f1c2d3e-0472-4000-8000-000000000472",
+      "ok": true,
+      "text": "{\"row\": {\"key\": \"bf99f5227931\", \"state\": \"sospeso\", \"scope\": \"personale\", \"blocks\": \"claude\", \"title\": \"Move the docs site to the new host\", \"ref\": \"orbit-docs\", \"detail\": null, \"until\": \"2026-10-20\"}}",
+      "at": 1789211101
+    },
+    {
+      "id": "6f1c2d3e-0473-4000-8000-000000000473",
+      "ok": true,
+      "text": "{\"row\": {\"key\": \"90b2bdb97f34\", \"state\": \"sospeso\", \"scope\": \"agenzia\", \"blocks\": \"claude\", \"title\": \"Staging of atlas-shop not reachable from the CLI\", \"ref\": \"\", \"detail\": \"The host blocks SSH from the office.\\nAsk the provider to open port 22.\", \"until\": \"2026-10-12\"}}",
+      "at": 1789211111
+    },
+    {
+      "id": "6f1c2d3e-0474-4000-8000-000000000474",
+      "ok": true,
+      "text": "{\"row\": {\"key\": \"c17568410eab\", \"state\": \"scartato\", \"scope\": \"postazione\", \"blocks\": \"nessuno\", \"title\": \"Backups of the workstation every night\", \"ref\": \"crontab\", \"detail\": null, \"until\": null}}",
+      "at": 1789211121
+    },
+    {
+      "id": "6f1c2d3e-0475-4000-8000-000000000475",
+      "ok": false,
+      "text": "bad agenda action: archive",
+      "at": 1789211131
+    },
+    {
+      "id": "6f1c2d3e-0476-4000-8000-000000000476",
+      "ok": false,
+      "text": "bad until date: 2026-02-30",
+      "at": 1789211141
+    },
+    {
+      "id": "6f1c2d3e-0477-4000-8000-000000000477",
+      "ok": false,
+      "text": "bad blocks: terzi",
+      "at": 1789211151
     }
   ]
 }

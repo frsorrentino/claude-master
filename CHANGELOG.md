@@ -2,6 +2,9 @@
 
 ## 0.3.x
 
+- **0.8.2 — 2026-10-09: the agenda can be changed from the phone.**
+  - Op `agenda` (contract 1.47, additive): each row carries `key`, `detail` (column 6, `\n` as line breaks, or null) and `until` (column 7, AAAA-MM-GG, or null); the state `scartato` is read, `chiuso` reads as `fatto`; the result says `owner`, the `blocks` value that means the owner (`relay.agenda_owner`, «owner» when unset). Past the size limit the closed rows go first.
+  - Op `agenda_set` (contract 1.47): Fatto (`done`), Rimanda (`snooze` with `until`), Rimuovi (`remove`, kept as `scartato`) and Passa (`pass` to `claude` or the owner) on one row, by its key. One writer at a time, a backup of the file before each write (the last 30 in the relay folder), only that line changes and the file is replaced in one step; a key no longer in the file gives «agenda row changed» and the app reloads.
 - **0.8.1 — 2026-10-09: the night report says what each item was asked, the agenda for the phone, and Claude Code 2.1.295.**
   - Night report: `timeline[].prompt` (contract 1.46, additive) — for a night job the text of its queue item, for a session its first prompt of the night; markdown removed, cut at a whole word within 400 characters, null when missing. The app shows what was asked before the outcome.
   - Op `agenda` (contract 1.46): the open decisions and work of `relay.agenda_file`, a TSV with the columns state, scope, blocks, title, ref (lines starting with `#` are comments), as `{rows, more}`. A read on request like `projects`, never in `/state`; without the file, «no agenda file».
