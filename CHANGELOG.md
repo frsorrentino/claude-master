@@ -2,6 +2,9 @@
 
 ## 0.3.x
 
+- **0.8.8 — 2026-10-10: model and effort of a session on another host, and its name without the double prefix.**
+  - `supervisor model|effort HOST:name …` and the app's model and effort pickers work for a session on another host: the selectors are driven in its console like `answer` (on Windows the prompt and the cursor are `>`; Left and Right added to `remote/cm-console.ps1`). Tried live: effort in 38 s, model in 51 s. On that console the grey suggestion cannot be told from typed text, so that check is skipped there.
+  - A session made by `launch --host` is published as `HOST:base` (`win:video-supervisor`), not `win:win-video-supervisor`; commands still accept the old name.
 - **0.8.7 — 2026-10-10: the card of a session on another host shows its outcome.**
   - A session started with `launch --host` gets `outcome` and `next` in the state like a local one: its prompt and stop lines come from the copy of its transcript (when its last message has no «Esito:» line, the first sentence, which says the outcome), «Prossimi» from the `docs/recap.md` of the local folder it was launched from. The poller refreshes the copy at the end of a turn too. No contract change.
 - **0.8.6 — 2026-10-09: sessions on another host have their conversation and their questions in the app.**

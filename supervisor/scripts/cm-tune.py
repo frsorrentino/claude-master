@@ -48,8 +48,14 @@ ORDER = ["low", "medium", "high", "xhigh", "max", "ultracode"]   # le posizioni 
 # Claude Code 2.1.283 (dal vivo il 26/09/2026): la lista di /model scorre — sette voci a schermo su undici, «↑ n.» sulla
 # prima riga visibile e «↓ n.» sull'ultima quando ce ne sono altre, «… +4 models» in coda; sulla riga del cursore la
 # freccia lascia il posto a «❯». Giu' oltre l'ultima voce torna alla prima.
-PICK_ROW = re.compile(r"^\s*[↑↓]?\s*(❯)?\s*[↑↓]?\s*(\d+)\.\s+(.+?)(?:\s+✔)?(?:\s{2,}.*)?$")
+PICK_ROW = re.compile(r"^\s*[↑↓]?\s*(❯|>)?\s*[↑↓]?\s*(\d+)\.\s+(.+?)(?:\s+✔)?(?:\s{2,}.*)?$")
 DIM = re.compile(r"\x1b\[[0-9;]*m")
+# 10/10 (dal telefono: effort di una sessione su win → «sessione assente»): una sessione su un altro host si guida con
+# la sua console (adattatore, su Windows cm-console.ps1), una chiamata per lettura o per gruppo di tasti. Li' il
+# prompt e il cursore sono «>», e il suggerimento grigio non si distingue dal testo scritto: non si controlla.
+REMOTE = {}   # nome come lo chiama il relay → (adattatore, nome di la')
+GLYPHS = ("❯",)
+KEYMAP = {"Escape": "Esc", "Enter": "Enter", "Up": "Up", "Down": "Down", "Left": "Left", "Right": "Right"}
 
 
 def tmux(*args):
@@ -58,10 +64,17 @@ def tmux(*args):
 
 
 def screen(name, escapes=False):
+    if name in REMOTE:
+        a, n = REMOTE[name]
+        return a.session_console(n)["screen"]
     return tmux("capture-pane", "-p", "-J", *(["-e"] if escapes else []), "-t", name).stdout
 
 
 def keys(name, *k, pause=0.12):
+    if name in REMOTE:
+        a, n = REMOTE[name]
+        a.session_console(n, [KEYMAP.get(x) or "text:" + x for x in k])
+        return
     for x in k:
         tmux("send-keys", "-t", name, x)
         time.sleep(pause)
@@ -81,7 +94,7 @@ def below_prompt(scr):
     ridimensionamento tmux riallinea le righe vecchie e il piè di un selettore chiuso ricompariva sopra il prompt:
     cercarlo in tutto lo schermo faceva credere aperto un dialogo che non c'era (visto nei test il 16/09)."""
     lines = str(scr or "").splitlines()
-    last = max((i for i, l in enumerate(lines) if l.lstrip().startswith("❯")), default=-1)
+    last = max((i for i, l in enumerate(lines) if l.lstrip().startswith(GLYPHS)), default=-1)
     return flat("\n".join(lines[last + 1:] if last >= 0 else lines)) if last >= 0 else flat(scr)
 
 
@@ -137,6 +150,8 @@ def prompt_ready(name):
     tail = below_prompt(screen(name))
     if "Enter to select" in tail or "to use this session only" in tail or "to adjust" in tail:
         return False, "dialog"
+    if name in REMOTE:
+        return (True, "") if any(l.lstrip().startswith(GLYPHS) for l in screen(name).splitlines()) else (False, "no_prompt")
     colored = screen(name, escapes=True).splitlines()
     rows = [l for l in colored if DIM.sub("", l).lstrip().startswith("❯")]
     if not rows:
@@ -156,7 +171,8 @@ def remember(name, **fields):
     la sessione non scrive un turno piu' recente dell'annotazione; da li' vince di nuovo la trascrizione."""
     import json, os, tempfile
     try:
-        row = next((r for r in sessions.collect(read_screen=False) if (r.get("tmux") or r.get("name")) == name), None)
+        rows = sessions.collect(read_screen=False) + (_load("cm-hosts").remote_session_rows() if name in REMOTE else [])
+        row = next((r for r in rows if (r.get("tmux") or r.get("name")) == name), None)
     except Exception:   # noqa: BLE001 — l'annotazione e' un aiuto per lo stato, il cambio e' gia' avvenuto
         row = None
     sid = (row or {}).get("session_id")
@@ -204,6 +220,8 @@ class wide:
         self.name, self.old = name, None
 
     def __enter__(self):
+        if self.name in REMOTE:
+            return self   # la console di la' ha la sua misura: non e' un riquadro tmux
         r = tmux("display-message", "-p", "-t", self.name, "#{session_attached} #{window_width} #{window_height}")
         try:
             attached, w, h = (int(x) for x in r.stdout.split())
@@ -222,9 +240,13 @@ class wide:
 
 
 def open_picker(name, command, marker):
-    tmux("send-keys", "-t", name, "-l", command)
-    time.sleep(0.2)
-    tmux("send-keys", "-t", name, "Enter")
+    if name in REMOTE:
+        a, n = REMOTE[name]
+        a.session_console(n, ["text:" + command, "wait:200", "Enter"])
+    else:
+        tmux("send-keys", "-t", name, "-l", command)
+        time.sleep(0.2)
+        tmux("send-keys", "-t", name, "Enter")
     end = time.time() + WAIT_S
     while time.time() < end:
         scr = screen(name)
@@ -331,8 +353,15 @@ def main(argv):
         return 2
     what, name, value = argv[0], argv[1], argv[2]
     if tmux("has-session", "-t", f"={name}").returncode != 0:
-        print(M("tune.no_session", name=name))
-        return 1
+        hit = _load("cm-rsession").resolve(name)
+        a = _load("cm-hosts").adapter(hit[0]) if hit else None
+        if not hasattr(a, "session_console"):
+            print(M("tune.no_session", name=name))
+            return 1
+        global WAIT_S, GLYPHS
+        REMOTE[name] = (a, hit[1])
+        GLYPHS = ("❯", ">")
+        WAIT_S *= 3   # una lettura della console di la' costa qualche secondo
     return set_model(name, value) if what == "model" else set_effort(name, value)
 
 

@@ -1,6 +1,6 @@
 # Supervisor for Claude Code
 
-![Version](https://img.shields.io/badge/version-0.8.7-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
+![Version](https://img.shields.io/badge/version-0.8.8-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A5CF6)
 
 [![supervisor in 40 seconds: a question from a Claude Code session on a Wear OS watch — «Staging is green. Deploy 2.8.0?» — answered with one tap.](assets/readme/promo-poster.jpg)](https://www.francescosorrentino.com/plugins/claude-master-watch)
 
@@ -518,7 +518,7 @@ supervisor offload ~/film --recipe render   # the exact commit, the declared ass
   its last good read, never a hang.
 - **A whole session elsewhere.** `launch <dir> --host win` starts a Claude
   session on a `windows-native` host with the `sessions` role, with Remote
-  Control on, so it shows in `sessions` and in the app as `win:win-<name>`
+  Control on, so it shows in `sessions` and in the app as `win:<name>`
   (read by the hosts poller in the crontab, which `launch --host` installs
   when it is missing and `doctor` checks). A rule in the config
   decides which folders may go, and every refusal names the condition it

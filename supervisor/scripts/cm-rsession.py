@@ -396,6 +396,10 @@ def resolve(target):
     if ":" in target:
         h, n = target.split(":", 1)
         if h in hosts() and h != "local" and n:
+            # 10/10: `HOST:nome` si pubblica senza il «HOST-» che launch mette davanti (win:video-supervisor per
+            # win-video-supervisor): qui torna il nome vero, quando il record c'e'
+            if not rec_path(n).is_file() and rec_path(f"{h}-{n}").is_file():
+                n = f"{h}-{n}"
             return h, n
     if re.fullmatch(r"[A-Za-z0-9._-]+", target) and rec_path(target).is_file():
         try:

@@ -286,12 +286,14 @@ def L(n):
 hm, core = L('cm-hosts'), L('cm-core')
 if len(sys.argv) > 2:
     hm.sync_transcript('win', 'win-chat', 'sid-win-chat')   # come la chat chiesta dal telefono
-row = next(r for r in hm.remote_session_rows() if r['name'] == 'win:win-chat')
+row = next(r for r in hm.remote_session_rows() if r['remote_name'] == 'win-chat')
+rs = L('cm-rsession')
 t = core.transcript_of(row)
 st = L('cm-relay-state')
 ev = core.remote_events(row)
 print(json.dumps({'transcript': t, 'ask': core.pending_ask(t), 'entries': [e['text'] for e in core.transcript_entries(t, 0)],
-                  'events': ev, 'outcome': st._outcome(ev), 'local_dir': row.get('local_dir')}))
+                  'events': ev, 'outcome': st._outcome(ev), 'local_dir': row.get('local_dir'), 'name': row['name'],
+                  'resolve': [rs.resolve('win:chat'), rs.resolve('win:win-chat')]}))
 """
 def probe(sync=False):
     p = subprocess.run([sys.executable, "-c", PROBE, str(T.SCRIPTS)] + (["sync"] if sync else []), capture_output=True, text=True, env=env(), timeout=60)
@@ -302,6 +304,8 @@ pr = probe()
 T.check("RS12 remote-session-chat (10/10): the card's preview — prompt and stop lines from the copy, the outcome built as for a local session; local_dir from the launch record for «Prossimi»",
         sorted(e["event"] for e in pr.get("events", [])) == ["prompt", "stop"]
         and (pr.get("outcome") or {}).get("short") == "Ti chiedo il colore." and pr.get("local_dir") == str(ws / "personali" / "chat"), json.dumps(pr)[:600])
+T.check("RS12 remote-session-chat (10/10): with its launch record the session is published as win:chat, not win:win-chat; both names resolve to win-chat there",
+        pr.get("name") == "win:chat" and pr.get("resolve") == [["win", "win-chat"], ["win", "win-chat"]], json.dumps(pr)[:300])
 T.check("RS12 remote-session-chat: the row win:win-chat reads its conversation from the copy, and the open question with its options from the transcript",
         pr.get("transcript") == str(_mirror) and pr.get("ask") == ["Quale colore per la copertina?", ["Rosso", "Verde", "Blu"]]
         and "Ti chiedo il colore." in pr.get("entries", []), json.dumps(pr)[:500])
@@ -334,6 +338,12 @@ subprocess.run([sys.executable, str(T.SCRIPTS / "cm-hosts.py"), "poll", "win", "
 T.check("RS12 remote-session-chat: a remote session closed → the poller asks the relay for a push (push-req/hosts); nothing changed → no request",
         _quiet and _req.exists(), str((_quiet, _req.exists())))
 cfg.write_text(json.dumps(base_cfg))
+# 10/10: model ed effort di una sessione su win passano dalla console di la' (il finto non ha il selettore: uscita 4)
+n0 = len(calls())
+r = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-tune.py"), "effort", "win:chat", "high"], capture_output=True, text=True, env=env(), timeout=200)
+sent = [c["keys"] for c in calls()[n0:] if c["verb"] == "console" and c.get("name") == "win-chat" and c["keys"]]
+T.check("RS12 remote-session-chat (10/10): effort win:chat goes to the console of win-chat (/effort typed, then Enter), not «no session»; no picker there → exit 4",
+        r.returncode == 4 and sent and sent[0][:1] == ["text:/effort"] and "Enter" in sent[0], r.stdout + r.stderr + json.dumps(sent)[:300])
 r = subprocess.run(ANSWER + ["win:win-nessuna", "1"], capture_output=True, text=True, env=env(), timeout=60)
 T.check("RS12 remote-session-chat: a remote name with nothing to answer → no keys sent, exit 1", r.returncode == 1
         and not [c for c in calls() if c["verb"] == "console" and c.get("name") == "win-nessuna" and c["keys"]], r.stdout + r.stderr)

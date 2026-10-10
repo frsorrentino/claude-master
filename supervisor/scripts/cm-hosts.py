@@ -707,7 +707,11 @@ def remote_session_rows():
             if not s.get("alive"):
                 continue
             bridge = str(e.get("bridgeSessionId") or "")
-            rows.append({"pid": e.get("pid") or 0, "name": f"{name}:{e.get('name') or e.get('sessionId', '')[:8]}",
+            ename = e.get("name") or e.get("sessionId", "")[:8]
+            # 10/10 (dal telefono: «win» due volte nel nome): una sessione di launch --host si chiama «HOST-base»;
+            # col qualificatore «HOST:» davanti basta la base. cm-rsession.resolve rimette il prefisso per i comandi.
+            shown = ename[len(name) + 1:] if ename.startswith(name + "-") and (state_dir() / "rsessions" / f"{ename}.json").is_file() else ename
+            rows.append({"pid": e.get("pid") or 0, "name": f"{name}:{shown}", "remote_name": ename,
                          "account": local_account_of_dir(s.get("config_dir") or ".claude"), "cwd": e.get("cwd") or "",
                          "tmux": "", "status": e.get("status") or "?", "session_id": e.get("sessionId") or "",
                          "link": ("https://claude.ai/code/session_" + bridge.removeprefix("session_")) if bridge else "",

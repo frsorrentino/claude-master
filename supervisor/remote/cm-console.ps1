@@ -1,5 +1,5 @@
 # supervisor - lo schermo e i tasti della console di una sessione Claude su questo host (09/10/2026). Solo ASCII.
-#   powershell -File cm-console.ps1 -Name NOME -Out FILE [-KeysB64 B64]
+#   powershell -File cm-console.ps1 -Name NOME -Out FILE [-KeysB64 B64]   (tasti: Up Down Left Right Enter Esc text:.. wait:ms)
 # Gira come attivita' Interactive nella sessione del desktop (da sshd, sessione 0, AttachConsole non arriva alla
 # console della sessione 1): si stacca dalla sua console, si attacca a quella del processo claude della sessione NOME
 # (il piu' recente vivo in ~/.claude/sessions), manda i tasti (Up, Down, Enter, Esc, text:..., wait:ms) e legge la
@@ -55,6 +55,8 @@ try {
       switch -regex ($k) {
         '^Up$'    { [CmCon]::Key(0x26, [char]0) }
         '^Down$'  { [CmCon]::Key(0x28, [char]0) }
+        '^Left$'  { [CmCon]::Key(0x25, [char]0) }
+        '^Right$' { [CmCon]::Key(0x27, [char]0) }
         '^Enter$' { [CmCon]::Key(0x0D, [char]13) }
         '^Esc$'   { [CmCon]::Key(0x1B, [char]27) }
         '^wait:(\d+)$' { Start-Sleep -Milliseconds ([int]$Matches[1]) }

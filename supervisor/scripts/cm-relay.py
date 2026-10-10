@@ -2347,7 +2347,7 @@ def transcript_page(session, tm, arg):
     if row.get("host") and row.get("host") != "local":
         # 09/10: la chat di una sessione su un altro host: prima i byte nuovi del suo transcript, nella copia locale
         try:
-            got = _load("cm-hosts").sync_transcript(row["host"], str(row.get("name") or "").split(":", 1)[-1], row.get("session_id") or "")
+            got = _load("cm-hosts").sync_transcript(row["host"], row.get("remote_name") or str(row.get("name") or "").split(":", 1)[-1], row.get("session_id") or "")
             if got:
                 row["transcript"] = str(got)
         except Exception:   # noqa: BLE001 — host irraggiungibile: si mostra la copia che c'e'
