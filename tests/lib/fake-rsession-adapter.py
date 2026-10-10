@@ -208,6 +208,19 @@ def _console(self, name, keys=None):
     return {"pid": 4242, "screen": _draw(d)}
 
 
+def _file_size(self, path):
+    note("file_size", path=path)
+    f = local(path)
+    return f.stat().st_size if f.is_file() else -1
+
+
+def _file_get(self, path, dest):
+    note("file_get", path=path)
+    Path(dest).write_bytes(local(path).read_bytes())
+
+
+FakeWin.file_size = _file_size
+FakeWin.file_get = _file_get
 FakeWin.session_tail = _tail
 FakeWin.session_console = _console
 

@@ -2,6 +2,9 @@
 
 ## 0.3.x
 
+- **0.8.9 — 2026-10-10: a file of a session on another host opens from the phone.**
+  - A Windows path in the transcript stays absolute: the app got `D:\…\project/D:\…\file.mp4` and the relay answered «missing or unreadable». A relative one is joined to the session folder with `\`.
+  - `file_open` takes the file from the session's host: it measures it there against `FILE_PARTS_MAX` (25 MB), copies it with scp into `hosts/files` (kept one hour), then goes the usual way, in parts or to the local web. Tried live: 7.2 MB ready in 3.2 s. No contract change.
 - **0.8.8 — 2026-10-10: model and effort of a session on another host, and its name without the double prefix.**
   - `supervisor model|effort HOST:name …` and the app's model and effort pickers work for a session on another host: the selectors are driven in its console like `answer` (on Windows the prompt and the cursor are `>`; Left and Right added to `remote/cm-console.ps1`). Tried live: effort in 38 s, model in 51 s. On that console the grey suggestion cannot be told from typed text, so that check is skipped there.
   - A session made by `launch --host` is published as `HOST:base` (`win:video-supervisor`), not `win:win-video-supervisor`; commands still accept the old name.

@@ -348,5 +348,49 @@ r = subprocess.run(ANSWER + ["win:win-nessuna", "1"], capture_output=True, text=
 T.check("RS12 remote-session-chat: a remote name with nothing to answer → no keys sent, exit 1", r.returncode == 1
         and not [c for c in calls() if c["verb"] == "console" and c.get("name") == "win-nessuna" and c["keys"]], r.stdout + r.stderr)
 
+# RS13 remote-session-file (10/10, dal telefono: i file di una sessione su win «missing or unreadable»): il relay
+# prende il file dall'host — misura la', copia qui — e da li' la strada di sempre; troppo grande o assente → rifiuto
+(winroot / "cm" / "personali" / "chat" / "docs").mkdir(parents=True, exist_ok=True)
+(winroot / "cm" / "personali" / "chat" / "docs" / "film.mp4").write_bytes(b"\x00film" * 1000)
+_reg = json.loads((winroot / "registry.json").read_text())
+for _e in _reg:
+    if _e["name"] == "win-chat":
+        _e["closed"] = False
+(winroot / "registry.json").write_text(json.dumps(_reg))
+with open(_tr, "a") as _f:
+    for _fp in ("W:\\cm\\personali\\chat\\docs\\film.mp4", "W:\\cm\\personali\\chat\\docs\\manca.mp4"):
+        _f.write(json.dumps({"type": "assistant", "timestamp": "2026-10-10T15:00:00.000Z", "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "w" + _fp[-7:-4], "name": "Write", "input": {"file_path": _fp, "content": "x"}}]}}) + "\n")
+FPROBE = """
+import importlib.util, json, sys
+def L(n):
+    s = importlib.util.spec_from_file_location(n.replace('-', '_'), sys.argv[1] + '/' + n + '.py'); m = importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
+hm, core, rl = L('cm-hosts'), L('cm-core'), L('cm-relay')
+hm.sync_transcript('win', 'win-chat', 'sid-win-chat')
+row = next(r for r in hm.remote_session_rows() if r['remote_name'] == 'win-chat')
+rl._json_cmd = lambda *a, **k: [dict(row, tmux=row['name'])]
+files = [fr.get('path') for e in core.transcript_entries(core.transcript_of(row), 0) for fr in (e.get('files') or [])]
+out = {'files': files}
+for tag, path in (('ok', files[0] if files else ''), ('missing', files[1] if len(files) > 1 else '')):
+    out[tag] = rl.file_open({'id': 'f' + tag, '_local': True}, row['name'], row['name'], path)
+ref = rl.local_dir('file') / 'fok.json'
+out['ref'] = json.loads(ref.read_text()) if ref.is_file() else None
+rl.FILE_PARTS_MAX = 100
+out['big'] = rl.file_open({'id': 'fbig', '_local': True}, row['name'], row['name'], files[0] if files else '')
+print(json.dumps(out))
+"""
+subprocess.run([sys.executable, str(T.SCRIPTS / "cm-hosts.py"), "poll", "win", "--force"], capture_output=True, text=True, env=env(), timeout=120)
+cfg.write_text(json.dumps(dict(base_cfg, relay={"enabled": True, "dir": str(tmp / "relay")})))
+p = subprocess.run([sys.executable, "-c", FPROBE, str(T.SCRIPTS)], capture_output=True, text=True, env=env(), timeout=120)
+cfg.write_text(json.dumps(base_cfg))
+fr = json.loads(p.stdout) if p.returncode == 0 else {"error": p.stderr[-600:]}
+_ref = fr.get("ref") or {}
+T.check("RS13 remote-session-file: a file listed in the conversation of win:chat is measured and copied from there; the local web gets the copy, same bytes, mime from the name",
+        (fr.get("ok") or [False])[0] is True and _ref.get("name") == "film.mp4" and _ref.get("mime") == "video/mp4"
+        and Path(_ref.get("path") or "/nonexistent").read_bytes() == b"\x00film" * 1000, json.dumps(fr)[:700])
+T.check("RS13 remote-session-file: a listed file missing there → unreadable; over FILE_PARTS_MAX there → too large, nothing copied",
+        (fr.get("missing") or [True])[0] is False and (fr.get("big") or [True])[0] is False and "5000" in str((fr.get("big") or ["", ""])[1])
+        and len([c for c in calls() if c["verb"] == "file_get"]) == 1, json.dumps(fr)[:700])
+
 T.rm(tmp)
 T.finish()

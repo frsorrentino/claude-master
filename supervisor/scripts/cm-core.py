@@ -586,6 +586,7 @@ FILE_EXTS = {"png", "jpg", "jpeg", "webp", "gif", "svg", "mp4", "webm", "mov", "
              "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "csv", "html", "zip"}
 WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
 _REPORT_IMAGE = re.compile(r"^\s*(?:image|immagine):\s*(/\S.*?)\s*$", re.M)
+WIN_ABS = re.compile(r"[A-Za-z]:[\\/]|\\\\")   # un percorso assoluto di Windows (D:\… o \\server\…)
 _RENDER_HTML = re.compile(r"^\s*html:\s*(/\S.*?\.html)\s*$", re.M)   # 03/10: `supervisor render` stampa la pagina fatta
 
 
@@ -594,7 +595,11 @@ def _file_ref(path, cwd):
     p = str(path or "").strip()
     if not p:
         return None
-    if not os.path.isabs(p) and cwd:
+    if WIN_ABS.match(str(cwd or "")) or WIN_ABS.match(p):
+        # 10/10: una sessione su win — D:\… e' gia' assoluto (prima diventava «cwd/D:\…»), il resto si unisce con «\»
+        if not WIN_ABS.match(p) and cwd:
+            p = str(cwd).rstrip("\\/") + "\\" + p.replace("/", "\\")
+    elif not os.path.isabs(p) and cwd:
         p = os.path.join(cwd, p)
     try:
         size = os.path.getsize(p)

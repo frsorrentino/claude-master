@@ -1829,18 +1829,31 @@ def file_open(cmd, session, tm, arg):
             break
     if not path or not listed:
         return False, M("relay.cmd_file_not_listed")
+    src, name = path, re.split(r"[\\/]", path)[-1]
+    if row.get("host") and row.get("host") != "local":
+        # 10/10: il file sta sull'host della sessione (D:\… su win): misurato la' contro FILE_PARTS_MAX, poi copiato
+        # qui; da li' la strada di sempre, e la web locale riceve il percorso della copia
+        try:
+            got, size = _load("cm-hosts").fetch_file(row["host"], path, FILE_PARTS_MAX)
+        except Exception:   # noqa: BLE001 — host irraggiungibile, scp fallito: per il telefono e' illeggibile
+            got, size = None, -1
+        if got is None:
+            if size > FILE_PARTS_MAX:
+                return False, M("relay.cmd_file_too_large", size=size, max=FILE_PARTS_MAX)
+            return False, M("relay.cmd_file_unreadable")
+        src = str(got)
     try:
-        data = Path(path).read_bytes()
+        data = Path(src).read_bytes()
     except OSError:
         return False, M("relay.cmd_file_unreadable")
     import mimetypes
-    mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
     cid = str(cmd.get("id") or "")
     if cmd.get("_local"):
         # 1.35: la web app locale lo prende intero da GET /api/file/<id>, senza tetto ne' pezzi: qui solo il rimando
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", cid):
             return False, M("relay.cmd_file_unreadable")
-        write_json(local_dir("file") / f"{cid}.json", {"path": path, "mime": mime, "name": os.path.basename(path)})
+        write_json(local_dir("file") / f"{cid}.json", {"path": src, "mime": mime, "name": name})
         return True, M("relay.cmd_file_ready", mime=mime, size=len(data))
     if cmd.get("parts") is True:
         # 1.34: a pezzi, fino a FILE_PARTS_MAX; senza `parts` (un'app vecchia) tutto come prima
@@ -1849,7 +1862,7 @@ def file_open(cmd, session, tm, arg):
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", cid):
             return False, M("relay.cmd_file_unreadable")
         k_ = key()
-        meta, parts = file_parts(data, mime, os.path.basename(path), k_)
+        meta, parts = file_parts(data, mime, name, k_)
         for i, part in enumerate(parts):
             rtdb("PUT", f"file/{cid}/parts/{i}", part, {"print": "silent"})
         rtdb("PUT", f"file/{cid}/meta", meta, {"print": "silent"})   # per ultimo: con meta i pezzi ci sono gia' tutti

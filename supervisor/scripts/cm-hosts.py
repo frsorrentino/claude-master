@@ -770,6 +770,32 @@ def sync_transcript(host, session, sid=""):
     return p
 
 
+FETCH_TTL_S = 3600   # le copie dei file presi da un host restano un'ora (la web locale li legge dopo)
+
+
+def fetch_file(host, path, max_bytes):
+    """10/10 (dal telefono: i file di una sessione su win «missing or unreadable»): copia qui il file `path` di
+    `host`, prima misurato la' contro `max_bytes`. → (percorso della copia, byte); (None, byte) se troppo grande;
+    (None, -1) se la' non c'e' o l'host non sa leggerlo. Le copie stanno in hosts/files, le vecchie si tolgono."""
+    import hashlib
+    a = adapter(host)
+    if not hasattr(a, "file_size"):
+        return None, -1
+    size = a.file_size(path)
+    if size < 0 or size > max_bytes:
+        return None, size
+    d = state_dir() / "hosts" / "files"
+    d.mkdir(parents=True, exist_ok=True)
+    for old in d.iterdir():
+        if old.is_file() and time.time() - old.stat().st_mtime > FETCH_TTL_S:
+            old.unlink(missing_ok=True)
+    base = re.sub(r"[^A-Za-z0-9._-]", "_", re.split(r"[\\/]", path)[-1])[-80:]
+    local = d / f"{hashlib.sha1(f'{host}|{path}'.encode()).hexdigest()[:12]}-{base}"
+    a.file_get(path, local)
+    os.chmod(local, 0o600)
+    return local, local.stat().st_size
+
+
 def host_summary_lines():
     """Una riga per host in fondo a sessions: carico, RAM, disco, lavoro pesante con l'avanzamento, eta' della lettura."""
     lines = []

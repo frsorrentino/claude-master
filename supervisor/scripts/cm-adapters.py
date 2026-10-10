@@ -533,6 +533,19 @@ node $js {argv}""", timeout=timeout)
         """09/10: {sid, cwd, status, alive, size, offset, data} — i byte del transcript dall'offset, in base64."""
         return self.node_session("tail", name, str(int(offset)), str(int(max_bytes)), timeout=180)
 
+    def file_size(self, path):
+        """10/10 (dal telefono: un file di una sessione su win «missing or unreadable»): i byte di un file di la',
+        -1 se non c'e' o non e' un file."""
+        d = self.ps_json(f"""
+$p = {self.q(path)}
+if (Test-Path -LiteralPath $p -PathType Leaf) {{ ConvertTo-Json -Compress @{{ size = (Get-Item -LiteralPath $p).Length }} }}
+else {{ ConvertTo-Json -Compress @{{ size = -1 }} }}""")
+        return int(d.get("size", -1))
+
+    def file_get(self, path, local):
+        """10/10: un file di la' (percorso assoluto, D:\\… o D:/…) copiato qui con scp."""
+        self.ssh.get("/" + str(path).replace("\\", "/").lstrip("/"), local)
+
     def session_console(self, name, keys=None, timeout=90):
         """09/10: lo schermo della console della sessione (e prima i tasti, se ci sono), via cm-console.ps1 lanciato
         come attivita' Interactive nella sessione del desktop: da sshd AttachConsole non ci arriva. Tasti: «Up»,
