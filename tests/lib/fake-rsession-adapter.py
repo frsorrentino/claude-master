@@ -219,7 +219,14 @@ def _file_get(self, path, dest):
     Path(dest).write_bytes(local(path).read_bytes())
 
 
+def _file_put(self, src, path):
+    note("file_put", path=path)
+    local(path).parent.mkdir(parents=True, exist_ok=True)
+    local(path).write_bytes(Path(src).read_bytes())
+
+
 FakeWin.file_size = _file_size
+FakeWin.file_put = _file_put
 FakeWin.file_get = _file_get
 FakeWin.session_tail = _tail
 FakeWin.session_console = _console

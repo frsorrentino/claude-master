@@ -22,6 +22,7 @@ RS7 proposta e scelta automatica: regia carica → riga di proposta (il lancio r
     remoto, scarica → locale; una cartella non ammessa non e' mai proposta
 """
 import json
+import re
 import os
 import subprocess
 import sys
@@ -391,6 +392,85 @@ T.check("RS13 remote-session-file: a file listed in the conversation of win:chat
 T.check("RS13 remote-session-file: a listed file missing there → unreadable; over FILE_PARTS_MAX there → too large, nothing copied",
         (fr.get("missing") or [True])[0] is False and (fr.get("big") or [True])[0] is False and "5000" in str((fr.get("big") or ["", ""])[1])
         and len([c for c in calls() if c["verb"] == "file_get"]) == 1, json.dumps(fr)[:700])
+
+# RS15 remote-master-handoff (10/10, il maintainer: una sessione su win non poteva passare un compito alla master): il poller
+# inoltra alla master i blocchi «Per la master:» dei testi dell'assistente, una volta sola; mai tool o messaggi utente
+_reg = json.loads((winroot / "registry.json").read_text())
+_reg.append({"name": "win-fwd", "sessionId": "sid-win-fwd", "cwd": "W:/cm/personali/fwd", "status": "idle", "pid": 4343})
+(winroot / "registry.json").write_text(json.dumps(_reg))
+def _a15(uid, blocks, ago=0):
+    import datetime as _dt15
+    ts = (_dt15.datetime.now(_dt15.timezone.utc) - _dt15.timedelta(seconds=ago)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    return json.dumps({"type": "assistant", "uuid": uid, "timestamp": ts, "message": {"role": "assistant", "content": blocks}}) + "\n"
+(winroot / "transcript-win-fwd.jsonl").write_text(
+    json.dumps({"type": "user", "uuid": "u1", "message": {"role": "user", "content": "Per la master: dal messaggio utente, non deve partire"}}) + "\n"
+    + json.dumps({"type": "user", "uuid": "u2", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "Per la master: da una pagina web, non deve partire"}]}}) + "\n"
+    + _a15("a1", [{"type": "text", "text": "Ho finito il montaggio.\n\nPer la master:\nrenderizza il film in 4K\ncon l'audio nuovo.\n\nEsito: montaggio pronto\nProssimi: render · audio\nWatch: montaggio pronto"}]))
+_inbox15 = tmp / "state" / "inbox" / "master"
+_rg15 = tmp / "registry.json"   # la master nota al registro e chiusa: il messaggio resta nella sua casella (talk esce 0)
+_rd15 = json.loads(_rg15.read_text()) if _rg15.is_file() else {}
+_rd15.setdefault("sessioni", []).append({"nome": "master", "cartella": str(ws)})
+_rg15.write_text(json.dumps(_rd15))
+def _fw15():
+    return sorted(json.loads(x.read_text())["text"] for x in _inbox15.glob("*.json")) if _inbox15.is_dir() else []
+_n15 = len(_fw15())
+r = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-hosts.py"), "poll", "win", "--force"], capture_output=True, text=True, env=env(), timeout=120)
+_got15 = [t for t in _fw15() if "win:win-fwd" in t]
+T.check("RS15 remote-master-handoff: the block «Per la master:» of an assistant text goes to the master once, headed «Da win:win-fwd, HH:MM:», without the Esito/Prossimi/Watch lines; the user message and the tool result with the marker do not",
+        len(_got15) == 1 and re.match(r"Da win:win-fwd, \d\d:\d\d:\nPer la master:\nrenderizza il film in 4K\ncon l'audio nuovo\.$", _got15[0]) is not None
+        and not any("non deve partire" in t for t in _fw15()), r.stdout + r.stderr + json.dumps(_fw15())[-600:])
+subprocess.run([sys.executable, str(T.SCRIPTS / "cm-hosts.py"), "poll", "win", "--force"], capture_output=True, text=True, env=env(), timeout=120)
+with open(winroot / "transcript-win-fwd.jsonl", "a") as _f15:
+    # 21:17 del 10/10: la copia indietro porta dopo il punto letto un blocco scritto prima dell'attivazione — non parte
+    _f15.write(_a15("a0", [{"type": "text", "text": "**Per la master: il blocco vecchio**\nda non inoltrare"}], ago=86400))
+    _f15.write(_a15("a2", [{"type": "text", "text": "For the master: second task\nin two lines"}]))
+_reg = json.loads((winroot / "registry.json").read_text())
+for _e in _reg:
+    if _e["name"] == "win-fwd":
+        _e["status"] = "busy"
+(winroot / "registry.json").write_text(json.dumps(_reg))
+subprocess.run([sys.executable, str(T.SCRIPTS / "cm-hosts.py"), "poll", "win", "--force"], capture_output=True, text=True, env=env(), timeout=120)
+_got15 = [t for t in _fw15() if "win:win-fwd" in t]
+T.check("RS15 remote-master-handoff: polled again → the first block not sent twice (key on the message uuid, in forwarded-win.json); a new block in English at the next turn → sent too; a bold block written before the channel was on, reaching the copy late → not sent",
+        len(_got15) == 2 and sum("renderizza" in t for t in _got15) == 1 and not any("blocco vecchio" in t for t in _fw15()) and any(t.endswith("For the master: second task\nin two lines") for t in _got15)
+        and "a1:0:2" in (tmp / "state" / "hosts" / "forwarded-win.json").read_text(), json.dumps(_got15)[-600:])
+# RS14 remote-session-report (10/10, dal telefono: «le sessioni win non ricevono allegati?», «no session win:chat»): un
+# report verso una sessione su win scrive gli allegati la', nella sua cartella, e le manda un messaggio solo con talk
+RPROBE = """
+import importlib.util, json, sys, base64
+def L(n):
+    s = importlib.util.spec_from_file_location(n.replace('-', '_'), sys.argv[1] + '/' + n + '.py'); m = importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
+hm, rl = L('cm-hosts'), L('cm-relay')
+row = next(r for r in hm.remote_session_rows() if r['remote_name'] == 'win-chat')
+rl._json_cmd = lambda *a, **k: [dict(row, tmux=row['name'])]
+talks = []
+rl.run_cm = lambda *a, **k: (talks.append(list(a)), (0, 'sent'))[1]
+d = rl.local_dir('share')
+def put(sid, mime, data, name=None):
+    (d / (sid + '.json')).write_text(json.dumps(dict({'mime': mime}, **({'name': name} if name else {}))))
+    (d / (sid + '.bin')).write_bytes(data)
+put('s1', 'image/png', b'PNG-one')
+put('s2', 'application/pdf', b'%PDF-x', 'offerta.pdf')
+put('s3', 'image/png', b'PNG-two')
+out = {'one': rl.share_report({'arg': 's1', 'text': 'il menu', '_local': True, 'device': 'phone'}, row['name'], row['name']),
+       'two': rl.share_report({'arg': 's2,s3', 'text': 'offerta e schermo', '_local': True, 'device': 'phone'}, row['name'], row['name']),
+       'talks': talks, 'left': sorted(x.name for x in d.iterdir())}
+print(json.dumps(out))
+"""
+cfg.write_text(json.dumps(dict(base_cfg, relay={"enabled": True, "dir": str(tmp / "relay")})))
+p = subprocess.run([sys.executable, "-c", RPROBE, str(T.SCRIPTS)], capture_output=True, text=True, env=env(), timeout=120)
+cfg.write_text(json.dumps(base_cfg))
+rr = json.loads(p.stdout) if p.returncode == 0 else {"error": p.stderr[-800:]}
+_chat = winroot / "cm" / "personali" / "chat"
+_seg = sorted((_chat / "docs").rglob("*il-menu*.png"))
+_inb = sorted((_chat / ".claude-master-inbox").glob("*-offerta.pdf")) if (_chat / ".claude-master-inbox").is_dir() else []
+_tk = rr.get("talks") or []
+T.check("RS14 remote-session-report: a report with an image to win:chat → the image written there in its folder, ok with its path there (not «no session»)",
+        (rr.get("one") or [False])[0] is True and len(_seg) == 1 and _seg[0].read_bytes() == b"PNG-one" and "il-menu" in str((rr.get("one") or ["", ""])[1]), json.dumps(rr)[:800])
+T.check("RS14 remote-session-report: two attachments → the PDF in the inbox there (with its .gitignore), the image in the report folder; ONE talk to win:chat per report, with the paths there; the local copies gone",
+        (rr.get("two") or [False])[0] is True and len(_inb) == 1 and _inb[0].read_bytes() == b"%PDF-x" and (_chat / ".claude-master-inbox" / ".gitignore").is_file()
+        and len(_tk) == 2 and all(t[0] == "talk" and t[1] == "win:chat" for t in _tk) and "W:\\cm\\personali\\chat\\.claude-master-inbox\\" in _tk[1][2]
+        and _tk[1][2].index("offerta.pdf") < _tk[1][2].index(".png") and not rr.get("left"), json.dumps(rr)[:800])
 
 T.rm(tmp)
 T.finish()

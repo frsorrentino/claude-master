@@ -64,7 +64,8 @@
     "max_bytes": 10000000,
     "any": true,
     "parts": true,
-    "max_parts_bytes": 52428800
+    "max_parts_bytes": 52428800,
+    "multi": 5
   },
   "ops": [
     "answer",

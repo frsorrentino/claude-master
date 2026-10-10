@@ -2,6 +2,11 @@
 
 ## 0.3.x
 
+- **0.8.10 — 2026-10-10: several attachments in one report, attachments to a session on another host, and a way back to the master.**
+  - Contract 1.50 (additive): `report` takes up to 5 `/share` ids in `arg`, comma separated, each a single node or in parts. All are read before anything is saved: one missing or broken refuses the whole report with today's reason. Images go to the report folder, other files to the session's inbox, and the session gets ONE message with the text and the paths in order. Every `/share/<id>` is deleted either way. `state.share.multi = 5`; with one id nothing changes. Test R43.
+  - A report to a session on another host answered «no session win:<name>». The attachments are now written there, in the session's folder, with scp, and the message goes with `talk`. No contract change. Test RS14.
+  - The prompt prefix of the relay says how to hand a task to the master: `supervisor talk master «…»`, since the master does not read the session's window (a session read the SendMessage ban as a ban on writing to the master). Prompts sent before keep being recognised in the transcript. Test R44.
+  - A return channel from a session on another host, where `supervisor` is missing: the poller forwards to the master (`talk master --no-wait`, headed «Da win:<name>, HH:MM:») every block «Per la master:» an assistant text writes, up to the end of that text and without the Esito, Prossimi and Watch lines. Never tool results or user messages; each block once, keyed on the message uuid in `hosts/forwarded-<host>.json`. The prefix of a remote session explains the block. Tried live with a throwaway session on win. Test RS15.
 - **0.8.9 — 2026-10-10: a file of a session on another host opens from the phone.**
   - A Windows path in the transcript stays absolute: the app got `D:\…\project/D:\…\file.mp4` and the relay answered «missing or unreadable». A relative one is joined to the session folder with `\`.
   - `file_open` takes the file from the session's host: it measures it there against `FILE_PARTS_MAX` (25 MB), copies it with scp into `hosts/files` (kept one hour), then goes the usual way, in parts or to the local web. Tried live: 7.2 MB ready in 3.2 s. No contract change.

@@ -546,6 +546,15 @@ else {{ ConvertTo-Json -Compress @{{ size = -1 }} }}""")
         """10/10: un file di la' (percorso assoluto, D:\\… o D:/…) copiato qui con scp."""
         self.ssh.get("/" + str(path).replace("\\", "/").lstrip("/"), local)
 
+    def file_put(self, local, path):
+        """10/10 (dal telefono: un allegato per una sessione su win): un file di qui scritto la' (percorso assoluto),
+        creando la cartella."""
+        parent = re.split(r"[\\/](?=[^\\/]*$)", str(path))[0]
+        rc, _, err = self.exec(f"New-Item -ItemType Directory -Force -Path {self.q(parent)} | Out-Null")
+        if rc != 0:
+            raise HostError("remote", err.strip()[-200:] or f"mkdir {parent}")
+        self.ssh.put(local, "/" + str(path).replace("\\", "/").lstrip("/"))
+
     def session_console(self, name, keys=None, timeout=90):
         """09/10: lo schermo della console della sessione (e prima i tasti, se ci sono), via cm-console.ps1 lanciato
         come attivita' Interactive nella sessione del desktop: da sshd AttachConsole non ci arriva. Tasti: «Up»,

@@ -29,6 +29,7 @@ ENV = dict(os.environ, CC_SUPERVISOR_CONFIG=str(cfg), CM_BIN=str(Path(__file__).
 NOW = int(time.time())
 PFX = json.loads((T.PLUGIN / "messages" / "it.json").read_text())["relay.prompt_prefix_phone"]
 PFX_WEB = json.loads((T.PLUGIN / "messages" / "it.json").read_text())["relay.prompt_prefix_web"]
+HANDOFF = json.loads((T.PLUGIN / "messages" / "it.json").read_text()).get("relay.prompt_handoff", "")   # 10/10: non c'era prima
 VOICE = json.loads((T.PLUGIN / "messages" / "it.json").read_text()).get("relay.prompt_voice", "Dall'utente a voce, in modalità live:")
 
 
@@ -74,7 +75,7 @@ L = [
     line("user", "p3", NOW - 2100, "x", proj, origin={"kind": "peer", "body": "another session talking", "msg_id": "m2"}),
     line("user", "p4", NOW - 2050, "x", proj, origin={"kind": "peer", "body": PFX_WEB + " rifai il totale", "msg_id": "m3"}),
     # un prompt dal telefono arrivato prima del rinomino (07/10): il prefisso diceva «claude-master»
-    line("user", "p5", NOW - 2020, "x", proj, origin={"kind": "peer", "body": PFX.replace("supervisor", "claude-master") + " chiudo ora", "msg_id": "m4"}),
+    line("user", "p5", NOW - 2020, "x", proj, origin={"kind": "peer", "body": PFX.replace(HANDOFF, "").replace("supervisor", "claude-master") + " chiudo ora", "msg_id": "m4"}),
     # 1.42: un prompt a voce dalla modalità live, con le istruzioni vocali dopo il prefisso
     line("user", "p6", NOW - 2010, "x", proj, origin={"kind": "peer", "body": PFX + " " + VOICE + " quale sessione è vicina al rilascio?", "msg_id": "m5"}),
     # il riassunto di una compattazione: riga `user` senza origin, come nelle trascrizioni vere (07/10)

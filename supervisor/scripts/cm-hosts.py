@@ -672,7 +672,99 @@ def poll_one(name, force=False):
                 sync_transcript(name, e["name"], e.get("sessionId") or "")
             except Exception:   # noqa: BLE001 — la copia e' in piu': mai far cadere il giro del sondatore
                 pass
+    if not snap.get("error"):
+        try:
+            forward_to_master(name, (snap.get("status") or {}).get("sessions") or [])
+        except Exception:   # noqa: BLE001 — come la copia: mai far cadere il giro del sondatore
+            pass
     return snap
+
+
+MASTER_MARK = re.compile(r"^\W{0,4}(Per la master|For the master)\W{0,4}:", re.I)
+TAIL_LINE = re.compile(r"^\W{0,4}(Esito|Prossimi|Watch|Outcome|Next)\W{0,4}:", re.I)
+FORWARD_KEEP = 500
+
+
+def _epoch(ts):
+    try:
+        return dt.datetime.fromisoformat(str(ts).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def master_blocks(path, offset, since=0.0):
+    """10/10 (il maintainer: una sessione su win non poteva passare un compito alla master): i blocchi «Per la master:» nei
+    testi dell'assistente della copia del transcript, dal byte `offset`, scritti non prima di `since`. Solo i blocchi di testo dell'assistente,
+    mai i risultati dei tool ne' i messaggi dell'utente. Un blocco va dalla riga del marcatore alla fine di quel
+    testo, senza le righe finali Esito, Prossimi e Watch. → ([(chiave uuid:i:j, testo)], offset della fine
+    dell'ultima riga intera letta)."""
+    with open(path, "rb") as f:
+        f.seek(offset)
+        buf = f.read()
+    end = buf.rfind(b"\n") + 1
+    out = []
+    for raw in buf[:end].splitlines():
+        try:
+            d = json.loads(raw)
+        except ValueError:
+            continue
+        if d.get("type") != "assistant" or d.get("isSidechain") or _epoch(d.get("timestamp")) < since:
+            continue
+        content = (d.get("message") or {}).get("content")
+        for i, b in enumerate(content if isinstance(content, list) else []):
+            if not isinstance(b, dict) or b.get("type") != "text":
+                continue
+            lines = str(b.get("text") or "").splitlines()
+            starts = [j for j, l in enumerate(lines) if MASTER_MARK.match(l)]
+            for n, j in enumerate(starts):
+                block = lines[j:starts[n + 1] if n + 1 < len(starts) else len(lines)]
+                while block and (not block[-1].strip() or TAIL_LINE.match(block[-1])):
+                    block.pop()
+                text = "\n".join(block).strip()
+                if text:
+                    out.append((f"{d.get('uuid') or ''}:{i}:{j}", text))
+    return out, offset + end
+
+
+def forward_to_master(host, sessions):
+    """10/10: inoltra alla master, con `talk master --no-wait`, ogni blocco «Per la master:» che una sessione di
+    `host` ha scritto (master_blocks), una volta sola: le chiavi gia' partite e il punto letto di ogni copia stanno
+    in hosts/forwarded-<host>.json, quindi anche dopo un riavvio. Niente storia vecchia alla master: partono solo i
+    messaggi scritti dopo l'attivazione del canale (`since`, il primo giro); la copia di una sessione puo' essere
+    indietro e portare blocchi vecchi dopo il punto letto (21:17 del 10/10: un blocco delle 20:07 inoltrato)."""
+    st_p = state_dir() / "hosts" / f"forwarded-{re.sub(r'[^A-Za-z0-9._-]', '_', host)}.json"
+    first = not st_p.is_file()
+    st = read_json(st_p, {}) or {}
+    since = float(st.get("since") or 0) or time.time()
+    offs, sent = st.get("offsets") or {}, list(st.get("sent") or [])
+    master = str((CFG.get("workspace") or {}).get("root_session_name") or "master")
+    changed = first or not st.get("since")
+    for s in sessions:
+        e = s.get("entry") or {}
+        sid, ename = str(e.get("sessionId") or ""), str(e.get("name") or "")
+        p = mirror_path(host, sid) if sid else None
+        if not p or not p.is_file():
+            continue
+        if first:
+            offs[sid] = p.stat().st_size
+            continue
+        blocks, new_off = master_blocks(p, int(offs.get(sid) or 0) if int(offs.get(sid) or 0) <= p.stat().st_size else 0, since)
+        shown = ename[len(host) + 1:] if ename.startswith(host + "-") and (state_dir() / "rsessions" / f"{ename}.json").is_file() else ename
+        for key, text in blocks:
+            if key in sent:
+                continue
+            msg = M("host.forward_head", host=host, name=shown, time=time.strftime("%H:%M")) + "\n" + text
+            r = subprocess.run([sys.executable, str(HERE / "cm-talk.py"), "talk", master, msg, "--no-wait"],
+                               capture_output=True, text=True, timeout=120)
+            if r.returncode not in (0, 5):   # 5 = la master e' chiusa: il messaggio resta nella sua casella
+                new_off = None
+                break
+            sent.append(key)
+        if new_off is not None:
+            offs[sid] = new_off
+        changed = True
+    if changed:
+        write_json(st_p, {"since": since, "offsets": offs, "sent": sent[-FORWARD_KEEP:]})
 
 
 # ------------------------------------------------------------------ letture per sessions e quota (4.3, 6)

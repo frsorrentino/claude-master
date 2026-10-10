@@ -485,6 +485,26 @@
       "text": "Do this agenda item: Move the docs site to the new host (orbit-docs)",
       "issued": 1789211300,
       "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0500-4000-8000-000000000500",
+      "op": "report",
+      "session": "atlas-shop",
+      "arg": "6f1c2d3e-0500-4000-8000-00000000a500,6f1c2d3e-0500-4000-8000-00000000b500",
+      "text": "two screens of the checkout",
+      "device": "phone",
+      "issued": 1789211300,
+      "by": "phone-pixel8"
+    },
+    {
+      "id": "6f1c2d3e-0501-4000-8000-000000000501",
+      "op": "report",
+      "session": "atlas-shop",
+      "arg": "6f1c2d3e-0501-4000-8000-00000000a501,6f1c2d3e-0501-4000-8000-00000000b501",
+      "text": "the second one is missing",
+      "device": "phone",
+      "issued": 1789211310,
+      "by": "phone-pixel8"
     }
   ],
   "result": [
@@ -820,6 +840,18 @@
       "text": "queued for tonight: master (personal), job 7b21d4e8",
       "job": "7b21d4e8",
       "at": 1789211301
+    },
+    {
+      "id": "6f1c2d3e-0500-4000-8000-000000000500",
+      "ok": true,
+      "text": "sent to atlas-shop: images saved as docs/segnalazioni/2026-10-10-two-screens-of-the-checkout.png, docs/segnalazioni/2026-10-10-two-screens-of-the-checkout.jpg",
+      "at": 1789211302
+    },
+    {
+      "id": "6f1c2d3e-0501-4000-8000-000000000501",
+      "ok": false,
+      "text": "image missing or unreadable",
+      "at": 1789211311
     }
   ]
 }

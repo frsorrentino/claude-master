@@ -1586,23 +1586,69 @@ IMAGE_EXT = {"image/jpeg": "jpg", "image/png": "png"}
 def share_report(cmd, tm, session):
     """1.19 (29/09): «Condividi» dal telefono — testo e/o un'immagine verso una sessione viva, con `supervisor report
     <cartella> <file|-> <testo> --session <tmux>`. L'immagine sta cifrata in /share/<arg> ({mime, data base64}) e si
-    cancella sempre, riuscito o no."""
-    sid = str(cmd.get("arg") or "").strip()
+    cancella sempre, riuscito o no. 1.50: `arg` puo' portare fino a S.SHARE_MULTI id separati da virgola — un solo
+    messaggio alla sessione (share_multi); ogni /share/<id> si cancella comunque."""
+    arg = str(cmd.get("arg") or "").strip()
+    sids = [x.strip() for x in arg.split(",")] if "," in arg else ([arg] if arg else [])
     try:
-        return _share_report(cmd, tm, session, sid)
+        if len(sids) > 1:
+            return share_multi(cmd, tm, session, sids)
+        return _share_report(cmd, tm, session, arg)
     finally:
-        if sid and cmd.get("_local"):
-            if re.fullmatch(r"[A-Za-z0-9_-]{1,80}", sid):
-                for ext in (".bin", ".json"):
-                    (local_dir("share") / f"{sid}{ext}").unlink(missing_ok=True)
-        elif sid:
-            try:
-                rtdb("DELETE", f"share/{sid}")
-            except (urllib.error.URLError, OSError, ValueError):
-                pass
-            seen = read_json(rdir() / "share-seen.json", {})
-            if seen.pop(sid, None) is not None:
-                write_json(rdir() / "share-seen.json", seen)
+        for sid in sids:
+            if sid and cmd.get("_local"):
+                if re.fullmatch(r"[A-Za-z0-9_-]{1,80}", sid):
+                    for ext in (".bin", ".json"):
+                        (local_dir("share") / f"{sid}{ext}").unlink(missing_ok=True)
+            elif sid and re.fullmatch(r"[A-Za-z0-9_-]{1,80}", sid):
+                try:
+                    rtdb("DELETE", f"share/{sid}")
+                except (urllib.error.URLError, OSError, ValueError):
+                    pass
+                seen = read_json(rdir() / "share-seen.json", {})
+                if seen.pop(sid, None) is not None:
+                    write_json(rdir() / "share-seen.json", seen)
+
+
+def share_fetch(cmd, sid):
+    """L'allegato /share/<sid> (o quello della web locale): (True, (mime, ext, bytes, meta)) — ext solo per le
+    immagini di IMAGE_EXT —, o (False, ragione) come nel report di sempre."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", sid):
+        return False, M("relay.cmd_report_no_image")
+    blob = None
+    if cmd.get("_local"):
+        # 1.35: l'allegato della web app locale, posato in chiaro da POST /api/share/<id>
+        blob = read_json(local_dir("share") / f"{sid}.json", None)
+        mime = str((blob or {}).get("mime") or "").strip().lower()
+        ext = IMAGE_EXT.get(mime)
+        try:
+            data = (local_dir("share") / f"{sid}.bin").read_bytes() if blob and (ext or MIME_RE.fullmatch(mime)) else b""
+        except OSError:
+            data = b""
+    elif isinstance(meta_doc := rtdb("GET", f"share/{sid}/meta"), dict):
+        # 1.48: a pezzi, come /file della 1.34 al contrario
+        ok_p, got = share_parts(sid, meta_doc)
+        if not ok_p:
+            return False, got
+        blob, data = got
+        mime = str(blob.get("mime") or "").strip().lower()
+        ext = IMAGE_EXT.get(mime)
+        if not (ext or MIME_RE.fullmatch(mime)):
+            data = b""
+    else:
+        doc = rtdb("GET", f"share/{sid}")
+        if isinstance(doc, dict) and len(str(doc.get("enc") or "")) > S.SHARE_MAX_BYTES:
+            return False, M("relay.cmd_report_too_big", max=S.SHARE_MAX_BYTES)
+        try:
+            blob = C.decrypt(doc, key()) if isinstance(doc, dict) else None
+            mime = str((blob or {}).get("mime") or "").strip().lower()
+            ext = IMAGE_EXT.get(mime)
+            data = base64.b64decode(str(blob["data"]), validate=True) if ext or MIME_RE.fullmatch(mime) else b""
+        except (ValueError, KeyError, TypeError, binascii.Error):
+            ext, data, mime = None, b"", ""
+    if not data:
+        return False, M("relay.cmd_report_no_image" if ext or not mime or mime.startswith("image/") else "relay.cmd_report_no_file")
+    return True, (mime, ext, data, blob or {})
 
 
 def _share_report(cmd, tm, session, sid):
@@ -1612,44 +1658,16 @@ def _share_report(cmd, tm, session, sid):
     if len(text) > REPORT_TEXT_MAX:
         return False, M("relay.cmd_report_long", max=REPORT_TEXT_MAX)
     row = next((r for r in (_json_cmd("sessions", "--json", "--no-screen") or []) if (r.get("tmux") or r.get("name")) == tm), None)
+    if row and row.get("host") not in (None, "", "local"):
+        return share_multi(cmd, tm, session, [sid] if sid else [], row)   # 10/10: una sessione su un altro host
     if not row or not row.get("cwd") or not os.path.isdir(row["cwd"]):
         return False, M("relay.cmd_report_no_session", name=session or "?")
     img = None
     if sid:
-        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", sid):
-            return False, M("relay.cmd_report_no_image")
-        if cmd.get("_local"):
-            # 1.35: l'allegato della web app locale, posato in chiaro da POST /api/share/<id>
-            blob = read_json(local_dir("share") / f"{sid}.json", None)
-            mime = str((blob or {}).get("mime") or "").strip().lower()
-            ext = IMAGE_EXT.get(mime)
-            try:
-                data = (local_dir("share") / f"{sid}.bin").read_bytes() if blob and (ext or MIME_RE.fullmatch(mime)) else b""
-            except OSError:
-                data = b""
-        elif isinstance(meta_doc := rtdb("GET", f"share/{sid}/meta"), dict):
-            # 1.48: a pezzi, come /file della 1.34 al contrario
-            ok_p, got = share_parts(sid, meta_doc)
-            if not ok_p:
-                return False, got
-            blob, data = got
-            mime = str(blob.get("mime") or "").strip().lower()
-            ext = IMAGE_EXT.get(mime)
-            if not (ext or MIME_RE.fullmatch(mime)):
-                data = b""
-        else:
-            doc = rtdb("GET", f"share/{sid}")
-            if isinstance(doc, dict) and len(str(doc.get("enc") or "")) > S.SHARE_MAX_BYTES:
-                return False, M("relay.cmd_report_too_big", max=S.SHARE_MAX_BYTES)
-            try:
-                blob = C.decrypt(doc, key()) if isinstance(doc, dict) else None
-                mime = str((blob or {}).get("mime") or "").strip().lower()
-                ext = IMAGE_EXT.get(mime)
-                data = base64.b64decode(str(blob["data"]), validate=True) if ext or MIME_RE.fullmatch(mime) else b""
-            except (ValueError, KeyError, TypeError, binascii.Error):
-                ext, data, mime = None, b"", ""
-        if not data:
-            return False, M("relay.cmd_report_no_image" if ext or not mime or mime.startswith("image/") else "relay.cmd_report_no_file")
+        ok_f, got = share_fetch(cmd, sid)
+        if not ok_f:
+            return False, got
+        mime, ext, data, blob = got
         if not ext:
             return share_file(cmd, tm, session, row, mime, data, blob.get("name"), text)
         tmpd = rdir() / "share-tmp"
@@ -1723,6 +1741,127 @@ def _human_size(n):
     return f"{n} B" if n < 1024 else f"{n / 1024:.0f} KB" if n < 1024 * 1024 else f"{n / 1024 / 1024:.1f} MB"
 
 
+class Place:
+    """Dove vanno gli allegati di una sessione: la sua cartella qui, o (10/10, dal telefono: «le sessioni win non
+    ricevono allegati?») quella sull'host, scritta con l'adattatore (file_put, file_size) come i file della 0.8.9."""
+
+    def __init__(self, row):
+        self.cwd = str(row.get("cwd") or "")
+        self.host = row.get("host") if row.get("host") not in (None, "", "local") else None
+        self.a = _load("cm-hosts").adapter(self.host) if self.host else None
+        self.sep = "\\" if self.host and core.WIN_ABS.match(self.cwd) else "/"
+        self.cwd = self.cwd.replace("/", self.sep) if self.sep == "\\" else self.cwd
+
+    def ok(self):
+        return bool(self.cwd) and (hasattr(self.a, "file_put") if self.host else os.path.isdir(self.cwd))
+
+    def join(self, *parts):
+        return self.sep.join([self.cwd.rstrip("\\/")] + [str(x).replace("/", self.sep) for x in parts])
+
+    def exists(self, path):
+        return self.a.file_size(path) >= 0 if self.host else os.path.exists(path)
+
+    def write(self, path, data, mode):
+        if not self.host:
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            Path(path).write_bytes(data)
+            os.chmod(path, mode)
+            return
+        tmpd = rdir() / "share-tmp"
+        tmpd.mkdir(parents=True, exist_ok=True)
+        tmp = tmpd / f"put-{os.getpid()}-{time.time_ns()}"
+        try:
+            tmp.write_bytes(data)
+            self.a.file_put(tmp, path)
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    def rel(self, path):
+        return path[len(self.cwd.rstrip("\\/")) + 1:] if self.host else os.path.relpath(path, self.cwd)
+
+
+def inbox_save(place, clean, data):
+    """I byte di un file dal telefono in <cartella>/.claude-master-inbox/ (con un .gitignore «*»), solo per chi li ha."""
+    ign = place.join(SHARE_INBOX, ".gitignore")
+    if not place.exists(ign):
+        place.write(ign, b"*\n", 0o644)
+    stamp, n = time.strftime('%Y%m%d-%H%M%S'), 1
+    dest = place.join(SHARE_INBOX, f"{stamp}-{clean}")
+    while place.exists(dest):   # 1.50: due file con lo stesso nome nello stesso secondo
+        n += 1
+        dest = place.join(SHARE_INBOX, f"{stamp}-{n}-{clean}")
+    place.write(dest, data, 0o600)
+    return dest
+
+
+def report_image_save(place, text, ext, data):
+    """1.50: un'immagine archiviata come fa `supervisor report`: <cartella>/<report.subdir>/<data>-<slug>[-n].<ext>, 644."""
+    slug = re.sub(r"[^a-z0-9àèéìòù]+", "-", text.lower())[:40].strip("-") or "report"
+    sub = str((CFG.get("report") or {}).get("subdir") or "docs/reports")
+    day, n = time.strftime("%Y-%m-%d"), 1
+    dest = place.join(sub, f"{day}-{slug}.{ext}")
+    while place.exists(dest):
+        n += 1
+        dest = place.join(sub, f"{day}-{slug}-{n}.{ext}")
+    place.write(dest, data, 0o644)
+    return dest
+
+
+def share_multi(cmd, tm, session, sids, row=None):
+    """1.50 (10/10, chiesto dall'app: «due allegati insieme vengono mostrati ancora su 2 post»): un report con 2..5
+    allegati. Si leggono tutti prima di salvare qualcosa: uno mancante o rotto rifiuta il report intero con la sua
+    ragione. Poi le immagini come `report`, gli altri file nella casella come share_file, e alla sessione UN messaggio:
+    il testo e i percorsi, nell'ordine. 10/10: la stessa strada per ogni report verso una sessione su un altro host
+    (anche 0 o 1 allegato), con i file scritti la' (Place)."""
+    text = str(cmd.get("text") or "").strip()
+    if len(sids) > S.SHARE_MULTI:
+        return False, M("relay.cmd_report_too_many", max=S.SHARE_MULTI)
+    if not text and not sids:
+        return False, M("relay.cmd_report_empty")
+    if len(text) > REPORT_TEXT_MAX:
+        return False, M("relay.cmd_report_long", max=REPORT_TEXT_MAX)
+    row = row or next((r for r in (_json_cmd("sessions", "--json", "--no-screen") or []) if (r.get("tmux") or r.get("name")) == tm), None)
+    place = Place(row) if row else None
+    if not place or not place.ok():
+        return False, M("relay.cmd_report_no_session", name=session or "?")
+    got = []
+    for sid in sids:
+        ok_f, g = share_fetch(cmd, sid)
+        if not ok_f:
+            return False, g
+        mime, ext, data, blob = g
+        clean = None if ext else clean_name(blob.get("name"), mime)
+        if not ext and not clean:
+            return False, M("relay.cmd_report_bad_name")
+        got.append((mime, ext, data, clean))
+    lines, shown = [], []
+    try:
+        for mime, ext, data, clean in got:
+            if ext:
+                dest = report_image_save(place, text, ext, data)
+                lines.append(M("report.prompt_image", path=str(dest)))
+                shown.append(place.rel(dest))
+            else:
+                dest = inbox_save(place, clean, data)
+                lines.append(M("relay.share_file", name=clean, mime=mime, size=_human_size(len(data)), path=str(dest)))
+                shown.append(clean)
+    except Exception as e:   # noqa: BLE001 — host irraggiungibile, scp fallito
+        return False, M("relay.cmd_report_not_saved", error=str(e)[:200])
+    msg = M("report.prompt", date=time.strftime("%d/%m/%Y"), text=text or M("relay.report_image_only"))
+    rc, out = run_cm("talk", tm, prefix_for(cmd, tm) + " " + msg + ("\n" + "\n".join(lines) if lines else ""), "--no-wait")
+    if rc != 0:
+        return False, out.splitlines()[0] if out else "talk failed"
+    if saved_in_inbox(out):
+        return False, M("relay.cmd_inbox_only", name=session)
+    if not got:
+        return True, M("relay.cmd_report_sent", name=session)
+    if all(ext for _, ext, _, _ in got):
+        if len(got) == 1:
+            return True, M("relay.cmd_report_sent_image", name=session, file=shown[0])
+        return True, M("relay.cmd_report_sent_images", name=session, files=", ".join(shown))
+    return True, M("relay.cmd_report_sent_file", name=session, file=", ".join(shown))
+
+
 def share_file(cmd, tm, session, row, mime, data, name, text):
     """1.28 (03/10, chiesto dalla sessione dell'app, approvato dal maintainer): un file di qualunque formato dal
     telefono. I byte vanno nella cartella della sessione, in .claude-master-inbox/ (con un .gitignore «*»: mai in un
@@ -1731,15 +1870,9 @@ def share_file(cmd, tm, session, row, mime, data, name, text):
     clean = clean_name(name, mime)
     if not clean:
         return False, M("relay.cmd_report_bad_name")
-    inbox = Path(row["cwd"]) / SHARE_INBOX
-    inbox.mkdir(exist_ok=True)
-    if not (inbox / ".gitignore").exists():
-        (inbox / ".gitignore").write_text("*\n")
-    dest = inbox / f"{time.strftime('%Y%m%d-%H%M%S')}-{clean}"
-    dest.write_bytes(data)
-    os.chmod(dest, 0o600)
+    dest = inbox_save(Place(row), clean, data)
     msg = M("relay.share_file", name=clean, mime=mime, size=_human_size(len(data)), path=str(dest))
-    rc, out = run_cm("talk", tm, prefix_for(cmd) + " " + msg + ("\n\n" + text if text else ""), "--no-wait")
+    rc, out = run_cm("talk", tm, prefix_for(cmd, tm) + " " + msg + ("\n\n" + text if text else ""), "--no-wait")
     if rc != 0:
         return False, out.splitlines()[0] if out else "talk failed"
     if saved_in_inbox(out):
@@ -2442,12 +2575,15 @@ def decision_send(cmd, arg):
     return True, M("relay.cmd_decision_inbox" if saved_in_inbox(out) else "relay.cmd_decision_sent")
 
 
-def prefix_for(cmd):
+def prefix_for(cmd, tm=""):
     """1.22 (30/09): il prefisso del prompt dice da dove arriva — `device` del comando («phone» | «watch» | «web», 1.36);
     senza, uno neutro («via app»: prima della 1.36 diceva «polso» anche per la web app). `transcript` lo riconosce,
-    lo toglie e ne fa `origin`."""
+    lo toglie e ne fa `origin`. 10/10 (una sessione su win ha letto il divieto di SendMessage come divieto di passare un
+    compito alla master): il prefisso dice come passarglielo; a una sessione su un altro host (HOST:nome, dove
+    supervisor non c'e') dice di scriverlo per intero nella risposta."""
     dev = str(cmd.get("device") or "")
-    return M(f"relay.prompt_prefix_{dev}") if dev in ("phone", "watch", "web") else M("relay.prompt_prefix")
+    p = M(f"relay.prompt_prefix_{dev}") if dev in ("phone", "watch", "web") else M("relay.prompt_prefix")
+    return p.replace(M("relay.prompt_handoff"), M("relay.prompt_handoff_remote")) if ":" in str(tm or "") else p
 
 
 def is_live(tm):
@@ -2502,7 +2638,7 @@ def execute(cmd):
                 return False, M("relay.cmd_not_running", name=session)
             # 1.42: un prompt dettato in modalita' live porta le istruzioni vocali dopo il prefisso (timeline e transcript le tolgono)
             voice = " " + M("relay.prompt_voice") if cmd.get("voice") is True else ""
-            rc, out = run_cm("talk", tm, prefix_for(cmd) + voice + " " + text, "--no-wait")
+            rc, out = run_cm("talk", tm, prefix_for(cmd, tm) + voice + " " + text, "--no-wait")
             if rc != 0:
                 return False, out.splitlines()[0] if out else "talk failed"
             if saved_in_inbox(out):
@@ -2536,7 +2672,7 @@ def execute(cmd):
                 return True, M("relay.cmd_launched", name=proj["name"], account=proj["account"]), extra
             if not new:
                 return False, M("relay.cmd_launch_no_prompt", name=proj["name"], account=proj["account"], line="session not found"), extra
-            rc, out = run_cm("talk", new[0], prefix_for(cmd) + " " + prompt, "--no-wait")
+            rc, out = run_cm("talk", new[0], prefix_for(cmd, new[0]) + " " + prompt, "--no-wait")
             if rc != 0:
                 return False, M("relay.cmd_launch_no_prompt", name=proj["name"], account=proj["account"],
                                 line=(out.splitlines() or ["talk failed"])[0]), extra
@@ -2552,7 +2688,7 @@ def execute(cmd):
                 return False, M("relay.cmd_gone", name=session)
             if not is_live(tm):
                 return False, M("relay.cmd_not_running", name=session)
-            rc, out = run_cm("talk", tm, prefix_for(cmd) + " " + str((CFG.get("guard") or {}).get("resume_prompt") or "riprendi da dove eri"), "--no-wait")
+            rc, out = run_cm("talk", tm, prefix_for(cmd, tm) + " " + str((CFG.get("guard") or {}).get("resume_prompt") or "riprendi da dove eri"), "--no-wait")
             if rc != 0:
                 return False, out.splitlines()[0] if out else "talk failed"
             if saved_in_inbox(out):

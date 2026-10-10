@@ -650,12 +650,18 @@ def _prompt_prefixes():
             for key, origin in (("relay.prompt_prefix_phone", "phone"), ("relay.prompt_prefix_watch", "watch"), ("relay.prompt_prefix_web", "web"),
                                 ("relay.prompt_prefix", "remote"), ("relay.prompt_prefix_legacy", "remote")):
                 if m.get(key):
-                    _PREFIXES.append((m[key], origin))
+                    # 10/10: la frase sul passaggio alla master — quella per le sessioni remote, e senza (prima del 10/10)
+                    h = m.get("relay.prompt_handoff") or ""
+                    alt = [m.get("relay.prompt_handoff_remote") or "", m.get("relay.prompt_handoff_remote_legacy") or "", ""]   # «…legacy»: la frase remota delle 20:30 del 10/10
+                    forms = [m[key]] + ([m[key].replace(h, a) for a in alt] if h and h in m[key] else [])
+                    for form in forms:
+                        _PREFIXES.append((form, origin))
                     # i prompt arrivati prima dei rinomini dicevano «claude-master» (fino al 07/10) e «team-supervisor»
                     # (fino al 08/10): le trascrizioni restano
-                    if "supervisor" in m[key]:
+                    old_form = forms[-1]
+                    if "supervisor" in old_form:
                         for old in ("team-supervisor", "claude-master"):
-                            _PREFIXES.append((m[key].replace("supervisor", old), origin))
+                            _PREFIXES.append((old_form.replace("supervisor", old), origin))
         _PREFIXES.sort(key=lambda x: -len(x[0]))
     return _PREFIXES
 

@@ -1081,8 +1081,8 @@ http("PUT", f"/share/{old}.json", {"v": 1, "enc": "x"}); http("PUT", f"/share/{f
 relay("push")
 T.check("R15 (1.19) push prunes a /share node first seen more than 10 minutes ago, keeps a fresh one (remembered in share-seen.json)",
         old not in (STORE.get("share") or {}) and fresh in (STORE.get("share") or {}) and fresh in json.loads((rdir2 / "share-seen.json").read_text()), str(list(STORE.get("share") or {})))
-_SH15 = {"max_bytes": 10000000, "any": True, "parts": True, "max_parts_bytes": 52428800}   # 1.48: parts and max_parts_bytes
-T.check("R15 (1.19) /state carries share {max_bytes: 10000000, any: true, parts: true, max_parts_bytes: 52428800}, also when there is nothing else (its presence turns «Share» on in the app)",
+_SH15 = {"max_bytes": 10000000, "any": True, "parts": True, "max_parts_bytes": 52428800, "multi": 5}   # 1.48: parts and max_parts_bytes; 1.50: multi
+T.check("R15 (1.19) /state carries share {max_bytes: 10000000, any: true, parts: true, max_parts_bytes: 52428800, multi: 5}, also when there is nothing else (its presence turns «Share» on in the app)",
         json.loads(relay("push", "--dry-run").stdout).get("share") == _SH15 and S.build_state({}, 1)["share"] == _SH15 and F1["share"] == _SH15, "")
 # R17 (30/09, dal telefono): «x» chiusa e «work-x» viva nella stessa cartella hanno lo stesso nome corto — vince la
 # viva, la chiusa non entra; e un prompt a una sessione non viva non e' «delivered»
@@ -1649,6 +1649,65 @@ _kre42 = re.compile(_RU42["parts"]["$k"][".validate"].split(".matches(/")[1].spl
 T.check("R42 (1.48) RTDB rules: meta and parts/<0..49> each within 1.5 MB, the single node of before still within 10 MB",
         "1500000" in _RU42["meta"][".validate"] and "1500000" in _RU42["parts"]["$k"][".validate"] and "10000000" in _RU42[".validate"]
         and all(_kre42.fullmatch(str(i)) for i in range(50)) and not any(_kre42.fullmatch(x) for x in ("50", "01", "-1", "a")), str(_RU42))
+# R44 relay-prefix-handoff (10/10, il maintainer: «Aggiungi la regola al relay» — una sessione su win ha letto il divieto di
+# SendMessage come divieto di passare un compito alla master): il prefisso dice come passarlo; a una sessione su un
+# altro host dice di scriverlo nella risposta; i prompt di prima, senza la frase, restano riconosciuti
+_co44 = load("cm-core")
+_h44, _hr44 = RL.M("relay.prompt_handoff"), RL.M("relay.prompt_handoff_remote")
+_loc44, _rem44 = RL.prefix_for({"device": "phone"}, "atlas-shop"), RL.prefix_for({"device": "phone"}, "win:video-supervisor")
+T.check("R44 relay-prefix-handoff: the phone's prefix to a local session says «supervisor talk master»; to win:… the remote sentence instead (write it in the answer)",
+        _h44 in _loc44 and "supervisor talk master" in _h44 and _hr44 in _rem44 and _h44 not in _rem44 and _rem44 == _loc44.replace(_h44, _hr44), _rem44)
+_old44 = {lang: json.loads((T.SCRIPTS.parent / "messages" / f"{lang}.json").read_text()) for lang in ("it", "en")}
+_forms44 = [(m["relay.prompt_prefix_phone"].replace(m["relay.prompt_handoff"], v), lang) for lang, m in _old44.items()
+            for v in ("", m["relay.prompt_handoff"], m["relay.prompt_handoff_remote"])]
+T.check("R44 relay-prefix-handoff: the transcript strips the prefix in its three forms (new, remote, before 10/10), it and en → origin phone, the bare text",
+        all(_co44._origin_of(f + " ciao") == ("ciao", "phone") for f, _ in _forms44), str([(_co44._origin_of(f + " ciao"), l) for f, l in _forms44])[:500])
+# R43 report-multi (contratto 1.50, 10/10, dall'app: «due allegati insieme vengono mostrati ancora su 2 post»): un
+# report con piu' id di /share in `arg` — tutti letti prima, poi un messaggio solo alla sessione, ogni nodo cancellato
+_c43 = {c["id"]: c for c in CMDS}
+_r43 = {r["id"]: r for r in RES}
+_ok43, _bad43 = "6f1c2d3e-0500-4000-8000-000000000500", "6f1c2d3e-0501-4000-8000-000000000501"
+_PNG43, _JPG43 = b"\x89PNG\r\n\x1a\n" + b"a" * 300, b"\xff\xd8\xff\xe0" + b"b" * 200
+_a43, _b43 = _c43[_ok43]["arg"].split(",")
+http("PUT", f"/share/{_a43}.json", C.encrypt({"mime": "image/png", "data": base64.b64encode(_PNG43).decode()}, k))
+_parts42(_b43, _JPG43, "image/jpeg", "b.jpg", 64)   # il secondo a pezzi (1.48): le due strade insieme
+n_calls = len(cm_calls())
+r43 = send_cmd(_c43[_ok43])
+_log43 = "\n".join(cm_calls()[n_calls:])
+_talks43 = _log43.count("talk atlas-shop ")
+_seg43 = atlas / "docs" / "segnalazioni"
+_day43 = time.strftime("%Y-%m-%d")
+_p43 = [_seg43 / f"{_day43}-two-screens-of-the-checkout.png", _seg43 / f"{_day43}-two-screens-of-the-checkout.jpg"]
+T.check("R43 report-multi (1.50): two ids (one single node, one in parts) → both images saved in the report folder, /result as the fixture's …0500 (today's date); both /share nodes gone",
+        r43 and r43["ok"] is True and r43["text"] == _r43[_ok43]["text"].replace("2026-10-10", _day43)
+        and [x.read_bytes() if x.is_file() else None for x in _p43] == [_PNG43, _JPG43]
+        and not {_a43, _b43} & set(STORE.get("share") or {}), str(r43) + str(list(_seg43.glob("*two-screens*"))))
+T.check("R43 report-multi (1.50): ONE message to the session — the phone's prefix, the text, then both paths in order; no report run",
+        _talks43 == 1 and "Dall'utente via telefono." in _log43 and "two screens of the checkout" in _log43
+        and str(_p43[0]) in _log43 and str(_p43[1]) in _log43 and _log43.index(str(_p43[0])) < _log43.index(str(_p43[1]))
+        and not any(c.startswith("report ") for c in cm_calls()[n_calls:]), _log43[-600:])
+_c43m, _e43m = _c43[_bad43]["arg"].split(",")
+http("PUT", f"/share/{_c43m}.json", C.encrypt({"mime": "image/png", "data": base64.b64encode(_PNG43).decode()}, k))
+n_calls = len(cm_calls())
+_before43 = sorted(_seg43.glob("*"))
+r43b = send_cmd(_c43[_bad43])
+T.check("R43 report-multi (1.50): the second id missing → the whole report refused as the fixture's …0501, nothing saved, no message; the first node deleted anyway",
+        r43b and r43b["ok"] is False and r43b["text"] == _r43[_bad43]["text"] and sorted(_seg43.glob("*")) == _before43
+        and not any(c.startswith("talk ") for c in cm_calls()[n_calls:]) and _c43m not in (STORE.get("share") or {}), str(r43b))
+_ids43 = [f"6f1c2d3e-0502-4000-8000-00000000c{i:03d}" for i in range(6)]
+for _i43 in _ids43:
+    http("PUT", f"/share/{_i43}.json", C.encrypt({"mime": "image/png", "data": base64.b64encode(_PNG43).decode()}, k))
+r43c = send_cmd(dict(_c43[_ok43], id="6f1c2d3e-0502-4000-8000-000000000502", arg=",".join(_ids43)))
+_d43, _f43 = "6f1c2d3e-0503-4000-8000-00000000d503", "6f1c2d3e-0503-4000-8000-00000000f503"
+http("PUT", f"/share/{_d43}.json", C.encrypt({"mime": "image/png", "data": base64.b64encode(_PNG43).decode()}, k))
+http("PUT", f"/share/{_f43}.json", C.encrypt({"mime": "application/pdf", "data": base64.b64encode(PDF).decode(), "name": "offerta.pdf"}, k))
+r43d = send_cmd(dict(_c43[_ok43], id="6f1c2d3e-0503-4000-8000-000000000503", arg=f"{_d43},{_f43}", text="screen and offer"))
+T.check("R43 report-multi (1.50): six ids → «too many attachments: at most 5», every node gone; an image and a PDF → «sent <image path>, offerta.pdf to atlas-shop», the PDF in the inbox",
+        r43c and r43c["ok"] is False and r43c["text"] == "too many attachments: at most 5" and not set(_ids43) & set(STORE.get("share") or {})
+        and r43d and r43d["ok"] is True and r43d["text"] == f"sent docs/segnalazioni/{_day43}-screen-and-offer.png, offerta.pdf to atlas-shop"
+        and any(inbox26.glob("*-offerta.pdf")), str([r43c, r43d]))
+T.check("R43 report-multi (1.50): /state share.multi = 5, as in the three state fixtures",
+        json.loads(relay("push", "--dry-run").stdout).get("share", {}).get("multi") == 5 and F1["share"]["multi"] == 5, "")
 # R27 (contratto 1.29, 03/10): op timeline — la cronologia delle sessioni per il riepilogo del telefono
 # ledger-api (chiusa, account work): due test (verde e rosso), un commit, un esito e un compito, fra since e l'istante
 _la = (ws / "work" / "clients" / "ledger-api").resolve()
