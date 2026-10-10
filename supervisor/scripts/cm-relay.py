@@ -587,6 +587,10 @@ def collect_sources(now=None):
                          "waiting": False, "session_id": s.get("session_id") or "", "link": "", "attached": False,
                          "visto_ts": S.epoch(s.get("visto", "")) if s.get("visto") else 0})
     ledger = core.ledger_rows()
+    # 10/10: le sessioni su un altro host non hanno l'hook di qui: le loro righe dalla copia del transcript
+    for r in rows:
+        if r.get("host") and r.get("host") != "local":
+            ledger += core.remote_events(r)
     aw = awaiting(ledger, rows)
     # 1.1: l'icona della scheda per ogni sessione viva (cm-color: registro stabile), per le sparite l'ultima nota
     _last = read_json(rdir() / "last-state.json", {})
@@ -606,7 +610,8 @@ def collect_sources(now=None):
         # il flag dell'hook vale anche se `sessions --json` non l'ha ancora visto (stessa regola di cm-sessions)
         if r.get("status") != "dead" and not r.get("waiting") and waiting_info(r.get("session_id") or ""):
             r["waiting"] = True
-        nx, nx_at = next_dated(r.get("cwd")) if r.get("cwd") else ("", None)
+        # 10/10: per una sessione su un altro host il recap sta nella cartella di qui da cui e' partita
+        nx, nx_at = next_dated(r.get("local_dir") or r.get("cwd")) if (r.get("local_dir") or r.get("cwd")) else ("", None)
         if nx:
             nexts[tm] = nx
             if nx_at:

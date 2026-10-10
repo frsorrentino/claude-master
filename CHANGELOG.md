@@ -2,6 +2,8 @@
 
 ## 0.3.x
 
+- **0.8.7 — 2026-10-10: the card of a session on another host shows its outcome.**
+  - A session started with `launch --host` gets `outcome` and `next` in the state like a local one: its prompt and stop lines come from the copy of its transcript (when its last message has no «Esito:» line, the first sentence, which says the outcome), «Prossimi» from the `docs/recap.md` of the local folder it was launched from. The poller refreshes the copy at the end of a turn too. No contract change.
 - **0.8.6 — 2026-10-09: sessions on another host have their conversation and their questions in the app.**
   - The conversation of a session started with `launch --host` shows in the app: the poller copies the new bytes of its transcript while it waits on a question, and the chat asks for them again when the phone opens it. The copy is byte for byte, under the state folder.
   - Its open question (AskUserQuestion) comes from that copy, with its options; the app answers it with the `answer` op as for a local session, and `supervisor answer HOST:name [n|--show|--text]` works from the terminal. On a Windows host a short Interactive task on the desktop attaches to the session's console, reads the screen and sends the keys (`remote/cm-console.ps1`); Windows draws the question's box as `[ ]` and the cursor as `>`, both understood. Tried live: an option chosen in 16 s.

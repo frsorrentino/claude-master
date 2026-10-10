@@ -270,9 +270,9 @@ _ask = {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": 
     {"question": "Quale colore per la copertina?", "header": "Colore", "multiSelect": False,
      "options": [{"label": "Rosso", "description": "caldo"}, {"label": "Verde"}, {"label": "Blu"}]}]}}]}}
 _tr = winroot / "transcript-win-chat.jsonl"
-_tr.write_text(json.dumps({"type": "user", "message": {"content": "prepara la copertina"}}) + "\n"
-               + json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "Ti chiedo il colore."}]}}) + "\n"
-               + json.dumps(_ask) + "\n")
+_tr.write_text(json.dumps({"type": "user", "timestamp": "2026-10-09T20:30:00.000Z", "message": {"role": "user", "content": "prepara la copertina"}}) + "\n"
+               + json.dumps({"type": "assistant", "timestamp": "2026-10-09T20:30:05.000Z", "message": {"role": "assistant", "content": [{"type": "text", "text": "Ti chiedo il colore."}]}}) + "\n"
+               + json.dumps(dict(_ask, timestamp="2026-10-09T20:30:06.000Z")) + "\n")
 (winroot / "dialog-win-chat.json").write_text(json.dumps({"id": "tu1", "header": "Colore", "question": "Quale colore per la copertina?",
                                                           "options": ["Rosso", "Verde", "Blu"], "cursor": 1}))
 r = subprocess.run([sys.executable, str(T.SCRIPTS / "cm-hosts.py"), "poll", "win", "--force"], capture_output=True, text=True, env=env(), timeout=120)
@@ -288,12 +288,20 @@ if len(sys.argv) > 2:
     hm.sync_transcript('win', 'win-chat', 'sid-win-chat')   # come la chat chiesta dal telefono
 row = next(r for r in hm.remote_session_rows() if r['name'] == 'win:win-chat')
 t = core.transcript_of(row)
-print(json.dumps({'transcript': t, 'ask': core.pending_ask(t), 'entries': [e['text'] for e in core.transcript_entries(t, 0)]}))
+st = L('cm-relay-state')
+ev = core.remote_events(row)
+print(json.dumps({'transcript': t, 'ask': core.pending_ask(t), 'entries': [e['text'] for e in core.transcript_entries(t, 0)],
+                  'events': ev, 'outcome': st._outcome(ev), 'local_dir': row.get('local_dir')}))
 """
 def probe(sync=False):
     p = subprocess.run([sys.executable, "-c", PROBE, str(T.SCRIPTS)] + (["sync"] if sync else []), capture_output=True, text=True, env=env(), timeout=60)
     return json.loads(p.stdout) if p.returncode == 0 else {"error": p.stderr[-400:]}
+(tmp / "state" / "rsessions").mkdir(parents=True, exist_ok=True)
+(tmp / "state" / "rsessions" / "win-chat.json").write_text(json.dumps({"name": "win-chat", "host": "win", "dir": str(ws / "personali" / "chat")}))
 pr = probe()
+T.check("RS12 remote-session-chat (10/10): the card's preview — prompt and stop lines from the copy, the outcome built as for a local session; local_dir from the launch record for «Prossimi»",
+        sorted(e["event"] for e in pr.get("events", [])) == ["prompt", "stop"]
+        and (pr.get("outcome") or {}).get("short") == "Ti chiedo il colore." and pr.get("local_dir") == str(ws / "personali" / "chat"), json.dumps(pr)[:600])
 T.check("RS12 remote-session-chat: the row win:win-chat reads its conversation from the copy, and the open question with its options from the transcript",
         pr.get("transcript") == str(_mirror) and pr.get("ask") == ["Quale colore per la copertina?", ["Rosso", "Verde", "Blu"]]
         and "Ti chiedo il colore." in pr.get("entries", []), json.dumps(pr)[:500])

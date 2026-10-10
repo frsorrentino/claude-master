@@ -143,6 +143,38 @@ def pending_ask(path, window=1024 * 1024):
     return str(q.get("question") or ""), [str((o or {}).get("label") or "") for o in (q.get("options") or []) if isinstance(o, dict)]
 
 
+def remote_events(row, window=1024 * 1024):
+    """10/10 (dal telefono: la card di una sessione su win senza anteprima): le righe che l'hook di qui scriverebbe nel
+    ledger per una sessione locale, ricavate dalla copia del suo transcript — «prompt» all'ultimo messaggio della
+    persona, «stop» con l'ultimo testo di Claude a turno finito (a turno in corso, quello prima del prompt). Cosi'
+    esito, «Prossimi» e inizio del turno vengono dallo stesso codice delle sessioni locali."""
+    p = transcript_of(row)
+    if not p:
+        return []
+    try:
+        ents = transcript_entries(p, max(0, os.path.getsize(p) - window), text_max=20000)
+    except OSError:
+        return []
+    sid = row.get("session_id") or ""
+    iso = lambda t: time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(t))  # noqa: E731
+    users = [i for i, e in enumerate(ents) if e.get("role") == "user" and not e.get("queued") and e.get("at")]
+    last_u = users[-1] if users else -1
+    scope = ents[:last_u] if row.get("status") == "busy" and last_u >= 0 else ents
+    said = [e for e in scope if e.get("role") == "assistant" and e.get("text") and e.get("at")]
+    out = []
+    if said:
+        text = said[-1]["text"]
+        stop = {"event": "stop", "session_id": sid, "ts": iso(said[-1]["at"]), "tail": text}
+        if not re.search(r"(?mi)^\s*\W*\s*(?:esito|watch)\s*:", text):
+            # senza riga «Esito:» la card mostrerebbe un pezzo a caso della fine: la prima frase, che dice l'esito
+            first = next((l.strip() for l in text.splitlines() if l.strip()), "")
+            stop["watch"] = "Watch: " + re.split(r"(?<=[.!?])\s", first, maxsplit=1)[0]
+        out.append(stop)
+    if last_u >= 0:
+        out.append({"event": "prompt", "session_id": sid, "ts": iso(ents[last_u]["at"])})
+    return sorted(out, key=lambda e: e["ts"])
+
+
 def reopen(name, run=None):
     """Rilancia una sessione sparita (✗) nella sua cartella, con il suo account e senza finestra (dal telefono o dal
     polso non serve; 15/09, dall'orologio: una sessione chiusa non si poteva riprendere). La conversazione: `--resume

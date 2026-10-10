@@ -661,10 +661,13 @@ def poll_one(name, force=False):
     write_json(snap_path(name), snap)
     if not snap.get("error") and remote_alive(prev) != remote_alive(snap):
         relay_push_request()   # 09/10: una sessione remota aperta, chiusa o ferma su una domanda arriva subito all'app
-    # 09/10: la sessione ferma su una domanda porta qui il suo transcript: domanda e opzioni nell'app senza aspettare
+    # 09/10: la sessione ferma su una domanda porta qui il suo transcript: domanda e opzioni nell'app senza aspettare;
+    # 10/10: anche quando cambia stato (fine turno: esito e «Prossimi» nella card) o la copia non c'e' ancora
+    before = remote_alive(prev)
     for s in [] if snap.get("error") else ((snap.get("status") or {}).get("sessions") or []):
         e = s.get("entry") or {}
-        if s.get("alive") and e.get("status") == "waiting" and e.get("name"):
+        if s.get("alive") and e.get("name") and (e.get("status") == "waiting" or (e.get("name"), e.get("status")) not in before
+                                                  or not mirror_path(name, e.get("sessionId") or "").is_file()):
             try:
                 sync_transcript(name, e["name"], e.get("sessionId") or "")
             except Exception:   # noqa: BLE001 — la copia e' in piu': mai far cadere il giro del sondatore
@@ -712,7 +715,9 @@ def remote_session_rows():
                          "waiting": e.get("status") == "waiting", "channel": "remoto", "version": e.get("version") or "",
                          "host": name, "read_age_s": round(age), "unreachable": bool(snap.get("error")),
                          # 09/10: la copia locale del transcript (sync_transcript), per la chat e la domanda nell'app
-                         "transcript": str(mirror_path(name, e.get("sessionId") or "")) if e.get("sessionId") else ""})
+                         "transcript": str(mirror_path(name, e.get("sessionId") or "")) if e.get("sessionId") else "",
+                         # 10/10: la cartella di qui da cui e' partita (il record di launch --host), per il recap
+                         "local_dir": str((read_json(state_dir() / "rsessions" / f"{e.get('name')}.json") or {}).get("dir") or "") if e.get("name") else ""})
     return rows
 
 
